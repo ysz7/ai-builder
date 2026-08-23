@@ -24,6 +24,14 @@ from aibuilder_core.observe import run_observations
 from aibuilder_core.project import read_project
 from aibuilder_core.reconcile import reconcile
 from aibuilder_core.repair import apply_repair, list_repairs
+from aibuilder_core.runner import (
+    build_image,
+    call_endpoint,
+    read_logs,
+    run_status,
+    start_application,
+    stop_application,
+)
 from aibuilder_core.snapshot import load_snapshot, save_snapshot, take_snapshot
 from aibuilder_core.verdict import Observation
 from aibuilder_core.writer import set_knob, set_node_title
@@ -35,6 +43,8 @@ __all__ = [
     "AGENT_RECORD_SCHEMA",
     "ENVIRONMENT_SCHEMA",
     "GRAPH_API_VERSION",
+    "RUN_CALL_SCHEMA",
+    "RUN_SCHEMA",
     "SERVICE_SCHEMA",
     "GRAPH_KINDS_SCHEMA",
     "GRAPH_READ_SCHEMA",
@@ -45,6 +55,12 @@ __all__ = [
     "WRITE_SCHEMA",
     "agent_blueprints",
     "environment_status",
+    "run_build",
+    "run_call",
+    "run_logs",
+    "run_start",
+    "run_state",
+    "run_stop",
     "services_start",
     "services_stop",
     "agent_brief",
@@ -166,6 +182,36 @@ ENVIRONMENT_SCHEMA = {"api_version": "int", "environment": _ENVIRONMENT}
 #: and they exist so that nothing else has to.
 SERVICE_SCHEMA = {"api_version": "int", "ok": "bool", "detail": "str", "services": ["str"]}
 
+#: The payload of every `run.*` verb except `run.call`. Refusals are results here too: a
+#: project with no application to run is a normal answer, not a fault in the call.
+RUN_SCHEMA = {
+    "api_version": "int",
+    "ok": "bool",
+    "detail": "str",
+    "state": _null_or(
+        {
+            "pid": "int",
+            "port": "int",
+            "target": "str",
+            "command": ["str"],
+            "started_at": "str",
+        }
+    ),
+    "logs": "str",
+    # Where the reader got to. Logs are polled, never pushed: the wire carries one answer
+    # per request, and a stream would hold it open (P13).
+    "offset": "int",
+}
+
+#: The `run.call` payload: what the running application answered when it was called.
+RUN_CALL_SCHEMA = {
+    "api_version": "int",
+    "ok": "bool",
+    "detail": "str",
+    "status": "int?",
+    "body": "str",
+}
+
 #: The `graph.read` payload.
 GRAPH_READ_SCHEMA = {
     "api_version": "int",
@@ -187,6 +233,10 @@ GRAPH_READ_SCHEMA = {
     # Present only when the checks ran: it describes the environment they ran in, and
     # describing it means asking docker, which a plain read has no business doing.
     "environment": _null_or(_ENVIRONMENT),
+    # What ran, and in what order (Q9). A different relation from `graph.edges`: an edge is
+    # a type crossing a boundary, a flow is one node running and then another. Empty until
+    # something has actually run.
+    "flow": [{"source": "str", "target": "str", "origin": "str"}],
     "mode": "str",
     "accepted": "bool",
 }
@@ -362,10 +412,12 @@ def read_graph(
 
     skipped: dict[str, str] = {}
     environment: dict[str, Any] | None = None
+    flow: list[dict[str, str]] = []
     if observe and observations is None:
         run = run_observations(graph, root, python=python)
         observations, skipped = run.observations, run.skipped
         environment = None if run.environment is None else run.environment.as_dict()
+        flow = [dict(edge) for edge in run.flow]
 
     result = check_graph(graph, mode=mode, observations=observations)
 
@@ -381,6 +433,7 @@ def read_graph(
         },
         "skipped": skipped,
         "environment": environment,
+        "flow": flow,
         "mode": result.mode,
         "accepted": result.accepted,
     }
@@ -402,6 +455,38 @@ def services_start(project: Path | str, python: str | None = None) -> dict[str, 
 def services_stop(project: Path | str) -> dict[str, Any]:
     """Take them down again."""
     return {"api_version": GRAPH_API_VERSION, **stop_services(project).as_dict()}
+
+
+def run_start(
+    project: Path | str, python: str | None = None, port: int | None = None
+) -> dict[str, Any]:
+    """Start the project's application and return once it answers."""
+    return {"api_version": GRAPH_API_VERSION, **start_application(project, python, port).as_dict()}
+
+
+def run_stop(project: Path | str) -> dict[str, Any]:
+    """Stop it -- whether this session started it or a crashed one did."""
+    return {"api_version": GRAPH_API_VERSION, **stop_application(project).as_dict()}
+
+
+def run_state(project: Path | str) -> dict[str, Any]:
+    """Is it running? Asked of the operating system and the port, never of a memory."""
+    return {"api_version": GRAPH_API_VERSION, **run_status(project).as_dict()}
+
+
+def run_logs(project: Path | str, offset: int = 0) -> dict[str, Any]:
+    """What it has printed since `offset`. Polled by the caller, never pushed."""
+    return {"api_version": GRAPH_API_VERSION, **read_logs(project, offset).as_dict()}
+
+
+def run_call(project: Path | str, path: str = "/", method: str = "GET") -> dict[str, Any]:
+    """Call the running application: the verb a person pressing a route node wants."""
+    return {"api_version": GRAPH_API_VERSION, **call_endpoint(project, path, method).as_dict()}
+
+
+def run_build(project: Path | str) -> dict[str, Any]:
+    """Build the images the compose file declares -- the button on the `Dockerfile` node."""
+    return {"api_version": GRAPH_API_VERSION, **build_image(project).as_dict()}
 
 
 def take_project_snapshot(project: Path | str) -> dict[str, Any]:

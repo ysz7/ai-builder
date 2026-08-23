@@ -116,6 +116,25 @@ uv run python -m aibuilder_core brief examples/fastapi-service --blueprint <id> 
 uv run python -m aibuilder_core failures examples/fastapi-service   # what the agent gets wrong
 ```
 
+The environment a project runs in — its interpreter, and the services its compose file declares — is
+read on demand and changed only when asked:
+
+```bash
+uv run python -m aibuilder_core env examples/service-with-db        # interpreter, services, state
+uv run python -m aibuilder_core env-up examples/service-with-db     # only ever because you asked
+uv run python -m aibuilder_core env-down examples/service-with-db
+```
+
+And the application itself can be started, called and stopped. Logs are polled rather than streamed,
+so nothing ever holds the wire open:
+
+```bash
+uv run python -m aibuilder_core run examples/fastapi-service        # starts, says which port
+uv run python -m aibuilder_core call examples/fastapi-service /users
+uv run python -m aibuilder_core logs examples/fastapi-service
+uv run python -m aibuilder_core stop examples/fastapi-service
+```
+
 ## Building for macOS — read before planning a release
 
 - **`.app` and `.dmg` can only be built on a macOS machine.** Cross-compiling to Mac from Linux or
@@ -133,7 +152,7 @@ uv run python -m aibuilder_core failures examples/fastapi-service   # what the a
 
 ## Status
 
-P0 through P11 are done: the window opens, React Flow renders a canvas, the Rust shell reaches the Python
+P0 through P13 are done: the window opens, React Flow renders a canvas, the Rust shell reaches the Python
 core over NDJSON, the markup layer exists and is provably inert, and
 [examples/fastapi-service/](examples/fastapi-service/) is the annotated reference project the rest is
 tested against. `npm run check` is the gate.
@@ -189,8 +208,14 @@ declares. A failing test in an environment the project asked for and did not get
 whatever was absent. Nothing is ever started implicitly: bringing services up is an action a person
 takes, which is also why there is nothing left running afterwards to leak.
 
-What is left is the vocabulary for a database or a vector store, the ability to run and watch the
-application itself, and the UI, which is delivered separately.
+A production project's own vocabulary is on the graph as well: the module that owns a database
+connection, the vector store beside it, and the compose file itself as a node whose buttons start and
+stop the services it declares. The application can be started, called and stopped from the same place,
+and what actually ran shows up as **flow** — the order a passing test went through the nodes, and the
+wiring a framework holds. Before a run there are no arrows, because a path nothing took is dark.
+
+What is left is MCP servers and background work inside that vocabulary, and the UI, which is delivered
+separately.
 
 The application's source language is Python, and the supported technologies are FastAPI, LangGraph
 and RAG. That is a statement about what the graph projects, not about what a project may contain: a

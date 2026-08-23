@@ -10,7 +10,7 @@ AST-addressable markup layer (`bp`); a parser projects that into a graph; edits 
 written back through the syntax tree with `libcst`. Assembled applications deploy as plain Python
 projects with no runtime dependency on the builder.
 
-Current state: **P0–P12 done** (MCP and background work remain inside P12's vocabulary). P13 — running things — is next. Window opens, React Flow renders a scaffold canvas, Rust
+Current state: **P0–P13 done.** MCP and background work remain inside P12's vocabulary; the UI is delivered separately. Window opens, React Flow renders a scaffold canvas, Rust
 reaches the Python core over NDJSON, the five `bp` primitives exist and are proven inert, and
 `strip` removes the markup with the example service answering identically before and after. The parser
 turns an annotated project into a graph IR, the static gate judges it into addressed diagnostics, and
@@ -144,7 +144,7 @@ diagnostic record and the closed catalogue of codes; `verdict.py` is the single 
 checks and `probe.py` contains them; `snapshot.py` records the outline of the last valid state and
 `reconcile.py` diffs against it; `writer.py` writes back through `libcst`; `repair.py` acts on
 divergences; `environment.py` is the project's interpreter and the services it declares; `artifacts.py` finds the
-nodes carried by a file and `project.py` composes them with the parser's; `runner.py` checks them; `agent.py` assembles the agent's brief and records its failure modes and `catalog.py`
+nodes carried by a file and `project.py` composes them with the parser's; `runner.py` checks them and runs the application; `agent.py` assembles the agent's brief and records its failure modes and `catalog.py`
 reads the blueprint catalog; `strip.py` removes the markup.
 
 `apply_repair` takes `resolution` as a required keyword with no default. That is not style: §9 case 2
@@ -162,6 +162,13 @@ service of the port it publishes, a LangGraph flow of the compiled graph, a data
 Never add a YAML reader, a Dockerfile reader or a migration reader to this codebase: a parser for
 someone else's format is a second opinion about a thing that already has a first one, and it is wrong
 in ways that look right.
+
+**Nothing is pushed over the wire** (P13). The protocol is one request and one answer with `id`
+echoed; logs are polled with an offset the caller keeps, and `run.start` returns as soon as the
+application answers. Adding a second message shape is a protocol version decision, available later
+and additive — do not reach for it as a convenience. A process the core starts is recorded in
+`.aibuilder/run.json` so `stop` works across a crash, and a session is the **sidecar's** lifetime, not
+any process exit: the CLI's `run` deliberately leaves the application running.
 
 **Nothing starts a service implicitly** (P11). Observing never brings a container up, never creates
 a virtual environment and never installs anything — `env.up` / `env.down` exist so that nothing else
@@ -256,7 +263,7 @@ agent's system prompt used to and was moved into the package for exactly that re
 - [architecture.md](docs/architecture.md) — the v0 spec. Sections 2 (invariants) and 7 (the parser as
   a gate) carry everything load-bearing.
 - [roadmap.md](docs/roadmap.md) — phases P0–P10 with per-phase acceptance criteria and the invariant
-  each protects. Current position: P13.
+  each protects. Current position: MCP, then the UI.
 - [open-questions.md](docs/open-questions.md) — nothing open; Q1–Q5 are settled, with the reasoning
   kept in the log. **Read before starting any phase**, and add an entry the moment two documents
   disagree — an unrecorded conflict is worse than an open one.

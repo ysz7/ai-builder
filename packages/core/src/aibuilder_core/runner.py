@@ -12,18 +12,74 @@ it publishes.
 
 **A check never starts anything.** A compose file whose services are down is not a broken
 node -- it is an unproven one, and the reason names the button that would prove it (P11).
+
+The rest of this module is the running itself (P13): starting the application, reading what
+it printed, calling it, and stopping it. Three rules shape it:
+
+* **Nothing blocks the wire.** The protocol is one request and one answer with nothing in
+  between, so `start` returns as soon as the application answers and never streams. Logs and
+  status are *asked for*, which costs a poll and keeps a slow process from freezing the
+  window. Pushing events would need a second message shape and a protocol version; it can be
+  added later without taking anything back, which is why it is not being added now.
+* **What we start, we can find again.** The process is recorded in `.aibuilder/run.json` --
+  tooling state beside the snapshot and the agent log, never something the graph reads a
+  fact out of. A session that ends leaves nothing running; a session that *crashed* leaves a
+  record the next one can act on, which is the only way an orphan is ever cleaned up.
+* **The command is asked of the project, never guessed.** "main:app" is a convention that is
+  wrong the moment a project is laid out differently, so the application's location comes
+  from the probe importing it and saying where it found it (§5.8).
 """
 
 from __future__ import annotations
 
+import contextlib
+import json
+import os
+import signal
+import socket
+import subprocess
+import time
+import urllib.error
+import urllib.request
+from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 from aibuilder_core.environment import Environment, describe_environment
 from aibuilder_core.ir import Graph, Node
 from aibuilder_core.kinds import CarrierType, lookup
 from aibuilder_core.verdict import Observation
 
-__all__ = ["ArtifactRun", "artifact_nodes", "check_artifacts"]
+__all__ = [
+    "ArtifactRun",
+    "CallResult",
+    "RunState",
+    "artifact_nodes",
+    "build_image",
+    "call_endpoint",
+    "check_artifacts",
+    "read_logs",
+    "run_status",
+    "start_application",
+    "stop_application",
+]
+
+#: Where the running process is recorded, beside the snapshot and the agent log. Tooling
+#: state: delete it and the project is unchanged, and nothing draws a graph from it.
+RUN_STATE_PATH = Path(".aibuilder") / "run.json"
+
+#: Where the application's output goes. A file rather than a pipe held in memory: the core
+#: must not have to stay alive for output to survive, and a crash must leave it readable.
+RUN_LOG_PATH = Path(".aibuilder") / "run.log"
+
+#: How long to wait for the application to answer on its port before calling it a failure.
+STARTUP_TIMEOUT_S = 30
+
+#: What this session started, so that ending the session ends them. Sessions are the unit:
+#: a process started here is not left behind for someone to find in a month. The `Popen` is
+#: kept because a child has to be **reaped**, not merely killed: a dead child nobody waited
+#: on is a zombie, and a zombie answers "yes" when asked whether it is still there.
+_STARTED_HERE: dict[str, subprocess.Popen[bytes]] = {}
 
 
 class ArtifactRun:
@@ -131,3 +187,393 @@ CHECKS = {
     "docker.services_answer": _services_answer,
     "docker.image_referenced": _image_referenced,
 }
+
+
+# -- running the application ------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class RunState:
+    """A process this toolchain started, as recorded on disk."""
+
+    pid: int
+    port: int
+    target: str
+    command: tuple[str, ...] = ()
+    started_at: str = ""
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "pid": self.pid,
+            "port": self.port,
+            "target": self.target,
+            "command": list(self.command),
+            "started_at": self.started_at,
+        }
+
+
+@dataclass(frozen=True)
+class RunResult:
+    """The answer to every verb here. Refusals are results, never protocol faults."""
+
+    ok: bool
+    detail: str
+    state: RunState | None = None
+    logs: str = ""
+    #: Where the reader got to, so the next poll asks for what came after it.
+    offset: int = 0
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "ok": self.ok,
+            "detail": self.detail,
+            "state": None if self.state is None else self.state.as_dict(),
+            "logs": self.logs,
+            "offset": self.offset,
+        }
+
+
+@dataclass(frozen=True)
+class CallResult:
+    """What the running application answered when it was called."""
+
+    ok: bool
+    detail: str
+    status: int | None = None
+    body: str = ""
+
+    def as_dict(self) -> dict[str, Any]:
+        return {"ok": self.ok, "detail": self.detail, "status": self.status, "body": self.body}
+
+
+def _state_path(project: Path) -> Path:
+    return project / RUN_STATE_PATH
+
+
+def _read_state(project: Path) -> RunState | None:
+    path = _state_path(project)
+    if not path.is_file():
+        return None
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        return RunState(
+            pid=int(payload["pid"]),
+            port=int(payload["port"]),
+            target=str(payload.get("target", "")),
+            command=tuple(str(part) for part in payload.get("command", ())),
+            started_at=str(payload.get("started_at", "")),
+        )
+    except (OSError, KeyError, ValueError, json.JSONDecodeError):
+        return None
+
+
+def _write_state(project: Path, state: RunState) -> None:
+    path = _state_path(project)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(state.as_dict()), encoding="utf-8")
+
+
+def _forget(project: Path) -> None:
+    with contextlib.suppress(OSError):
+        _state_path(project).unlink()
+
+
+def _reap(pid: int) -> None:
+    """Collect the process if it happens to be ours.
+
+    A child that was killed and never waited on stays in the process table as a zombie, and
+    a zombie answers "yes" to `kill(pid, 0)` forever. When the process belongs to a session
+    that is gone it is not ours to reap and the operating system has already done it -- so
+    "not our child" is a normal answer here, not an error.
+    """
+    with contextlib.suppress(ChildProcessError, OSError):
+        os.waitpid(pid, os.WNOHANG)
+
+
+def _alive(pid: int) -> bool:
+    """Is this process still there? Asked of the operating system, not remembered."""
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True  # alive and not ours to signal
+    return True
+
+
+def _answers(port: int, timeout: float = 0.5) -> bool:
+    try:
+        with socket.create_connection(("127.0.0.1", port), timeout=timeout):
+            return True
+    except OSError:
+        return False
+
+
+def _free_port() -> int:
+    """A port nothing is using, chosen by asking the operating system for one."""
+    with socket.socket() as probe:
+        probe.bind(("127.0.0.1", 0))
+        return int(probe.getsockname()[1])
+
+
+def _application_target(project: Path, python: str, modules: list[str]) -> tuple[str | None, str]:
+    """Where the application is, asked of the project through the probe."""
+    from aibuilder_core.observe import probe_script
+
+    plan = {"project": str(project.resolve()), "modules": modules, "ask": "application"}
+    try:
+        completed = subprocess.run(
+            [python, str(probe_script())],
+            input=json.dumps(plan),
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+    except (subprocess.TimeoutExpired, OSError) as exc:
+        return None, f"the project could not be asked where its application is: {exc}"
+
+    if completed.returncode != 0:
+        return None, "the project could not be imported to find its application"
+
+    try:
+        answer = json.loads(completed.stdout.strip() or "{}")
+    except json.JSONDecodeError:
+        return None, "the project gave no readable answer about its application"
+    return answer.get("target"), str(answer.get("detail", ""))
+
+
+def start_application(
+    project: Path | str, python: str | None = None, port: int | None = None
+) -> RunResult:
+    """Start the project's application, and return once it answers.
+
+    Returns rather than streams: the wire carries one answer per request, and a start that
+    held it open would freeze everything else for as long as the application takes to come
+    up. What it waits for is the port answering -- not the process existing, which proves
+    nothing, and not a log line, which is a string a project can print whenever it likes.
+    """
+    from aibuilder_core.environment import project_interpreter
+    from aibuilder_core.observe import build_plan
+    from aibuilder_core.project import read_project
+
+    root = Path(project).resolve()
+    existing = _read_state(root)
+    if existing and _alive(existing.pid):
+        # Adopting rather than starting a second one. Two servers on two ports, one of them
+        # forgotten, is exactly the mess the state file exists to prevent.
+        return RunResult(True, f"already running on port {existing.port}", existing)
+    if existing:
+        _forget(root)
+
+    interpreter, _ = project_interpreter(root, python)
+    plan = build_plan(read_project(root), root)
+    listed = plan.get("modules", [])
+    modules = [str(name) for name in listed] if isinstance(listed, list) else []
+
+    target, detail = _application_target(root, interpreter, modules)
+    if target is None:
+        return RunResult(False, detail or "this project has no application to run")
+
+    chosen = port or _free_port()
+    log = root / RUN_LOG_PATH
+    log.parent.mkdir(parents=True, exist_ok=True)
+    command = (interpreter, "-m", "uvicorn", target, "--port", str(chosen), "--log-level", "info")
+
+    with log.open("wb") as sink:
+        process = subprocess.Popen(  # noqa: S603 -- the command is ours, built above
+            command,
+            cwd=root,
+            stdout=sink,
+            stderr=subprocess.STDOUT,
+            stdin=subprocess.DEVNULL,
+            start_new_session=True,
+        )
+
+    deadline = time.monotonic() + STARTUP_TIMEOUT_S
+    while time.monotonic() < deadline:
+        if process.poll() is not None:
+            return RunResult(
+                False,
+                f"the application exited immediately ({process.returncode}); see the logs",
+                logs=_tail(log),
+            )
+        if _answers(chosen):
+            state = RunState(
+                pid=process.pid,
+                port=chosen,
+                target=target,
+                command=command,
+                started_at=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+            )
+            _write_state(root, state)
+            _STARTED_HERE[str(root)] = process
+            return RunResult(True, f"listening on port {chosen}", state)
+        time.sleep(0.1)
+
+    _terminate(process.pid, process)
+    return RunResult(
+        False, f"the application did not answer within {STARTUP_TIMEOUT_S}s", logs=_tail(log)
+    )
+
+
+def _tail(log: Path, limit: int = 4000) -> str:
+    """The end of the log. A badge is not a place to read a megabyte."""
+    try:
+        text = log.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return ""
+    return text[-limit:]
+
+
+def _terminate(
+    pid: int, process: subprocess.Popen[bytes] | None = None, grace_s: float = 5.0
+) -> bool:
+    """Ask the process to stop, then insist -- and reap it if it is ours.
+
+    Reaping matters: a child that was killed but never waited on stays in the table as a
+    zombie, and every "is it alive?" answers yes. A process from a previous session is not
+    ours to reap; the operating system does that for us once it is gone.
+    """
+    try:
+        os.kill(pid, signal.SIGTERM)
+    except ProcessLookupError:
+        return True
+    except PermissionError:
+        return False
+
+    if process is not None:
+        with contextlib.suppress(subprocess.TimeoutExpired):
+            process.wait(timeout=grace_s)
+            return True
+        process.kill()
+        with contextlib.suppress(subprocess.TimeoutExpired):
+            process.wait(timeout=grace_s)
+        return process.poll() is not None
+
+    deadline = time.monotonic() + grace_s
+    while time.monotonic() < deadline:
+        _reap(pid)
+        if not _alive(pid):
+            return True
+        time.sleep(0.1)
+
+    with contextlib.suppress(OSError):
+        os.kill(pid, signal.SIGKILL)
+    time.sleep(0.1)
+    _reap(pid)
+    return not _alive(pid)
+
+
+def run_status(project: Path | str) -> RunResult:
+    """Is it running? Asked of the operating system and the port, never of a memory.
+
+    A recorded process that is gone -- the machine restarted, someone killed it -- is not
+    running, and the record is cleared rather than believed.
+    """
+    root = Path(project).resolve()
+    state = _read_state(root)
+    if state is None:
+        return RunResult(False, "not running")
+
+    if not _alive(state.pid):
+        _forget(root)
+        return RunResult(False, "not running (the recorded process is gone)")
+    if not _answers(state.port):
+        return RunResult(
+            False, f"process {state.pid} is alive but nothing answers on {state.port}", state
+        )
+    return RunResult(True, f"listening on port {state.port}", state)
+
+
+def stop_application(project: Path | str) -> RunResult:
+    """Stop what was started, whoever started it -- this session or a crashed one."""
+    root = Path(project).resolve()
+    state = _read_state(root)
+    if state is None:
+        return RunResult(False, "nothing to stop")
+
+    stopped = _terminate(state.pid, _STARTED_HERE.get(str(root)))
+    _forget(root)
+    _STARTED_HERE.pop(str(root), None)
+    if not stopped:
+        return RunResult(False, f"process {state.pid} would not stop", state)
+    return RunResult(True, "stopped")
+
+
+def read_logs(project: Path | str, offset: int = 0) -> RunResult:
+    """What the application has printed since `offset`.
+
+    Polled, not pushed. The caller keeps the offset and asks again; nothing is buffered in
+    the core, so a UI that stops asking costs nothing and a crash loses nothing that was
+    already written.
+    """
+    root = Path(project).resolve()
+    log = root / RUN_LOG_PATH
+    if not log.is_file():
+        return RunResult(False, "there is no log; nothing has been started here", offset=0)
+
+    try:
+        with log.open("rb") as handle:
+            handle.seek(max(offset, 0))
+            chunk = handle.read()
+            return RunResult(
+                True, "", logs=chunk.decode("utf-8", errors="replace"), offset=handle.tell()
+            )
+    except OSError as exc:
+        return RunResult(False, f"the log could not be read: {exc}", offset=offset)
+
+
+def call_endpoint(project: Path | str, path: str = "/", method: str = "GET") -> CallResult:
+    """Call the running application and show what came back.
+
+    The verb the product implies and nothing else provides: a person looking at a route node
+    wants to press it. It calls the process that is actually running -- not a TestClient, not
+    an imported app -- so what comes back is what a client would get.
+    """
+    status = run_status(project)
+    if not status.ok or status.state is None:
+        return CallResult(False, status.detail)
+
+    url = f"http://127.0.0.1:{status.state.port}{path if path.startswith('/') else '/' + path}"
+    request = urllib.request.Request(url, method=method.upper())  # noqa: S310 -- localhost only
+    try:
+        with urllib.request.urlopen(request, timeout=10) as response:  # noqa: S310
+            body = response.read().decode("utf-8", errors="replace")
+            return CallResult(True, f"{method.upper()} {path}", response.status, body[:4000])
+    except urllib.error.HTTPError as exc:
+        body = exc.read().decode("utf-8", errors="replace")
+        return CallResult(True, f"{method.upper()} {path}", exc.code, body[:4000])
+    except urllib.error.URLError as exc:
+        return CallResult(False, f"the application did not answer: {exc.reason}")
+
+
+def build_image(project: Path | str) -> RunResult:
+    """Build the images the compose file declares -- the button on the `Dockerfile` node."""
+    from aibuilder_core.environment import _docker, compose_file
+
+    root = Path(project).resolve()
+    file = compose_file(root)
+    if file is None:
+        return RunResult(False, "this project declares no services to build")
+
+    code, out, error = _docker(root, "compose", "-f", str(file), "build", timeout=900)
+    if code != 0:
+        return RunResult(False, error or "docker compose build failed", logs=out[-4000:])
+    return RunResult(True, "image(s) built", logs=out[-4000:])
+
+
+def stop_everything_started_here() -> None:
+    """End of session, end of the processes it started.
+
+    **A session is the sidecar's lifetime**, not any exit of any process. The sidecar calls
+    this when its stdin closes -- the window went away, so what it started goes with it. A
+    CLI invocation is not a session: `run` from a terminal leaves the application running,
+    because a verb a person typed is not undone by the command returning, and `stop` is the
+    verb that ends it.
+
+    Either way a hard kill leaves the state file behind, which is how the next session finds
+    the orphan -- and why `stop` works on a process this one never started.
+    """
+    for project in list(_STARTED_HERE):
+        with contextlib.suppress(Exception):
+            stop_application(project)

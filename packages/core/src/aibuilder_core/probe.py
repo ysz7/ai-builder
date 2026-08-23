@@ -44,7 +44,18 @@ from dataclasses import dataclass, field
 from types import CodeType, FrameType
 from typing import Any
 
-__all__ = ["TestRun", "environment_note", "main", "observe_tests", "run_plan", "version_note"]
+__all__ = [
+    "TestRun",
+    "environment_note",
+    "locate_application",
+    "main",
+    "observe_tests",
+    "observed_flow",
+    "run_plan",
+    "run_plan_with_flow",
+    "version_note",
+    "wired_flow",
+]
 
 PASSED = "passed"
 FAILED = "failed"
@@ -494,6 +505,10 @@ class TestRun:
 
     #: node id -> the tests that actually entered its carrier.
     fired: dict[str, set[str]] = field(default_factory=dict)
+    #: test id -> the nodes it entered, in the order it first entered each of them. This is
+    #: where the flow relation comes from (Q9): not parsed out of assembly code, not
+    #: declared in markup, but the order a real run went in.
+    sequence: dict[str, list[str]] = field(default_factory=dict)
     #: test id -> "passed" / "failed" / "skipped", as pytest reported it.
     outcomes: dict[str, str] = field(default_factory=dict)
     ran: bool = False
@@ -534,6 +549,7 @@ class _Recorder:
     def __init__(self, codes: dict[CodeType, str]):
         self.codes = codes
         self.fired: dict[str, set[str]] = {}
+        self.sequence: dict[str, list[str]] = {}
         self.outcomes: dict[str, str] = {}
         self.current: str | None = None
 
@@ -543,6 +559,9 @@ class _Recorder:
             node = self.codes.get(frame.f_code)
             if node is not None:
                 self.fired.setdefault(node, set()).add(self.current)
+                order = self.sequence.setdefault(self.current, [])
+                if node not in order:
+                    order.append(node)
         # No local trace function: entering the frame is the whole observation, and
         # tracing every line of a stranger's test suite would cost far more than it says.
         return None
@@ -643,7 +662,12 @@ def observe_tests(plan: dict[str, Any], codes: dict[CodeType, str]) -> TestRun:
     if not recorder.outcomes:
         return TestRun(detail="the project's test suite collected nothing")
 
-    return TestRun(fired=recorder.fired, outcomes=recorder.outcomes, ran=True)
+    return TestRun(
+        fired=recorder.fired,
+        sequence=recorder.sequence,
+        outcomes=recorder.outcomes,
+        ran=True,
+    )
 
 
 # -- the runner ------------------------------------------------------------------
@@ -651,6 +675,15 @@ def observe_tests(plan: dict[str, Any], codes: dict[CodeType, str]) -> TestRun:
 
 def run_plan(plan: dict[str, Any]) -> list[dict[str, str]]:
     """Import what the plan names, run every check, and report one result per node."""
+    return run_plan_with_flow(plan)[0]
+
+
+def run_plan_with_flow(plan: dict[str, Any]) -> tuple[list[dict[str, str]], list[dict[str, str]]]:
+    """The same run, plus the flow it revealed (Q9).
+
+    Flow and evidence come out of one execution because they are one execution: the order a
+    test went in is a fact about the same run that proved the nodes.
+    """
     sys.path.insert(0, plan["project"])
 
     context = Context()
@@ -668,7 +701,7 @@ def run_plan(plan: dict[str, Any]) -> list[dict[str, str]]:
         # cause, and send a repair after the wrong thing.
         failed = "; ".join(f"{name} ({error})" for name, error in context.import_errors.items())
         detail = f"the project did not import: {failed}"
-        return [Result(node["id"], node["check"], FAILED, detail).as_dict() for node in nodes]
+        return [Result(node["id"], node["check"], FAILED, detail).as_dict() for node in nodes], []
 
     # The suite runs after the imports, deliberately: "exercised" means a test entered
     # the carrier, and a carrier that merely ran at import time was not tested.
@@ -692,7 +725,8 @@ def run_plan(plan: dict[str, Any]) -> list[dict[str, str]]:
 
         results.append(_direct(context, node, run, plan))
 
-    return [result.as_dict() for result in results]
+    flow = observed_flow(run) + wired_flow(context, nodes)
+    return [result.as_dict() for result in results], flow
 
 
 def environment_note(plan: dict[str, Any]) -> str:
@@ -734,6 +768,56 @@ def version_note(plan: dict[str, Any], kind: str) -> str:
     )
 
 
+def observed_flow(run: TestRun) -> list[dict[str, str]]:
+    """What ran, and in what order. One arrow per pair of consecutive nodes in a test.
+
+    Only from tests that **passed**: an order a failing run went in is not a description of
+    how the system works, it is a description of how it broke that time.
+    """
+    seen: list[dict[str, str]] = []
+    for test, order in run.sequence.items():
+        if run.outcomes.get(test) != "passed":
+            continue
+        for source, target in zip(order, order[1:], strict=False):
+            edge = {"source": source, "target": target, "origin": "observed"}
+            if edge not in seen:
+                seen.append(edge)
+    return seen
+
+
+def wired_flow(context: Context, nodes: list[dict[str, Any]]) -> list[dict[str, str]]:
+    """The edges the framework itself holds, asked of the compiled object (§5.8).
+
+    A LangGraph agent knows its own wiring, so we ask it rather than reading `add_edge`
+    calls out of the assembly code -- which would teach the parser one library's API, and
+    then the next one's. Edges that no run took are still real edges, and they are marked as
+    wiring rather than as something that happened.
+    """
+    graph = _compiled_graph(context)
+    builder = getattr(graph, "builder", None)
+    edges = getattr(builder, "edges", None)
+    if not edges:
+        return []
+
+    by_name: dict[str, str] = {}
+    specs = getattr(builder, "nodes", {}) or {}
+    for name, spec in specs.items():
+        carrier = _underlying(getattr(spec, "runnable", None))
+        for node in nodes:
+            if carrier is not None and context.resolve(node["carrier"]) is carrier:
+                by_name[name] = node["id"]
+
+    flow: list[dict[str, str]] = []
+    for edge in edges:
+        try:
+            source, target = edge
+        except (TypeError, ValueError):
+            continue
+        if source in by_name and target in by_name:
+            flow.append({"source": by_name[source], "target": by_name[target], "origin": "wiring"})
+    return flow
+
+
 def _direct(context: Context, node: dict[str, Any], run: TestRun, plan: dict[str, Any]) -> Result:
     """The fallback check: what the toolchain can call without inventing anything.
 
@@ -766,9 +850,42 @@ def _direct(context: Context, node: dict[str, Any], run: TestRun, plan: dict[str
     return Result(node["id"], node["check"], status, detail)
 
 
+def locate_application(plan: dict[str, Any]) -> dict[str, Any]:
+    """Where the ASGI application is, as `module:attribute`.
+
+    Asked of the project rather than guessed from a convention (§5.8): the runner has to
+    name something to `uvicorn`, and "main:app" is a guess that is wrong the moment a
+    project is laid out differently. This is the only question the runner needs the
+    project imported to answer, and it is answered in the same process that imports
+    everything else -- never in the one the UI is talking to.
+    """
+    sys.path.insert(0, plan["project"])
+
+    context = Context()
+    for name in plan.get("modules", []):
+        try:
+            context.modules[name] = importlib.import_module(name)
+        except Exception as exc:
+            return {"target": None, "detail": f"{name} did not import: {type(exc).__name__}: {exc}"}
+
+    app = context.application()
+    if app is None:
+        return {"target": None, "detail": "no single ASGI application was found"}
+
+    for name, module in context.modules.items():
+        for attribute, value in vars(module).items():
+            if value is app:
+                return {"target": f"{name}:{attribute}", "detail": f"found in {name}"}
+    return {"target": None, "detail": "the application has no name in any imported module"}
+
+
 def main() -> int:
     plan = json.loads(sys.stdin.read())
-    print(json.dumps({"results": run_plan(plan)}))
+    if plan.get("ask") == "application":
+        print(json.dumps(locate_application(plan)))
+        return 0
+    results, flow = run_plan_with_flow(plan)
+    print(json.dumps({"results": results, "flow": flow}))
     return 0
 
 

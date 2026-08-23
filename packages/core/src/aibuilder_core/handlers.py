@@ -25,6 +25,12 @@ from aibuilder_core.api import (
     read_graph,
     repair_divergence,
     repairs_available,
+    run_build,
+    run_call,
+    run_logs,
+    run_start,
+    run_state,
+    run_stop,
     services_start,
     services_stop,
     snapshot_status,
@@ -236,6 +242,45 @@ def agent_failures_method(params: dict[str, Any]) -> dict[str, Any]:
     return agent_failures(_project_of(params))
 
 
+def run_start_method(params: dict[str, Any]) -> dict[str, Any]:
+    """Start the application. Returns when it answers; never holds the wire open (P13)."""
+    port = params.get("port")
+    if port is not None and not isinstance(port, int):
+        raise ProtocolError("invalid_params", "'port' must be a number when given")
+
+    return run_start(_project_of(params), _optional_str(params, "python"), port)
+
+
+def run_stop_method(params: dict[str, Any]) -> dict[str, Any]:
+    return run_stop(_project_of(params))
+
+
+def run_status_method(params: dict[str, Any]) -> dict[str, Any]:
+    return run_state(_project_of(params))
+
+
+def run_logs_method(params: dict[str, Any]) -> dict[str, Any]:
+    """Poll the log. The caller keeps the offset it was last given."""
+    offset = params.get("offset", 0)
+    if not isinstance(offset, int) or isinstance(offset, bool):
+        raise ProtocolError("invalid_params", "'offset' must be a number")
+
+    return run_logs(_project_of(params), offset)
+
+
+def run_call_method(params: dict[str, Any]) -> dict[str, Any]:
+    """Call the running application and hand back what it said."""
+    return run_call(
+        _project_of(params),
+        _optional_str(params, "path") or "/",
+        _optional_str(params, "method") or "GET",
+    )
+
+
+def run_build_method(params: dict[str, Any]) -> dict[str, Any]:
+    return run_build(_project_of(params))
+
+
 def graph_kinds(params: dict[str, Any]) -> dict[str, Any]:
     """The node-kind registry, so a client can pick shapes without guessing."""
     return describe_kinds()
@@ -258,6 +303,12 @@ HANDLERS: dict[str, Handler] = {
     "env.status": env_status,
     "env.up": env_up,
     "env.down": env_down,
+    "run.start": run_start_method,
+    "run.stop": run_stop_method,
+    "run.status": run_status_method,
+    "run.logs": run_logs_method,
+    "run.call": run_call_method,
+    "run.build": run_build_method,
 }
 
 

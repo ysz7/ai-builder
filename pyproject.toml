@@ -26,6 +26,7 @@ dev = [
     # to read someone else's package. Lift the pin when the floor moves past 3.11.
     "numpy<2.5",
     "psycopg[binary]>=3.3.4",
+    "uvicorn>=0.52.4",
 ]
 
 [tool.uv.workspace]

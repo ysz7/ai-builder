@@ -22,6 +22,11 @@ With a subcommand it is a small CLI, used by CI and by hand:
     uv run python -m aibuilder_core env <project>
     uv run python -m aibuilder_core env-up <project>
     uv run python -m aibuilder_core env-down <project>
+    uv run python -m aibuilder_core run <project> [--port N]
+    uv run python -m aibuilder_core run-status <project>
+    uv run python -m aibuilder_core logs <project>
+    uv run python -m aibuilder_core call <project> <path>
+    uv run python -m aibuilder_core stop <project>
 """
 
 from __future__ import annotations
@@ -41,6 +46,11 @@ from aibuilder_core.api import (
     environment_status,
     repair_divergence,
     repairs_available,
+    run_call,
+    run_logs,
+    run_start,
+    run_state,
+    run_stop,
     services_start,
     services_stop,
     snapshot_status,
@@ -58,6 +68,7 @@ from aibuilder_core.protocol import (
     encode_error,
     encode_result,
 )
+from aibuilder_core.runner import stop_everything_started_here
 from aibuilder_core.strip import strip_project
 from aibuilder_core.verdict import Observation
 
@@ -99,9 +110,19 @@ def serve(stdin: TextIO, stdout: TextIO) -> None:
 
 
 def serve_forever() -> int:
+    """The sidecar. Ends whatever it started before it goes (P13).
+
+    `atexit` covers the ordinary paths, and this covers the one that matters most: the shell
+    closing our stdin because the window went away. A session that ends leaves nothing
+    running -- and a session that is killed outright leaves the state file, which is how the
+    next one finds the orphan.
+    """
     log("ready")
-    with contextlib.suppress(KeyboardInterrupt):
-        serve(sys.stdin, sys.stdout)
+    try:
+        with contextlib.suppress(KeyboardInterrupt):
+            serve(sys.stdin, sys.stdout)
+    finally:
+        stop_everything_started_here()
     log("stdin closed, exiting")
     return 0
 
@@ -335,6 +356,44 @@ def run_env_down(project: Path) -> int:
     return 0 if result["ok"] else 1
 
 
+def run_start_cmd(project: Path, port: int | None) -> int:
+    """Start the application and say where it is listening."""
+    result = run_start(project, None, port)
+    print(result["detail"])
+    if result["logs"]:
+        print(result["logs"])
+    return 0 if result["ok"] else 1
+
+
+def run_stop_cmd(project: Path) -> int:
+    result = run_stop(project)
+    print(result["detail"])
+    return 0 if result["ok"] else 1
+
+
+def run_status_cmd(project: Path) -> int:
+    result = run_state(project)
+    print(result["detail"])
+    return 0 if result["ok"] else 1
+
+
+def run_logs_cmd(project: Path) -> int:
+    """Print what the application has written so far. Polled, like everything here."""
+    result = run_logs(project, 0)
+    print(result["logs"] or result["detail"], end="")
+    return 0 if result["ok"] else 1
+
+
+def run_call_cmd(project: Path, path: str, method: str) -> int:
+    result = run_call(project, path, method)
+    if not result["ok"]:
+        print(result["detail"])
+        return 1
+    print(f"HTTP {result['status']}")
+    print(result["body"])
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="aibuilder-core", description=__doc__)
     sub = parser.add_subparsers(dest="command")
@@ -413,6 +472,24 @@ def build_parser() -> argparse.ArgumentParser:
     env_down_cmd = sub.add_parser("env-down", help="take the project's services down")
     env_down_cmd.add_argument("project", type=Path)
 
+    run_cmd = sub.add_parser("run", help="start the project's application")
+    run_cmd.add_argument("project", type=Path)
+    run_cmd.add_argument("--port", type=int, default=None)
+
+    run_status = sub.add_parser("run-status", help="is the application running?")
+    run_status.add_argument("project", type=Path)
+
+    logs_cmd = sub.add_parser("logs", help="what the application has printed")
+    logs_cmd.add_argument("project", type=Path)
+
+    call_cmd = sub.add_parser("call", help="call the running application")
+    call_cmd.add_argument("project", type=Path)
+    call_cmd.add_argument("path", nargs="?", default="/")
+    call_cmd.add_argument("--method", default="GET")
+
+    stop_cmd = sub.add_parser("stop", help="stop the application")
+    stop_cmd.add_argument("project", type=Path)
+
     return parser
 
 
@@ -456,6 +533,16 @@ def main(argv: list[str] | None = None) -> int:
         return run_env_up(parsed.project)
     if parsed.command == "env-down":
         return run_env_down(parsed.project)
+    if parsed.command == "run":
+        return run_start_cmd(parsed.project, parsed.port)
+    if parsed.command == "run-status":
+        return run_status_cmd(parsed.project)
+    if parsed.command == "logs":
+        return run_logs_cmd(parsed.project)
+    if parsed.command == "call":
+        return run_call_cmd(parsed.project, parsed.path, parsed.method)
+    if parsed.command == "stop":
+        return run_stop_cmd(parsed.project)
 
     build_parser().print_help()
     return 2

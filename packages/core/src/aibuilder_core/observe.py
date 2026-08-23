@@ -57,10 +57,15 @@ class ObservationRun:
     #: The environment the run happened in. Travels with the evidence, because evidence
     #: from an environment nobody described is evidence about nothing in particular.
     environment: Environment | None = None
+    #: The flow this run revealed (Q9): `observed` where a passing test went from one node
+    #: to the next, `wiring` where the framework itself holds the edge. Empty before a run,
+    #: which is the honest state -- a path nothing took is dark, as it is in Unreal.
+    flow: tuple[dict[str, str], ...] = ()
 
     def as_dict(self) -> dict[str, object]:
         return {
             "environment": None if self.environment is None else self.environment.as_dict(),
+            "flow": [dict(edge) for edge in self.flow],
             "observations": {
                 node: {
                     "passed": observation.passed,
@@ -233,6 +238,11 @@ def run_observations(
 
     observations: dict[str, Observation] = {}
     skipped: dict[str, str] = {}
+    flow = tuple(
+        {str(key): str(value) for key, value in edge.items()}
+        for edge in payload.get("flow", [])
+        if isinstance(edge, dict)
+    )
 
     for result in payload.get("results", []):
         if result["status"] == "skipped":
@@ -248,7 +258,9 @@ def run_observations(
     # and no node is ever looked at by both.
     observations.update(artifacts.observations)
     skipped.update(artifacts.skipped)
-    return ObservationRun(observations=observations, skipped=skipped, environment=environment)
+    return ObservationRun(
+        observations=observations, skipped=skipped, environment=environment, flow=flow
+    )
 
 
 def _all_failed(
