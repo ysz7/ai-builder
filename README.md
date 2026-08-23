@@ -135,6 +135,17 @@ uv run python -m aibuilder_core logs examples/fastapi-service
 uv run python -m aibuilder_core stop examples/fastapi-service
 ```
 
+Background work is its own subsystem with its own process. Nothing starts on its own here either: the
+worker refuses while the broker is down rather than bringing it up, and "is it up?" is asked of the
+queue, because a worker publishes no port:
+
+```bash
+uv run python -m aibuilder_core work examples/service-with-worker         # start a worker
+uv run python -m aibuilder_core work-status examples/service-with-worker  # who answers the queue
+uv run python -m aibuilder_core work-logs examples/service-with-worker
+uv run python -m aibuilder_core work-stop examples/service-with-worker
+```
+
 ## Building for macOS — read before planning a release
 
 - **`.app` and `.dmg` can only be built on a macOS machine.** Cross-compiling to Mac from Linux or
@@ -152,7 +163,7 @@ uv run python -m aibuilder_core stop examples/fastapi-service
 
 ## Status
 
-P0 through P13 are done: the window opens, React Flow renders a canvas, the Rust shell reaches the Python
+P0 through P14 are done: the window opens, React Flow renders a canvas, the Rust shell reaches the Python
 core over NDJSON, the markup layer exists and is provably inert, and
 [examples/fastapi-service/](examples/fastapi-service/) is the annotated reference project the rest is
 tested against. `npm run check` is the gate.
@@ -214,11 +225,16 @@ stop the services it declares. The application can be started, called and stoppe
 and what actually ran shows up as **flow** — the order a passing test went through the nodes, and the
 wiring a framework holds. Before a run there are no arrows, because a path nothing took is dark.
 
-What is left is MCP servers and background work inside that vocabulary, and the UI, which is delivered
-separately.
+Work that happens *after* the request is on the graph as its own subsystem: a queue, the tasks on it
+and what runs on a timer. Two claims are kept apart there, and the distinction is the whole of it —
+**the task works**, proven by a run that entered it, and **the queue delivers**, proven by the broker
+answering and a worker replying. The arrow from the route that queued the work to the task that ran it
+crosses a process boundary and is still drawn by a run and by nothing else.
 
-The application's source language is Python, and the supported technologies are FastAPI, LangGraph
-and RAG. That is a statement about what the graph projects, not about what a project may contain: a
+What is left is MCP servers inside that vocabulary, and the UI, which is delivered separately.
+
+The application's source language is Python, and the supported technologies are FastAPI, LangGraph,
+RAG and celery. That is a statement about what the graph projects, not about what a project may contain: a
 production project's Docker files, compose, migrations and configuration are part of the work, and
 such an artifact may even be a node, carried by the file itself — with the file staying the source of
 truth.

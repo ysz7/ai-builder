@@ -10,7 +10,7 @@ AST-addressable markup layer (`bp`); a parser projects that into a graph; edits 
 written back through the syntax tree with `libcst`. Assembled applications deploy as plain Python
 projects with no runtime dependency on the builder.
 
-Current state: **P0–P13 done.** MCP and background work remain inside P12's vocabulary; the UI is delivered separately. Window opens, React Flow renders a scaffold canvas, Rust
+Current state: **P0–P14 done.** MCP remains inside P12's vocabulary; the UI is delivered separately. Window opens, React Flow renders a scaffold canvas, Rust
 reaches the Python core over NDJSON, the five `bp` primitives exist and are proven inert, and
 `strip` removes the markup with the example service answering identically before and after. The parser
 turns an annotated project into a graph IR, the static gate judges it into addressed diagnostics, and
@@ -37,6 +37,16 @@ beside the parser, never inside it** — `parser.py` keeps meaning "Python sourc
 no file formats; identity is the project-relative path; knobs are declared by the kind rather than by
 the file; reconciliation tracks only the keys the graph wrote; and the checks live in the runner, not
 in `probe.py`, which is the module that imports the user's project and must stay the only one.
+
+**Background work is a subsystem, and its two claims are different claims** (P14). A queue, its tasks
+and its schedule are a top-level group of their own — never members of the service — because a task
+outlives the request that queued it and runs in a process the service never starts. *The task works*
+is proven by a run that entered it (the project's tests, in eager mode); *the queue delivers* is
+proven by the broker answering and a worker replying to a ping. Never let one stand in for the other.
+A task's carrier stays a **plain function** with registration in a generated zone: a carrier wrapped
+in a task decorator is no longer the function the graph named, and a run through it cannot be seen.
+The worker refuses to start while the broker is down instead of bringing it up, and its readiness is a
+reply through the queue, never a line in a log.
 
 **A contract edge and a flow are different relations** (Q9). Edges are types crossing a boundary, read
 from signatures. Flow — a pipeline's order, an agent's wiring — is never parsed out of assembly code
@@ -88,6 +98,7 @@ uv run python -m aibuilder_core repairs examples/fastapi-service
 uv run python -m aibuilder_core blueprints
 uv run python -m aibuilder_core brief examples/fastapi-service --request "add a users router"
 uv run python -m aibuilder_core failures examples/fastapi-service
+uv run python -m aibuilder_core work examples/service-with-worker
 ```
 
 The brief is the agent's whole input: the system prompt verbatim, the request (a sentence, a

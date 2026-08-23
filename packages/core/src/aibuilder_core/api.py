@@ -28,9 +28,13 @@ from aibuilder_core.runner import (
     build_image,
     call_endpoint,
     read_logs,
+    read_worker_logs,
     run_status,
     start_application,
+    start_worker,
     stop_application,
+    stop_worker,
+    worker_status,
 )
 from aibuilder_core.snapshot import load_snapshot, save_snapshot, take_snapshot
 from aibuilder_core.verdict import Observation
@@ -182,8 +186,10 @@ ENVIRONMENT_SCHEMA = {"api_version": "int", "environment": _ENVIRONMENT}
 #: and they exist so that nothing else has to.
 SERVICE_SCHEMA = {"api_version": "int", "ok": "bool", "detail": "str", "services": ["str"]}
 
-#: The payload of every `run.*` verb except `run.call`. Refusals are results here too: a
-#: project with no application to run is a normal answer, not a fault in the call.
+#: The payload of every `run.*` and `work.*` verb except `run.call`. One schema because
+#: they are one shape: a process was started, found or stopped, and `port` is 0 for a worker
+#: -- which publishes nothing and is reached through the queue instead. Refusals are results
+#: here too: a project with no application to run is a normal answer, not a fault in the call.
 RUN_SCHEMA = {
     "api_version": "int",
     "ok": "bool",
@@ -482,6 +488,26 @@ def run_logs(project: Path | str, offset: int = 0) -> dict[str, Any]:
 def run_call(project: Path | str, path: str = "/", method: str = "GET") -> dict[str, Any]:
     """Call the running application: the verb a person pressing a route node wants."""
     return {"api_version": GRAPH_API_VERSION, **call_endpoint(project, path, method).as_dict()}
+
+
+def work_start(project: Path | str, python: str | None = None) -> dict[str, Any]:
+    """Start a worker for the project's queue -- the button on the queue's node (P14)."""
+    return {"api_version": GRAPH_API_VERSION, **start_worker(project, python).as_dict()}
+
+
+def work_stop(project: Path | str) -> dict[str, Any]:
+    """Stop it -- this session's worker, or one a crashed session left behind."""
+    return {"api_version": GRAPH_API_VERSION, **stop_worker(project).as_dict()}
+
+
+def work_state(project: Path | str, python: str | None = None) -> dict[str, Any]:
+    """Is a worker running? Asked of the operating system, then of the queue itself."""
+    return {"api_version": GRAPH_API_VERSION, **worker_status(project, python).as_dict()}
+
+
+def work_logs(project: Path | str, offset: int = 0) -> dict[str, Any]:
+    """What the worker has printed since `offset`. Polled, like the application's."""
+    return {"api_version": GRAPH_API_VERSION, **read_worker_logs(project, offset).as_dict()}
 
 
 def run_build(project: Path | str) -> dict[str, Any]:

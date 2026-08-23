@@ -1,0 +1,14 @@
+# The broker the queue talks to. The builder reads this file by asking docker what it says
+# -- it never parses it and never rewrites it. Bringing it up is an action a person takes;
+# nothing in the toolchain starts it, and the worker refuses to start without it rather
+# than starting it on the way past.
+services:
+  broker:
+    image: redis:7-alpine
+    ports:
+      - "56379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 2s
+      timeout: 2s
+      retries: 15

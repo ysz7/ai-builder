@@ -26,6 +26,10 @@ dev = [
     # to read someone else's package. Lift the pin when the floor moves past 3.11.
     "numpy<2.5",
     "psycopg[binary]>=3.3.4",
+    # The background-work example: celery and the redis transport its broker speaks. The
+    # checks ask celery what it knows; nothing here reads the library's source.
+    "celery>=5.6",
+    "redis>=5.0",
     "uvicorn>=0.52.4",
 ]
 
@@ -49,7 +53,8 @@ extend-exclude = ["examples/*/stripped", "packages/core/tests/fixtures"]
 select = ["E", "F", "I", "UP", "B", "SIM", "TID"]
 
 [tool.ruff.lint.isort]
-known-first-party = ["bp", "aibuilder_core", "app"]
+# `app` and `work` are the example projects' own packages.
+known-first-party = ["bp", "aibuilder_core", "app", "work"]
 
 [tool.ruff.lint.per-file-ignores]
 # The example is generated-agent output: it exists to be parsed, not to be tidy.

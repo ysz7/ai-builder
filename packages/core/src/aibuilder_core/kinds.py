@@ -210,6 +210,38 @@ REGISTRY: dict[str, NodeKind] = {
             check="vector.store_opens",
             description="The vector index: what is embedded into it and searched in it.",
         ),
+        # -- Background work (P14). The subsystem that runs *after* the request, in a
+        # process the application never starts. Its nodes are proven by two different
+        # things on purpose: a task by a run that entered it, and the queue itself by the
+        # broker answering -- because a task that works and a queue that delivers are not
+        # the same claim, and one must never stand in for the other.
+        _kind(
+            "queue.workers",
+            CarrierType.GROUP,
+            top_level=True,
+            check="queue.assembles",
+            description="The background work as a whole: the queue, its tasks and its schedule.",
+        ),
+        _kind(
+            "queue.app",
+            CarrierType.CLASS,
+            CarrierType.MODULE,
+            check="queue.broker_answers",
+            description="The queue itself: the broker it talks to, and a worker's knobs.",
+        ),
+        _kind(
+            "queue.task",
+            CarrierType.FUNCTION,
+            check="queue.task_registered",
+            description="One unit of background work: queued by name, run by a worker.",
+        ),
+        _kind(
+            "queue.schedule",
+            CarrierType.FUNCTION,
+            CarrierType.CLASS,
+            check="queue.schedule_entries",
+            description="What runs on a timer, and the tasks those entries name.",
+        ),
         # -- Docker (P12). The first nodes carried by a file rather than by a Python
         # object (Q10, architecture §5.7). Neither of them parses anything: what the
         # compose file says is asked of `docker compose config`, and whether a service is
@@ -284,6 +316,10 @@ TECHNOLOGIES: dict[str, Technology] = {
     for technology in (
         Technology(name="fastapi", distribution="fastapi", verified="0.141.1"),
         Technology(name="langgraph", distribution="langgraph", verified="1.2.11"),
+        # The queue checks ask celery for its task registry, its beat schedule and its
+        # workers. Public surface, and still a surface: a release that moves any of it
+        # turns a proven node into an unproven one, and this is what lets the reason say so.
+        Technology(name="queue", distribution="celery", verified="5.6.3"),
     )
 }
 

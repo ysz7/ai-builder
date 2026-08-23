@@ -39,6 +39,7 @@ import json
 import os
 import sys
 import threading
+import time
 import traceback
 from dataclasses import dataclass, field
 from types import CodeType, FrameType
@@ -48,7 +49,9 @@ __all__ = [
     "TestRun",
     "environment_note",
     "locate_application",
+    "locate_queue",
     "main",
+    "ping_queue",
     "observe_tests",
     "observed_flow",
     "run_plan",
@@ -422,6 +425,147 @@ def vector_store_opens(context: Context, node: dict[str, Any]) -> tuple[str, str
     return SKIPPED, "the store loads; proving what it does needs real input"
 
 
+# -- Background work -------------------------------------------------------------
+#
+# Two claims live here and they are deliberately not the same one: **the task works** and
+# **the queue delivers**. A task is proven by a run that entered it -- the project's own
+# tests, which may well run it in-process; the queue is proven by the broker answering.
+# Letting either stand in for the other is how a green graph would come to mean "the code
+# is fine" while nothing was ever actually delivered.
+#
+# Everything below asks celery. Nothing reads a task out of the assembly code: the registry
+# is the queue's own account of what it knows, and the identity question -- "is *this*
+# function the one registered?" -- is answered by code object, never by a matching name.
+
+
+def _queue(context: Context) -> Any:
+    """The one celery application in the project, found the way the app is found."""
+    try:
+        # celery ships no type information; nothing here needs any, since what comes back
+        # is the project's own object and every question asked of it is asked defensively.
+        from celery import Celery  # type: ignore[import-untyped]
+    except ImportError:
+        return None
+
+    found = [
+        value
+        for module in context.modules.values()
+        for value in vars(module).values()
+        if isinstance(value, Celery)
+    ]
+    unique = {id(app): app for app in found}
+    return next(iter(unique.values())) if len(unique) == 1 else None
+
+
+def _registered_as(app: Any, carrier: Any) -> list[str]:
+    """The names this exact function is registered under. Identity, never a name match."""
+    code = getattr(carrier, "__code__", None)
+    if code is None:
+        return []
+
+    names = []
+    for name, task in dict(getattr(app, "tasks", {})).items():
+        run = getattr(task, "run", None)
+        if getattr(run, "__code__", None) is code:
+            names.append(name)
+    return sorted(names)
+
+
+def queue_broker_answers(context: Context, node: dict[str, Any]) -> tuple[str, str]:
+    """Does the broker this queue is configured against answer?
+
+    A broker that is down leaves this **skipped**, not failed, and for the same reason a
+    stopped container does (P11): the queue's configuration is not wrong because nothing is
+    listening yet, and the reason names the button that would prove it.
+    """
+    if context.resolve(node["carrier"]) is None:
+        return FAILED, f"{node['carrier']} does not exist at runtime"
+
+    app = _queue(context)
+    if app is None:
+        return FAILED, "no single task queue was found among the project's modules"
+
+    try:
+        with app.connection() as connection:
+            connection.ensure_connection(max_retries=0, timeout=2)
+            where = connection.as_uri()
+    except Exception as exc:
+        return SKIPPED, (
+            f"the broker does not answer ({type(exc).__name__})"
+            " -- start it from the compose file's node"
+        )
+    return PASSED, f"the broker answers at {where}"
+
+
+def queue_task_registered(context: Context, node: dict[str, Any]) -> tuple[str, str]:
+    """Is this function on the queue -- and therefore something a worker could ever run?
+
+    The wiring question, the same one a route's mounting asks. It is not the question of
+    whether the task *works*: that one is answered by a run that entered it, and that
+    evidence outranks this check wherever both exist.
+    """
+    carrier = context.resolve(node["carrier"])
+    if carrier is None:
+        return FAILED, f"{node['carrier']} does not exist at runtime"
+
+    app = _queue(context)
+    if app is None:
+        return FAILED, "no single task queue was found among the project's modules"
+
+    names = _registered_as(app, carrier)
+    if not names:
+        return FAILED, "this function is declared a task but nothing registers it with the queue"
+    return PASSED, f"registered as {names[0]}"
+
+
+def queue_schedule_entries(context: Context, node: dict[str, Any]) -> tuple[str, str]:
+    """Every timed entry names a task the queue knows.
+
+    An entry pointing at a name nothing registered is a job that will fire and fail forever,
+    silently, at three in the morning. It is exactly the kind of thing a graph is for.
+    """
+    if context.resolve(node["carrier"]) is None:
+        return FAILED, f"{node['carrier']} does not exist at runtime"
+
+    app = _queue(context)
+    if app is None:
+        return FAILED, "no single task queue was found among the project's modules"
+
+    schedule = dict(getattr(app.conf, "beat_schedule", None) or {})
+    if not schedule:
+        return FAILED, "the queue has no scheduled entries, so this node schedules nothing"
+
+    unknown = sorted(
+        f"{name} -> {_entry_task(entry)}"
+        for name, entry in schedule.items()
+        if _entry_task(entry) not in app.tasks
+    )
+    if unknown:
+        return FAILED, f"scheduled entries name tasks the queue does not know: {', '.join(unknown)}"
+    return PASSED, f"{len(schedule)} scheduled entry(s), all naming registered tasks"
+
+
+def _entry_task(entry: Any) -> Any:
+    """The task name inside a schedule entry, whichever shape celery accepted for it."""
+    if isinstance(entry, dict):
+        return entry.get("task")
+    return getattr(entry, "task", None)
+
+
+def queue_assembles(context: Context, node: dict[str, Any]) -> tuple[str, str]:
+    """The subsystem as a whole: a queue exists and it knows about work of its own."""
+    app = _queue(context)
+    if app is None:
+        return FAILED, "no single task queue was found among the project's modules"
+
+    # Celery registers its own housekeeping tasks in every application; they are not this
+    # project's work, and counting them would make an empty queue look assembled.
+    own = sorted(name for name in app.tasks if not name.startswith("celery."))
+    if not own:
+        return FAILED, "the queue has no tasks registered, so no worker would have anything to do"
+    return PASSED, f"{len(own)} task(s) registered on the {app.main!r} queue"
+
+
 # -- RAG -------------------------------------------------------------------------
 #
 # A stage takes a document, a query or a set of chunks. None of those can be invented --
@@ -493,6 +637,10 @@ CHECKS = {
     "vector.store_opens": vector_store_opens,
     "rag.stages_load": rag_stages_load,
     "rag.stage_ready": rag_stage_ready,
+    "queue.assembles": queue_assembles,
+    "queue.broker_answers": queue_broker_answers,
+    "queue.task_registered": queue_task_registered,
+    "queue.schedule_entries": queue_schedule_entries,
 }
 
 
@@ -859,14 +1007,9 @@ def locate_application(plan: dict[str, Any]) -> dict[str, Any]:
     project imported to answer, and it is answered in the same process that imports
     everything else -- never in the one the UI is talking to.
     """
-    sys.path.insert(0, plan["project"])
-
-    context = Context()
-    for name in plan.get("modules", []):
-        try:
-            context.modules[name] = importlib.import_module(name)
-        except Exception as exc:
-            return {"target": None, "detail": f"{name} did not import: {type(exc).__name__}: {exc}"}
+    context, failure = _import_all(plan)
+    if failure is not None:
+        return {"target": None, "detail": failure}
 
     app = context.application()
     if app is None:
@@ -879,10 +1022,85 @@ def locate_application(plan: dict[str, Any]) -> dict[str, Any]:
     return {"target": None, "detail": "the application has no name in any imported module"}
 
 
+def locate_queue(plan: dict[str, Any]) -> dict[str, Any]:
+    """Where the task queue is, as `module:attribute`, and what a worker should run with.
+
+    Asked of the project, never guessed (§5.8). `-A proj` is a celery convention that is
+    wrong the moment a project is laid out differently, and the concurrency is celery's own
+    configured value -- which is where the queue node's knob went, so the button and the
+    knob cannot drift apart.
+    """
+    context, failure = _import_all(plan)
+    if failure is not None:
+        return {"target": None, "detail": failure}
+
+    app = _queue(context)
+    if app is None:
+        return {"target": None, "detail": "no single task queue was found"}
+
+    concurrency = getattr(app.conf, "worker_concurrency", None)
+    for name, module in context.modules.items():
+        for attribute, value in vars(module).items():
+            if value is app:
+                return {
+                    "target": f"{name}:{attribute}",
+                    "concurrency": int(concurrency) if concurrency else 0,
+                    "detail": f"found in {name}",
+                }
+    return {"target": None, "detail": "the queue has no name in any imported module"}
+
+
+def ping_queue(plan: dict[str, Any]) -> dict[str, Any]:
+    """Wait for a worker to answer the queue, and say how many did.
+
+    A worker publishes no port, so P13's readiness question has a different answer here:
+    the queue is asked whether anything is listening to it. A log line saying "ready" is a
+    string the process chose to print; a reply to a ping is the thing itself.
+    """
+    context, failure = _import_all(plan)
+    if failure is not None:
+        return {"ready": False, "detail": failure}
+
+    app = _queue(context)
+    if app is None:
+        return {"ready": False, "detail": "no single task queue was found"}
+
+    deadline = time.monotonic() + float(plan.get("wait_s", 0) or 0)
+    while True:
+        try:
+            replies = app.control.ping(timeout=1) or []
+        except Exception as exc:
+            replies = []
+            failure = f"the queue could not be asked ({type(exc).__name__}: {exc})"
+        if replies:
+            return {"ready": True, "workers": len(replies), "detail": f"{len(replies)} worker(s)"}
+        if time.monotonic() >= deadline:
+            return {"ready": False, "detail": failure or "no worker answered the queue"}
+
+
+def _import_all(plan: dict[str, Any]) -> tuple[Context, str | None]:
+    """The project's modules, imported once. The first failure is the whole answer."""
+    sys.path.insert(0, plan["project"])
+
+    context = Context()
+    for name in plan.get("modules", []):
+        try:
+            context.modules[name] = importlib.import_module(name)
+        except Exception as exc:
+            return context, f"{name} did not import: {type(exc).__name__}: {exc}"
+    return context, None
+
+
 def main() -> int:
     plan = json.loads(sys.stdin.read())
     if plan.get("ask") == "application":
         print(json.dumps(locate_application(plan)))
+        return 0
+    if plan.get("ask") == "queue":
+        print(json.dumps(locate_queue(plan)))
+        return 0
+    if plan.get("ask") == "queue_ready":
+        print(json.dumps(ping_queue(plan)))
         return 0
     results, flow = run_plan_with_flow(plan)
     print(json.dumps({"results": results, "flow": flow}))

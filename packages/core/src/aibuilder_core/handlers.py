@@ -35,6 +35,10 @@ from aibuilder_core.api import (
     services_stop,
     snapshot_status,
     take_project_snapshot,
+    work_logs,
+    work_start,
+    work_state,
+    work_stop,
     write_knob,
     write_node_title,
 )
@@ -281,6 +285,28 @@ def run_build_method(params: dict[str, Any]) -> dict[str, Any]:
     return run_build(_project_of(params))
 
 
+def work_start_method(params: dict[str, Any]) -> dict[str, Any]:
+    """Start a worker. Refuses when the broker is down; never starts it (P11)."""
+    return work_start(_project_of(params), _optional_str(params, "python"))
+
+
+def work_stop_method(params: dict[str, Any]) -> dict[str, Any]:
+    return work_stop(_project_of(params))
+
+
+def work_status_method(params: dict[str, Any]) -> dict[str, Any]:
+    return work_state(_project_of(params), _optional_str(params, "python"))
+
+
+def work_logs_method(params: dict[str, Any]) -> dict[str, Any]:
+    """Poll the worker's log. The caller keeps the offset it was last given."""
+    offset = params.get("offset", 0)
+    if not isinstance(offset, int) or isinstance(offset, bool):
+        raise ProtocolError("invalid_params", "'offset' must be a number")
+
+    return work_logs(_project_of(params), offset)
+
+
 def graph_kinds(params: dict[str, Any]) -> dict[str, Any]:
     """The node-kind registry, so a client can pick shapes without guessing."""
     return describe_kinds()
@@ -309,6 +335,10 @@ HANDLERS: dict[str, Handler] = {
     "run.logs": run_logs_method,
     "run.call": run_call_method,
     "run.build": run_build_method,
+    "work.start": work_start_method,
+    "work.stop": work_stop_method,
+    "work.status": work_status_method,
+    "work.logs": work_logs_method,
 }
 
 

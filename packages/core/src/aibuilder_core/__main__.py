@@ -27,6 +27,10 @@ With a subcommand it is a small CLI, used by CI and by hand:
     uv run python -m aibuilder_core logs <project>
     uv run python -m aibuilder_core call <project> <path>
     uv run python -m aibuilder_core stop <project>
+    uv run python -m aibuilder_core work <project>
+    uv run python -m aibuilder_core work-status <project>
+    uv run python -m aibuilder_core work-logs <project>
+    uv run python -m aibuilder_core work-stop <project>
 """
 
 from __future__ import annotations
@@ -55,6 +59,10 @@ from aibuilder_core.api import (
     services_stop,
     snapshot_status,
     take_project_snapshot,
+    work_logs,
+    work_start,
+    work_state,
+    work_stop,
     write_knob,
 )
 from aibuilder_core.catalog import CATALOG_ENV
@@ -394,6 +402,33 @@ def run_call_cmd(project: Path, path: str, method: str) -> int:
     return 0
 
 
+def run_work_cmd(project: Path) -> int:
+    """Start a worker and say what answered. Refuses if the broker is not up (P11)."""
+    result = work_start(project)
+    print(result["detail"])
+    if result["logs"]:
+        print(result["logs"])
+    return 0 if result["ok"] else 1
+
+
+def run_work_status_cmd(project: Path) -> int:
+    result = work_state(project)
+    print(result["detail"])
+    return 0 if result["ok"] else 1
+
+
+def run_work_logs_cmd(project: Path) -> int:
+    result = work_logs(project, 0)
+    print(result["logs"] or result["detail"], end="")
+    return 0 if result["ok"] else 1
+
+
+def run_work_stop_cmd(project: Path) -> int:
+    result = work_stop(project)
+    print(result["detail"])
+    return 0 if result["ok"] else 1
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="aibuilder-core", description=__doc__)
     sub = parser.add_subparsers(dest="command")
@@ -490,6 +525,18 @@ def build_parser() -> argparse.ArgumentParser:
     stop_cmd = sub.add_parser("stop", help="stop the application")
     stop_cmd.add_argument("project", type=Path)
 
+    work_cmd = sub.add_parser("work", help="start a worker for the project's queue")
+    work_cmd.add_argument("project", type=Path)
+
+    work_status = sub.add_parser("work-status", help="is a worker answering the queue?")
+    work_status.add_argument("project", type=Path)
+
+    work_logs_cmd = sub.add_parser("work-logs", help="what the worker has printed")
+    work_logs_cmd.add_argument("project", type=Path)
+
+    work_stop_cmd = sub.add_parser("work-stop", help="stop the worker")
+    work_stop_cmd.add_argument("project", type=Path)
+
     return parser
 
 
@@ -543,6 +590,14 @@ def main(argv: list[str] | None = None) -> int:
         return run_call_cmd(parsed.project, parsed.path, parsed.method)
     if parsed.command == "stop":
         return run_stop_cmd(parsed.project)
+    if parsed.command == "work":
+        return run_work_cmd(parsed.project)
+    if parsed.command == "work-status":
+        return run_work_status_cmd(parsed.project)
+    if parsed.command == "work-logs":
+        return run_work_logs_cmd(parsed.project)
+    if parsed.command == "work-stop":
+        return run_work_stop_cmd(parsed.project)
 
     build_parser().print_help()
     return 2

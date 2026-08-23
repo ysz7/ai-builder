@@ -139,6 +139,33 @@ no arguments, because that is what its check calls; without it the node cannot b
 A vector store is proven by the project's own tests, since adding and searching both need
 real input.
 
+**Background work**
+
+| `kind` | Carrier | Observable check |
+| --- | --- | --- |
+| `queue.workers` | the `__node__.py` group | the queue is assembled with tasks on it |
+| `queue.app` | the object that owns the queue | the broker answers |
+| `queue.task` | a task function | the queue has this exact function registered |
+| `queue.schedule` | the function that builds the timed entries | every entry names a registered task |
+
+Background work is a **subsystem of its own**, not a member of the service's group: a task
+outlives the request that queued it and runs in a process the service never starts. What
+connects them is a flow arrow, and only after a run has drawn one.
+
+Keep the task's carrier a **plain function** and register it in a generated zone —
+`app.task(name="...")(build_report)` — the same split routes follow. A carrier wrapped in a
+task decorator is no longer the function the graph named, and a run through it cannot be
+seen. Queue by the registered name at the call site.
+
+The queue's knobs must reach the library's own configuration (`worker_concurrency`,
+`task_time_limit`), because that is what the builder asks when it runs a worker: a knob the
+library never sees is decoration, and the button would drift away from it.
+
+**These two claims are not the same claim**: the task works, and the queue delivers. A task
+is proven by a run that entered it — the project's tests, which may well run it in-process —
+and delivery is proven by the broker answering and a worker replying. Never let one stand
+in for the other.
+
 **Docker** — these are the odd ones out, and you do not write them. They are carried by
 the **file itself**, and the builder puts them on the graph because a registry entry names
 that path. You write an ordinary `Dockerfile` or compose file with no markup in it; nothing

@@ -269,6 +269,9 @@ def test_the_recorded_version_is_the_one_the_suite_proves() -> None:
 def test_a_technology_is_recorded_only_where_a_check_reads_its_internals() -> None:
     """RAG has no entry on purpose: its checks are plain Python and touch no library.
 
+    The queue does have one: its checks ask celery for a task registry and a beat schedule,
+    which is reading someone else's surface however public it is.
+
     Recording a version there would be a claim about a dependency our code never looks at
     -- knowledge we do not have, which is precisely what this table is not for.
     """
@@ -276,7 +279,7 @@ def test_a_technology_is_recorded_only_where_a_check_reads_its_internals() -> No
 
     prefixes = {kind.partition(".")[0] for kind in REGISTRY}
 
-    assert set(TECHNOLOGIES) == {"fastapi", "langgraph"}
+    assert set(TECHNOLOGIES) == {"fastapi", "langgraph", "queue"}
     assert set(TECHNOLOGIES) <= prefixes  # no entry for a technology that does not exist
 
 

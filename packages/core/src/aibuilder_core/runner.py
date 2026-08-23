@@ -59,9 +59,13 @@ __all__ = [
     "call_endpoint",
     "check_artifacts",
     "read_logs",
+    "read_worker_logs",
     "run_status",
     "start_application",
+    "start_worker",
     "stop_application",
+    "stop_worker",
+    "worker_status",
 ]
 
 #: Where the running process is recorded, beside the snapshot and the agent log. Tooling
@@ -72,6 +76,12 @@ RUN_STATE_PATH = Path(".aibuilder") / "run.json"
 #: must not have to stay alive for output to survive, and a crash must leave it readable.
 RUN_LOG_PATH = Path(".aibuilder") / "run.log"
 
+#: The same two files for the worker (P14). A separate record because it is a separate
+#: process with a separate lifetime: an application can run with no worker behind it, and a
+#: worker can outlive the application it was started beside.
+WORKER_STATE_PATH = Path(".aibuilder") / "worker.json"
+WORKER_LOG_PATH = Path(".aibuilder") / "worker.log"
+
 #: How long to wait for the application to answer on its port before calling it a failure.
 STARTUP_TIMEOUT_S = 30
 
@@ -79,7 +89,7 @@ STARTUP_TIMEOUT_S = 30
 #: a process started here is not left behind for someone to find in a month. The `Popen` is
 #: kept because a child has to be **reaped**, not merely killed: a dead child nobody waited
 #: on is a zombie, and a zombie answers "yes" when asked whether it is still there.
-_STARTED_HERE: dict[str, subprocess.Popen[bytes]] = {}
+_STARTED_HERE: dict[tuple[str, str], subprocess.Popen[bytes]] = {}
 
 
 class ArtifactRun:
@@ -246,12 +256,12 @@ class CallResult:
         return {"ok": self.ok, "detail": self.detail, "status": self.status, "body": self.body}
 
 
-def _state_path(project: Path) -> Path:
-    return project / RUN_STATE_PATH
+def _state_path(project: Path, state: Path = RUN_STATE_PATH) -> Path:
+    return project / state
 
 
-def _read_state(project: Path) -> RunState | None:
-    path = _state_path(project)
+def _read_state(project: Path, state: Path = RUN_STATE_PATH) -> RunState | None:
+    path = _state_path(project, state)
     if not path.is_file():
         return None
     try:
@@ -267,15 +277,15 @@ def _read_state(project: Path) -> RunState | None:
         return None
 
 
-def _write_state(project: Path, state: RunState) -> None:
-    path = _state_path(project)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(state.as_dict()), encoding="utf-8")
+def _write_state(project: Path, state: RunState, path: Path = RUN_STATE_PATH) -> None:
+    target = _state_path(project, path)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(json.dumps(state.as_dict()), encoding="utf-8")
 
 
-def _forget(project: Path) -> None:
+def _forget(project: Path, state: Path = RUN_STATE_PATH) -> None:
     with contextlib.suppress(OSError):
-        _state_path(project).unlink()
+        _state_path(project, state).unlink()
 
 
 def _reap(pid: int) -> None:
@@ -316,29 +326,56 @@ def _free_port() -> int:
         return int(probe.getsockname()[1])
 
 
-def _application_target(project: Path, python: str, modules: list[str]) -> tuple[str | None, str]:
-    """Where the application is, asked of the project through the probe."""
+def _ask_project(
+    project: Path,
+    python: str,
+    modules: list[str],
+    ask: str,
+    timeout_s: int = 60,
+    **extra: Any,
+) -> dict[str, Any]:
+    """Put a question to the project, in the project's own interpreter (§5.8).
+
+    Every question the runner needs answered -- where the application is, where the queue
+    is, whether a worker is listening -- is a question only the project can answer, and it
+    is answered where the project lives: in the probe's process, never in this one.
+    """
     from aibuilder_core.observe import probe_script
 
-    plan = {"project": str(project.resolve()), "modules": modules, "ask": "application"}
+    plan = {"project": str(project.resolve()), "modules": modules, "ask": ask, **extra}
     try:
         completed = subprocess.run(
             [python, str(probe_script())],
             input=json.dumps(plan),
             capture_output=True,
             text=True,
-            timeout=60,
+            timeout=timeout_s,
         )
     except (subprocess.TimeoutExpired, OSError) as exc:
-        return None, f"the project could not be asked where its application is: {exc}"
+        return {"detail": f"the project could not be asked ({ask}): {exc}"}
 
     if completed.returncode != 0:
-        return None, "the project could not be imported to find its application"
+        return {"detail": f"the project could not be imported to answer ({ask})"}
 
     try:
         answer = json.loads(completed.stdout.strip() or "{}")
     except json.JSONDecodeError:
-        return None, "the project gave no readable answer about its application"
+        return {"detail": f"the project gave no readable answer ({ask})"}
+    return dict(answer)
+
+
+def _project_modules(root: Path) -> list[str]:
+    """The modules the graph already knows about -- the same set the checks import."""
+    from aibuilder_core.observe import build_plan
+    from aibuilder_core.project import read_project
+
+    listed = build_plan(read_project(root), root).get("modules", [])
+    return [str(name) for name in listed] if isinstance(listed, list) else []
+
+
+def _application_target(project: Path, python: str, modules: list[str]) -> tuple[str | None, str]:
+    """Where the application is, asked of the project through the probe."""
+    answer = _ask_project(project, python, modules, "application")
     return answer.get("target"), str(answer.get("detail", ""))
 
 
@@ -353,8 +390,6 @@ def start_application(
     nothing, and not a log line, which is a string a project can print whenever it likes.
     """
     from aibuilder_core.environment import project_interpreter
-    from aibuilder_core.observe import build_plan
-    from aibuilder_core.project import read_project
 
     root = Path(project).resolve()
     existing = _read_state(root)
@@ -366,9 +401,7 @@ def start_application(
         _forget(root)
 
     interpreter, _ = project_interpreter(root, python)
-    plan = build_plan(read_project(root), root)
-    listed = plan.get("modules", [])
-    modules = [str(name) for name in listed] if isinstance(listed, list) else []
+    modules = _project_modules(root)
 
     target, detail = _application_target(root, interpreter, modules)
     if target is None:
@@ -406,7 +439,7 @@ def start_application(
                 started_at=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
             )
             _write_state(root, state)
-            _STARTED_HERE[str(root)] = process
+            _STARTED_HERE[(str(root), RUN_STATE_PATH.name)] = process
             return RunResult(True, f"listening on port {chosen}", state)
         time.sleep(0.1)
 
@@ -487,20 +520,29 @@ def run_status(project: Path | str) -> RunResult:
 
 def stop_application(project: Path | str) -> RunResult:
     """Stop what was started, whoever started it -- this session or a crashed one."""
-    root = Path(project).resolve()
-    state = _read_state(root)
+    return _stop_recorded(Path(project).resolve(), RUN_STATE_PATH)
+
+
+def _stop_recorded(root: Path, state_path: Path) -> RunResult:
+    """The stopping itself, shared by the application and the worker.
+
+    One implementation because there is one rule: the record on disk is what is acted on,
+    so a process this session never started is stopped exactly like one it did.
+    """
+    state = _read_state(root, state_path)
     if state is None:
         return RunResult(False, "nothing to stop")
 
-    stopped = _terminate(state.pid, _STARTED_HERE.get(str(root)))
-    _forget(root)
-    _STARTED_HERE.pop(str(root), None)
+    key = (str(root), state_path.name)
+    stopped = _terminate(state.pid, _STARTED_HERE.get(key))
+    _forget(root, state_path)
+    _STARTED_HERE.pop(key, None)
     if not stopped:
         return RunResult(False, f"process {state.pid} would not stop", state)
     return RunResult(True, "stopped")
 
 
-def read_logs(project: Path | str, offset: int = 0) -> RunResult:
+def read_logs(project: Path | str, offset: int = 0, log_path: Path = RUN_LOG_PATH) -> RunResult:
     """What the application has printed since `offset`.
 
     Polled, not pushed. The caller keeps the offset and asks again; nothing is buffered in
@@ -508,7 +550,7 @@ def read_logs(project: Path | str, offset: int = 0) -> RunResult:
     already written.
     """
     root = Path(project).resolve()
-    log = root / RUN_LOG_PATH
+    log = root / log_path
     if not log.is_file():
         return RunResult(False, "there is no log; nothing has been started here", offset=0)
 
@@ -562,6 +604,167 @@ def build_image(project: Path | str) -> RunResult:
     return RunResult(True, "image(s) built", logs=out[-4000:])
 
 
+# -- running the worker (P14) -----------------------------------------------------
+#
+# A worker is the same machinery as the application with one thing different, and the
+# difference is the whole phase: it publishes no port. P13 could ask a socket whether the
+# thing it started was up; here the equivalent question goes to the queue -- has anything
+# answered it? -- because a log line saying "ready" is a string a process chose to print.
+#
+# It also refuses to start when the broker is down instead of bringing it up. Nothing in
+# this toolchain starts a service implicitly (P11), and a worker started against a dead
+# broker would sit there retrying while looking, from the outside, exactly like one that
+# is working.
+
+#: How long to wait for a worker to answer the queue. Longer than the application's window
+#: because the first answer travels through the broker and back.
+WORKER_TIMEOUT_S = 40
+
+
+def start_worker(project: Path | str, python: str | None = None) -> RunResult:
+    """Start a worker for the project's queue, and return once it answers.
+
+    Refuses rather than improvises: no queue, no worker; no broker, no worker. Both come
+    back as results with the reason and the button that would fix them.
+    """
+    from aibuilder_core.environment import describe_environment
+
+    root = Path(project).resolve()
+    existing = _read_state(root, WORKER_STATE_PATH)
+    if existing and _alive(existing.pid):
+        return RunResult(True, f"a worker is already running for {existing.target}", existing)
+    if existing:
+        _forget(root, WORKER_STATE_PATH)
+
+    environment = describe_environment(root, python)
+    if environment.incomplete:
+        # The broker is a declared service that is not up. Starting it on the way past is
+        # exactly what P11 forbids, so this says which button to press instead.
+        return RunResult(
+            False,
+            f"{environment.incomplete} -- start them from the compose file's node,"
+            " then start the worker",
+        )
+
+    interpreter = environment.interpreter
+    modules = _project_modules(root)
+    answer = _ask_project(root, interpreter, modules, "queue")
+    target = answer.get("target")
+    if not target:
+        return RunResult(False, str(answer.get("detail") or "this project has no queue to work"))
+
+    concurrency = int(answer.get("concurrency") or 0)
+    # Celery's worker command, and only celery's: the `queue.*` kinds are celery-shaped and
+    # say so in `kinds.TECHNOLOGIES`. A second queue technology is a second registry entry
+    # with its own command here -- the cost per technology the registry exists to charge.
+    log = root / WORKER_LOG_PATH
+    log.parent.mkdir(parents=True, exist_ok=True)
+    command = (
+        interpreter,
+        "-m",
+        "celery",
+        "-A",
+        str(target),
+        "worker",
+        "--loglevel",
+        "info",
+        *(("--concurrency", str(concurrency)) if concurrency else ()),
+    )
+
+    with log.open("wb") as sink:
+        process = subprocess.Popen(  # noqa: S603 -- the command is ours, built above
+            command,
+            cwd=root,
+            stdout=sink,
+            stderr=subprocess.STDOUT,
+            stdin=subprocess.DEVNULL,
+            start_new_session=True,
+        )
+
+    ready = _ask_project(
+        root,
+        interpreter,
+        modules,
+        "queue_ready",
+        timeout_s=WORKER_TIMEOUT_S + 20,
+        wait_s=WORKER_TIMEOUT_S,
+    )
+    if not ready.get("ready"):
+        if process.poll() is not None:
+            _terminate(process.pid, process)
+            return RunResult(
+                False,
+                f"the worker exited immediately ({process.returncode}); see the logs",
+                logs=_tail(log),
+            )
+        # Alive but silent is worse than dead: it looks like a running worker and does no
+        # work. Stopping it is the honest end to a start that did not succeed.
+        _terminate(process.pid, process)
+        return RunResult(
+            False,
+            f"the worker did not answer the queue within {WORKER_TIMEOUT_S}s{_because(ready)}",
+            logs=_tail(log),
+        )
+
+    state = RunState(
+        pid=process.pid,
+        port=0,  # a worker publishes nothing; the queue is how it is reached
+        target=str(target),
+        command=command,
+        started_at=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+    )
+    _write_state(root, state, WORKER_STATE_PATH)
+    _STARTED_HERE[(str(root), WORKER_STATE_PATH.name)] = process
+    return RunResult(True, f"{ready.get('detail', 'a worker')} answering {target}", state)
+
+
+def _because(answer: dict[str, Any]) -> str:
+    """The project's own reason, in brackets, or nothing at all when it gave none."""
+    detail = str(answer.get("detail") or "")
+    return f" ({detail})" if detail else ""
+
+
+def worker_status(project: Path | str, python: str | None = None) -> RunResult:
+    """Is a worker running? Asked of the operating system, then of the queue itself.
+
+    Both questions, because either answer alone lies in a way that matters: a process that
+    is alive may have lost the broker, and a queue that answers may be answering a worker
+    somebody else started.
+    """
+    from aibuilder_core.environment import project_interpreter
+
+    root = Path(project).resolve()
+    state = _read_state(root, WORKER_STATE_PATH)
+    if state is None:
+        return RunResult(False, "no worker running")
+
+    if not _alive(state.pid):
+        _forget(root, WORKER_STATE_PATH)
+        return RunResult(False, "no worker running (the recorded process is gone)")
+
+    interpreter, _ = project_interpreter(root, python)
+    ready = _ask_project(
+        root, interpreter, _project_modules(root), "queue_ready", timeout_s=30, wait_s=2
+    )
+    if not ready.get("ready"):
+        return RunResult(
+            False,
+            f"process {state.pid} is alive but nothing answers the queue{_because(ready)}",
+            state,
+        )
+    return RunResult(True, f"{ready.get('detail', 'a worker')} answering {state.target}", state)
+
+
+def stop_worker(project: Path | str) -> RunResult:
+    """Stop the worker -- this session's, or one a crashed session left behind."""
+    return _stop_recorded(Path(project).resolve(), WORKER_STATE_PATH)
+
+
+def read_worker_logs(project: Path | str, offset: int = 0) -> RunResult:
+    """What the worker has printed since `offset`. Polled, exactly like the application's."""
+    return read_logs(project, offset, WORKER_LOG_PATH)
+
+
 def stop_everything_started_here() -> None:
     """End of session, end of the processes it started.
 
@@ -574,6 +777,6 @@ def stop_everything_started_here() -> None:
     Either way a hard kill leaves the state file behind, which is how the next session finds
     the orphan -- and why `stop` works on a process this one never started.
     """
-    for project in list(_STARTED_HERE):
+    for root, state_name in list(_STARTED_HERE):
         with contextlib.suppress(Exception):
-            stop_application(project)
+            _stop_recorded(Path(root), Path(".aibuilder") / state_name)
