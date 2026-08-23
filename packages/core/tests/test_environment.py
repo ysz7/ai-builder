@@ -358,3 +358,48 @@ def test_a_configuration_that_cannot_be_read_is_said_so(monkeypatch: pytest.Monk
 
     assert environment.docker_unavailable is not None
     assert environment.incomplete is not None
+
+
+# -- P12's acceptance: the loop on a project with a database ----------------------
+
+
+@needs_docker
+def test_the_loop_closes_on_a_project_with_a_database(tmp_path: Path) -> None:
+    """A database, a vector store, and the compose file that declares them (P12).
+
+    Every kind of node this project has is proven differently: the database by opening its
+    connection, the vector store by the project's own tests, the routes by those same tests,
+    and the compose file by its services answering where they publish. The stripped copy is
+    then put through exactly the same checks, because none of that may depend on `bp`.
+    """
+    from aibuilder_core.project import read_project
+    from aibuilder_core.strip import strip_project
+
+    root = copy(tmp_path, EXAMPLES / "service-with-db")
+
+    started = services_start(root)
+    assert started["ok"] is True, started["detail"]
+
+    try:
+        from aibuilder_core.gate import check_graph
+
+        graph = read_project(root)
+        run = run_observations(graph, root)
+        verdicts = check_graph(graph, observations=run.observations).verdicts
+
+        assert run.environment is not None and run.environment.incomplete is None
+        assert verdicts["db"] == Verdict.GREEN.value
+        assert verdicts["vectors"] == Verdict.GREEN.value
+        assert verdicts["compose.yaml"] == Verdict.GREEN.value
+        assert Verdict.BROKEN.value not in verdicts.values()
+
+        stripped = tmp_path / "stripped"
+        strip_project(root, stripped)
+        without_markup = run_observations(graph, stripped)
+
+        assert {node: run.passed for node, run in without_markup.observations.items()} == {
+            node: run.passed for node, run in run.observations.items()
+        }
+    finally:
+        stopped = services_stop(root)
+        assert stopped["ok"] is True, stopped["detail"]

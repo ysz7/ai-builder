@@ -33,7 +33,7 @@ import libcst as cst
 
 from aibuilder_core.diagnostics import Diagnostic
 from aibuilder_core.observe import run_observations
-from aibuilder_core.parser import parse_project
+from aibuilder_core.project import read_project
 from aibuilder_core.reconcile import Divergence, DivergenceCode, Fault, Resolution, reconcile
 from aibuilder_core.snapshot import Snapshot, load_snapshot, save_snapshot, take_snapshot
 from aibuilder_core.writer import _apply
@@ -116,7 +116,7 @@ def list_repairs(project: Path | str) -> list[dict[str, Any]]:
             ],
             "request": repair_request(divergence),
         }
-        for divergence in reconcile(snapshot, parse_project(project))
+        for divergence in reconcile(snapshot, read_project(project))
     ]
 
 
@@ -217,7 +217,7 @@ def apply_repair(
     divergence = next(
         (
             d
-            for d in reconcile(snapshot, parse_project(project))
+            for d in reconcile(snapshot, read_project(project))
             if d.code == code and target in (d.node, d.location.object)
         ),
         None,
@@ -250,7 +250,7 @@ def _edit(
     resolution: str,
     observe: bool,
 ) -> RepairResult:
-    graph = parse_project(project)
+    graph = read_project(project)
     path = divergence.location.file
     module = _module_of(path)
     function_path = f"{module}.{divergence.location.object}"
@@ -294,7 +294,7 @@ def _settle(project: Path, observe: bool, file: str | None) -> RepairResult:
     """Re-enter the gates, and move the reference only on a both-conditions pass (I-5)."""
     from aibuilder_core.gate import check_graph
 
-    graph = parse_project(project)
+    graph = read_project(project)
     result = check_graph(graph)
     if result.errors:
         return RepairResult(

@@ -190,7 +190,15 @@ def _containment(graph: Graph) -> list[Diagnostic]:
                 )
             )
 
-        if not claims and node.carrier_type != CarrierType.GROUP.value:
+        # An artifact node stands at the top level and is not a group: it has no members and
+        # nothing claims it. Q4's uniformity is about the nodes projected *from code*; a
+        # `Dockerfile` is beside them, not one of them, and the exemption is written here
+        # rather than left to the absence of a rule (architecture §5.7).
+        top_level_only_groups = node.carrier_type not in (
+            CarrierType.GROUP.value,
+            CarrierType.FILE.value,
+        )
+        if not claims and top_level_only_groups:
             diagnostics.append(
                 describe(
                     Code.TOP_LEVEL_NOT_GROUP,

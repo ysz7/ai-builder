@@ -10,7 +10,7 @@ AST-addressable markup layer (`bp`); a parser projects that into a graph; edits 
 written back through the syntax tree with `libcst`. Assembled applications deploy as plain Python
 projects with no runtime dependency on the builder.
 
-Current state: **P0–P11 done. P12 (the vocabulary of a production project) is next.** Window opens, React Flow renders a scaffold canvas, Rust
+Current state: **P0–P12 done** (MCP and background work remain inside P12's vocabulary). P13 — running things — is next. Window opens, React Flow renders a scaffold canvas, Rust
 reaches the Python core over NDJSON, the five `bp` primitives exist and are proven inert, and
 `strip` removes the markup with the example service answering identically before and after. The parser
 turns an annotated project into a graph IR, the static gate judges it into addressed diagnostics, and
@@ -32,7 +32,7 @@ comes from the registry rather than from a bare filename match. Knobs only where
 format can be addressed; actions instead of knobs where it cannot; green only when the image actually
 built or the services actually came up (I-5).
 
-How a file-carried node is actually built is [architecture §5.7](docs/architecture.md): **a reader
+A file-carried node is built as [architecture §5.7](docs/architecture.md) describes, and it is built: **a reader
 beside the parser, never inside it** — `parser.py` keeps meaning "Python source into IR" and learns
 no file formats; identity is the project-relative path; knobs are declared by the kind rather than by
 the file; reconciliation tracks only the keys the graph wrote; and the checks live in the runner, not
@@ -143,7 +143,8 @@ diagnostic record and the closed catalogue of codes; `verdict.py` is the single 
 `api.py` assembles the versioned payload and declares its schema; `observe.py` runs the observable
 checks and `probe.py` contains them; `snapshot.py` records the outline of the last valid state and
 `reconcile.py` diffs against it; `writer.py` writes back through `libcst`; `repair.py` acts on
-divergences; `environment.py` is the project's interpreter and the services it declares; `agent.py` assembles the agent's brief and records its failure modes and `catalog.py`
+divergences; `environment.py` is the project's interpreter and the services it declares; `artifacts.py` finds the
+nodes carried by a file and `project.py` composes them with the parser's; `runner.py` checks them; `agent.py` assembles the agent's brief and records its failure modes and `catalog.py`
 reads the blueprint catalog; `strip.py` removes the markup.
 
 `apply_repair` takes `resolution` as a required keyword with no default. That is not style: §9 case 2
@@ -255,7 +256,7 @@ agent's system prompt used to and was moved into the package for exactly that re
 - [architecture.md](docs/architecture.md) — the v0 spec. Sections 2 (invariants) and 7 (the parser as
   a gate) carry everything load-bearing.
 - [roadmap.md](docs/roadmap.md) — phases P0–P10 with per-phase acceptance criteria and the invariant
-  each protects. Current position: P12.
+  each protects. Current position: P13.
 - [open-questions.md](docs/open-questions.md) — nothing open; Q1–Q5 are settled, with the reasoning
   kept in the log. **Read before starting any phase**, and add an entry the moment two documents
   disagree — an unrecorded conflict is worse than an open one.

@@ -51,7 +51,7 @@ from aibuilder_core.catalog import CATALOG_ENV
 from aibuilder_core.gate import check_graph, summarize
 from aibuilder_core.handlers import dispatch
 from aibuilder_core.observe import run_observations
-from aibuilder_core.parser import parse_project
+from aibuilder_core.project import read_project
 from aibuilder_core.protocol import (
     ProtocolError,
     decode_request,
@@ -122,7 +122,7 @@ def run_graph(project: Path) -> int:
     The same data the UI will be handed, dumped where a human can read it -- which is how
     a wrong graph gets diagnosed without a running app in the way.
     """
-    print(json.dumps(parse_project(project).to_dict(), indent=2))
+    print(json.dumps(read_project(project).to_dict(), indent=2))
     return 0
 
 
@@ -132,7 +132,7 @@ def run_check(project: Path, observe: bool) -> int:
     Always exits 0 in soft mode: a violation is a badge and a repair offer, not a refusal
     (§7). Hard mode is what a caller uses when it wants a failing exit code.
     """
-    graph = parse_project(project)
+    graph = read_project(project)
 
     observations: dict[str, Observation] = {}
     skipped: dict[str, str] = {}

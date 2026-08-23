@@ -30,8 +30,9 @@ from pathlib import Path
 
 from aibuilder_core.environment import Environment, describe_environment
 from aibuilder_core.ir import Graph
-from aibuilder_core.kinds import lookup, technology_of
+from aibuilder_core.kinds import CarrierType, lookup, technology_of
 from aibuilder_core.markup import GROUP_MANIFEST
+from aibuilder_core.runner import check_artifacts
 from aibuilder_core.verdict import Observation
 
 __all__ = ["ObservationRun", "probe_script", "run_observations", "tests_path"]
@@ -106,15 +107,23 @@ def build_plan(
     # annotated code, and the claim that the stripped copy proves the same things would be
     # untestable (I-2). Nothing is lost: the manifest declares members it imports from the
     # modules already in this set.
+    # Artifact nodes are left out here as well as below: a compose file is not a module,
+    # and importing "compose" would fail the whole run for every node in it.
     modules = {
         _module_of(location.file)
-        for location in [node.location for node in graph.nodes]
+        for location in [
+            node.location for node in graph.nodes if node.carrier_type != CarrierType.FILE.value
+        ]
         + [function.location for function in graph.functions]
         if Path(location.file).name != GROUP_MANIFEST
     }
 
     nodes = []
     for node in graph.nodes:
+        if node.carrier_type == CarrierType.FILE.value:
+            # A file carries no Python object, so there is nothing here for the probe to
+            # import or call. Artifact checks run on the toolchain's side (`runner.py`).
+            continue
         kind = lookup(node.kind)
         if kind is None:
             continue  # an unregistered kind has no check; the gate already said so
@@ -189,8 +198,13 @@ def run_observations(
     project = Path(project)
     environment = describe_environment(project, python)
     plan = build_plan(graph, project, environment)
+    artifacts = check_artifacts(graph, project, environment)
     if not plan["nodes"]:
-        return ObservationRun(environment=environment)
+        return ObservationRun(
+            observations=dict(artifacts.observations),
+            skipped=dict(artifacts.skipped),
+            environment=environment,
+        )
 
     try:
         completed = subprocess.run(
@@ -230,6 +244,10 @@ def run_observations(
                 detail=result["detail"],
             )
 
+    # The artifact nodes' answers join the probe's. Two runners, one set of evidence --
+    # and no node is ever looked at by both.
+    observations.update(artifacts.observations)
+    skipped.update(artifacts.skipped)
     return ObservationRun(observations=observations, skipped=skipped, environment=environment)
 
 

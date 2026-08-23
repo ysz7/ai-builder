@@ -21,7 +21,7 @@ from aibuilder_core.environment import describe_environment, start_services, sto
 from aibuilder_core.gate import GateMode, check_graph
 from aibuilder_core.kinds import REGISTRY
 from aibuilder_core.observe import run_observations
-from aibuilder_core.parser import parse_project
+from aibuilder_core.project import read_project
 from aibuilder_core.reconcile import reconcile
 from aibuilder_core.repair import apply_repair, list_repairs
 from aibuilder_core.snapshot import load_snapshot, save_snapshot, take_snapshot
@@ -152,7 +152,7 @@ _ENVIRONMENT = {
     "compose_file": "str?",
     # Each declared service, and whether anything answers where it publishes. Readiness is
     # a connection rather than a status field: it is the question the application asks.
-    "services": [{"name": "str", "ports": ["int"], "reachable": "bool"}],
+    "services": [{"name": "str", "ports": ["int"], "reachable": "bool", "dockerfile": "str?"}],
     "missing": ["str"],
     "docker_unavailable": "str?",
     "incomplete": "str?",
@@ -358,7 +358,7 @@ def read_graph(
     honestly `unproven` rather than falsely fine.
     """
     root = Path(project)
-    graph = parse_project(root)
+    graph = read_project(root)
 
     skipped: dict[str, str] = {}
     environment: dict[str, Any] | None = None
@@ -412,7 +412,7 @@ def take_project_snapshot(project: Path | str) -> dict[str, Any]:
     So the gate decides: static errors mean no snapshot, and the caller is told why.
     """
     root = Path(project)
-    graph = parse_project(root)
+    graph = read_project(root)
     result = check_graph(graph)
 
     if result.errors:
@@ -442,7 +442,7 @@ def snapshot_status(project: Path | str) -> dict[str, Any]:
     if snapshot is None:
         return {"api_version": GRAPH_API_VERSION, "has_reference": False, "divergences": []}
 
-    divergences = reconcile(snapshot, parse_project(root))
+    divergences = reconcile(snapshot, read_project(root))
     return {
         "api_version": GRAPH_API_VERSION,
         "has_reference": True,

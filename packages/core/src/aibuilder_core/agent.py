@@ -42,7 +42,7 @@ from aibuilder_core.catalog import Blueprint, load_blueprint
 from aibuilder_core.gate import GateMode
 from aibuilder_core.ir import Graph
 from aibuilder_core.kinds import REGISTRY, installed_version, technology_of
-from aibuilder_core.parser import parse_project
+from aibuilder_core.project import read_project
 
 __all__ = [
     "AGENT_LOG_PATH",
@@ -215,7 +215,7 @@ def build_brief(
 
     root = Path(project)
     exists = root.is_dir()
-    outline = _outline(parse_project(root)) if exists else ()
+    outline = _outline(read_project(root)) if exists else ()
 
     source = InputSource.BLUEPRINT.value if loaded else InputSource.CHAT.value
     return Brief(

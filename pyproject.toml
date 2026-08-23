@@ -25,6 +25,7 @@ dev = [
     # and mypy ignores `follow_imports` for stub files, so there is no way to tell it not
     # to read someone else's package. Lift the pin when the floor moves past 3.11.
     "numpy<2.5",
+    "psycopg[binary]>=3.3.4",
 ]
 
 [tool.uv.workspace]

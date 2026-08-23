@@ -28,12 +28,19 @@ __all__ = [
 
 
 class CarrierType(str, Enum):
-    """What kind of Python object a node hangs on (I-3)."""
+    """What a node hangs on (I-3).
+
+    `FILE` is the amendment P10 made deliberately: a non-Python artifact -- a `Dockerfile`,
+    a compose file -- is carried by the file itself. I-3 was written to stop nodes over
+    *fragments*, and a whole file is not one: it has a path, it is addressable, and it is a
+    statement the project makes by existing (architecture §5.7).
+    """
 
     FUNCTION = "function"
     CLASS = "class"
     MODULE = "module"
     GROUP = "group"
+    FILE = "file"
 
 
 @dataclass(frozen=True)
@@ -44,6 +51,11 @@ class NodeKind:
     carriers: frozenset[CarrierType]
     #: May this kind stand at the top level? Only groups may (architecture §5.1).
     top_level: bool
+    #: The paths that carry this kind, in the order the tool that owns them would consider
+    #: them. Only a kind whose carriers include `FILE` may set it, and this is the whole of
+    #: the discovery rule: a file becomes a node because a registry entry named it, never
+    #: because its name looked familiar.
+    artifact: tuple[str, ...]
     #: The observable check this kind dispatches to (`observe.py`, `probe.py`).
     #:
     #: A check proves a node by running it with real input -- a call that needs nothing
@@ -60,11 +72,13 @@ def _kind(
     top_level: bool = False,
     check: str,
     description: str,
+    artifact: tuple[str, ...] = (),
 ) -> NodeKind:
     return NodeKind(
         name=name,
         carriers=frozenset(carriers),
         top_level=top_level,
+        artifact=artifact,
         check=check,
         description=description,
     )
@@ -179,6 +193,47 @@ REGISTRY: dict[str, NodeKind] = {
             CarrierType.FUNCTION,
             check="rag.stage_ready",
             description="Turning retrieved chunks and a question into an answer.",
+        ),
+        # -- Persistence and vectors (P12). The Python that talks to a service is what goes
+        # on the graph; the container it connects to is the docker node beside it (Q10).
+        _kind(
+            "db.session",
+            CarrierType.CLASS,
+            CarrierType.MODULE,
+            check="db.connection_opens",
+            description="The object that owns the database connection, and its pool knobs.",
+        ),
+        _kind(
+            "vector.store",
+            CarrierType.CLASS,
+            CarrierType.MODULE,
+            check="vector.store_opens",
+            description="The vector index: what is embedded into it and searched in it.",
+        ),
+        # -- Docker (P12). The first nodes carried by a file rather than by a Python
+        # object (Q10, architecture §5.7). Neither of them parses anything: what the
+        # compose file says is asked of `docker compose config`, and whether a service is
+        # usable is answered by connecting to the port it publishes (§5.8).
+        _kind(
+            "docker.compose",
+            CarrierType.FILE,
+            top_level=True,
+            artifact=(
+                "compose.yaml",
+                "compose.yml",
+                "docker-compose.yaml",
+                "docker-compose.yml",
+            ),
+            check="docker.services_answer",
+            description="The services this project declares, and the buttons that run them.",
+        ),
+        _kind(
+            "docker.image",
+            CarrierType.FILE,
+            top_level=True,
+            artifact=("Dockerfile",),
+            check="docker.image_referenced",
+            description="The image this project builds itself into.",
         ),
     )
 }

@@ -184,6 +184,11 @@ def route_answers(context: Context, node: dict[str, Any]) -> tuple[str, str]:
     response = _client(app).get(route.path)
     if response.status_code >= 500:
         return FAILED, f"{route.path} answered HTTP {response.status_code}"
+    if response.status_code == 422:
+        # The framework rejecting the call for want of input is not the node working. It is
+        # the same lie a synthesized request body would be, arriving by a different door
+        # (Q7): what a 422 proves is that validation runs.
+        return SKIPPED, f"{route.path} needs input this check is not entitled to invent"
     return PASSED, f"{route.path} answered HTTP {response.status_code}"
 
 
@@ -356,6 +361,56 @@ def graph_branch_registered(context: Context, node: dict[str, Any]) -> tuple[str
     return FAILED, "the function is declared a router but no conditional edge uses it"
 
 
+# -- Persistence and vectors -----------------------------------------------------
+
+
+def db_connection_opens(context: Context, node: dict[str, Any]) -> tuple[str, str]:
+    """Open the connection this node owns, and close it again.
+
+    The one claim worth making about a database node without inventing anything: the
+    settings it holds reach something that answers. The carrier exposes `connect()` taking
+    no arguments -- a convention the system prompt fixes, the way the settings kind's
+    convention is fixed -- and a node that exposes no such method is skipped rather than
+    guessed at.
+    """
+    carrier = context.resolve(node["carrier"])
+    if carrier is None:
+        return FAILED, f"{node['carrier']} does not exist at runtime"
+
+    instance = carrier() if isinstance(carrier, type) else carrier
+    connect = getattr(instance, "connect", None)
+    if not callable(connect):
+        return SKIPPED, "this node exposes no connect() to call"
+
+    connection = connect()
+    close = getattr(connection, "close", None)
+    if callable(close):
+        close()
+    return PASSED, "the connection opens"
+
+
+def vector_store_opens(context: Context, node: dict[str, Any]) -> tuple[str, str]:
+    """The store constructs and is ready to be used.
+
+    Searching needs a query and adding needs a document, and neither is ours to invent, so
+    the proof of what this node *does* comes from the project's own tests (Q7). What can be
+    said here without inventing anything is that the store loads at all.
+    """
+    carrier = context.resolve(node["carrier"])
+    if carrier is None:
+        return FAILED, f"{node['carrier']} does not exist at runtime"
+
+    instance = carrier() if isinstance(carrier, type) else carrier
+    operations = [
+        name
+        for name in ("add", "search", "embed", "index", "query")
+        if callable(getattr(instance, name, None))
+    ]
+    if not operations:
+        return FAILED, "the store loads but exposes nothing to add to or search"
+    return SKIPPED, "the store loads; proving what it does needs real input"
+
+
 # -- RAG -------------------------------------------------------------------------
 #
 # A stage takes a document, a query or a set of chunks. None of those can be invented --
@@ -423,6 +478,8 @@ CHECKS = {
     "graph.state_schema": graph_state_schema,
     "graph.node_registered": graph_node_registered,
     "graph.branch_registered": graph_branch_registered,
+    "db.connection_opens": db_connection_opens,
+    "vector.store_opens": vector_store_opens,
     "rag.stages_load": rag_stages_load,
     "rag.stage_ready": rag_stage_ready,
 }
@@ -701,6 +758,11 @@ def _direct(context: Context, node: dict[str, Any], run: TestRun, plan: dict[str
         detail = f"{detail}; {unreached}"
     if status != PASSED:
         detail = f"{detail}{environment_note(plan)}{version_note(plan, node['kind'])}"
+    # The same rule the test evidence follows, and for the same reason: a check that failed
+    # because the service it needed was not there says nothing about this node.
+    if status == FAILED and environment_note(plan):
+        status = SKIPPED
+        detail = f"{detail} -- a failure cannot be attributed to the node"
     return Result(node["id"], node["check"], status, detail)
 
 

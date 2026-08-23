@@ -89,9 +89,18 @@ class Service:
     name: str
     ports: tuple[int, ...] = ()
     reachable: bool = False
+    #: The Dockerfile this service builds from, when it builds rather than pulls. Asked of
+    #: docker like everything else here; it is what lets a `Dockerfile` node say which
+    #: service builds it.
+    dockerfile: str | None = None
 
     def as_dict(self) -> dict[str, Any]:
-        return {"name": self.name, "ports": list(self.ports), "reachable": self.reachable}
+        return {
+            "name": self.name,
+            "ports": list(self.ports),
+            "reachable": self.reachable,
+            "dockerfile": self.dockerfile,
+        }
 
 
 @dataclass(frozen=True)
@@ -255,7 +264,16 @@ def _declared(project: Path, file: Path) -> tuple[tuple[Service, ...], str | Non
     for name in sorted(services):
         definition = services[name] if isinstance(services[name], dict) else {}
         ports = _published_ports(definition)
-        declared.append(Service(name=name, ports=ports, reachable=_answers(ports)))
+        build = definition.get("build")
+        dockerfile = build.get("dockerfile") if isinstance(build, dict) else None
+        declared.append(
+            Service(
+                name=name,
+                ports=ports,
+                reachable=_answers(ports),
+                dockerfile=None if dockerfile is None else str(dockerfile),
+            )
+        )
     return tuple(declared), None
 
 

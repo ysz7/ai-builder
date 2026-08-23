@@ -126,6 +126,29 @@ registry is exactly this, one section per supported technology:
 | `rag.retrieval` | the retrieval stage | the stage loads and is callable |
 | `rag.generation` | the generation stage | the stage loads and is callable |
 
+**Persistence and vectors**
+
+| `kind` | Carrier | Observable check |
+| --- | --- | --- |
+| `db.session` | the object that owns the connection | the connection opens |
+| `vector.store` | the object that owns the index | the store loads |
+
+The database node is **the Python that talks to the service**, never the container behind
+it — that one is the docker node below. A `db.session` carrier exposes `connect()` taking
+no arguments, because that is what its check calls; without it the node cannot be proven.
+A vector store is proven by the project's own tests, since adding and searching both need
+real input.
+
+**Docker** — these are the odd ones out, and you do not write them. They are carried by
+the **file itself**, and the builder puts them on the graph because a registry entry names
+that path. You write an ordinary `Dockerfile` or compose file with no markup in it; nothing
+about them is yours to annotate.
+
+| `kind` | Carrier | Observable check |
+| --- | --- | --- |
+| `docker.compose` | the compose file | its declared services answer on their ports |
+| `docker.image` | the `Dockerfile` | a declared service builds from it |
+
 If what you are building does not fit one of these, say so instead of inventing a value.
 A `kind` outside the registry is a gate diagnostic.
 
