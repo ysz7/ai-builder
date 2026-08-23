@@ -21,7 +21,11 @@ a = Analysis(
         (
             str(ROOT / "src" / "aibuilder_core" / "prompts" / "system-prompt-claude-code.md"),
             "aibuilder_core/prompts",
-        )
+        ),
+        # The probe is handed to the *project's* interpreter as a plain file (P11), so it
+        # has to exist on disk -- a module frozen into the archive cannot be run by anyone
+        # but this binary.
+        (str(ROOT / "src" / "aibuilder_core" / "probe.py"), "aibuilder_core"),
     ],
     # libcst pulls its grammar and native parser in dynamically; without this the
     # frozen binary imports cleanly and then fails at first parse.

@@ -10,7 +10,7 @@ AST-addressable markup layer (`bp`); a parser projects that into a graph; edits 
 written back through the syntax tree with `libcst`. Assembled applications deploy as plain Python
 projects with no runtime dependency on the builder.
 
-Current state: **P0–P10 done; v0 is feature-complete apart from the UI.** Window opens, React Flow renders a scaffold canvas, Rust
+Current state: **P0–P11 done. P12 (the vocabulary of a production project) is next.** Window opens, React Flow renders a scaffold canvas, Rust
 reaches the Python core over NDJSON, the five `bp` primitives exist and are proven inert, and
 `strip` removes the markup with the example service answering identically before and after. The parser
 turns an annotated project into a graph IR, the static gate judges it into addressed diagnostics, and
@@ -20,7 +20,28 @@ code through the syntax tree, and the repair system acts on divergences — or r
 who must decide, the agent integration assembles one brief for both inputs and logs what the agent
 gets wrong, and the FastAPI slice runs end to end — brief, graph, knob write, breakage, repair, green
 again, stripped copy proving the same things — and the same loop closes on a LangGraph agent and a
-RAG pipeline, which is what makes the mechanism general rather than FastAPI-shaped.
+RAG pipeline, which is what makes the mechanism general rather than FastAPI-shaped. What is missing
+is everything around the application: the environment it runs in (P11), the vocabulary for a database
+or a vector store (P12), and the ability to run anything at all (P13).
+
+**"Python only" bounds the application's source language, not the project's contents.** Docker files,
+compose, migrations and environment configuration are part of a production project and in scope. Such
+an artifact **may be a node carried by the file itself** (Q10, which amended I-3): the file stays the
+source of truth — read, acted on, never regenerated from the node — it carries no markup, and its kind
+comes from the registry rather than from a bare filename match. Knobs only where a key in a structured
+format can be addressed; actions instead of knobs where it cannot; green only when the image actually
+built or the services actually came up (I-5).
+
+How a file-carried node is actually built is [architecture §5.7](docs/architecture.md): **a reader
+beside the parser, never inside it** — `parser.py` keeps meaning "Python source into IR" and learns
+no file formats; identity is the project-relative path; knobs are declared by the kind rather than by
+the file; reconciliation tracks only the keys the graph wrote; and the checks live in the runner, not
+in `probe.py`, which is the module that imports the user's project and must stay the only one.
+
+**A contract edge and a flow are different relations** (Q9). Edges are types crossing a boundary, read
+from signatures. Flow — a pipeline's order, an agent's wiring — is never parsed out of assembly code
+and never declared in markup; it comes from a run: the compiled graph the framework exposes, or the
+order instrumented carriers were entered in. No run, no flow arrows.
 
 [examples/fastapi-service/](examples/fastapi-service/) is the annotated reference project: it is what
 the parser is written against, and the shape every generation rule in the system prompt has an
@@ -122,7 +143,7 @@ diagnostic record and the closed catalogue of codes; `verdict.py` is the single 
 `api.py` assembles the versioned payload and declares its schema; `observe.py` runs the observable
 checks and `probe.py` contains them; `snapshot.py` records the outline of the last valid state and
 `reconcile.py` diffs against it; `writer.py` writes back through `libcst`; `repair.py` acts on
-divergences; `agent.py` assembles the agent's brief and records its failure modes and `catalog.py`
+divergences; `environment.py` is the project's interpreter and the services it declares; `agent.py` assembles the agent's brief and records its failure modes and `catalog.py`
 reads the blueprint catalog; `strip.py` removes the markup.
 
 `apply_repair` takes `resolution` as a required keyword with no default. That is not style: §9 case 2
@@ -134,12 +155,34 @@ Every write addresses a **syntax node**, never a line or a span of text — that
 being real Python buys. A write validates against the knob's own declaration first, is undone if the
 gate comes back worse than before, and updates the snapshot when it passes.
 
+**Outside Python, ask rather than read** ([architecture §5.8](docs/architecture.md)). The parser
+learns no library and no file format, ever. A compose file is asked of `docker compose config`, a
+service of the port it publishes, a LangGraph flow of the compiled graph, a database of a connection.
+Never add a YAML reader, a Dockerfile reader or a migration reader to this codebase: a parser for
+someone else's format is a second opinion about a thing that already has a first one, and it is wrong
+in ways that look right.
+
+**Nothing starts a service implicitly** (P11). Observing never brings a container up, never creates
+a virtual environment and never installs anything — `env.up` / `env.down` exist so that nothing else
+has to, and they run only because a person pressed the button on the compose file's node. Because
+nothing is ever started implicitly there is nothing to leak; keep it that way, and note that the test
+guarding it watches the docker commands, not the call sites. The compose file is never parsed by us —
+`docker compose config` is asked what it says.
+
+**A failing test in an environment the project asked for and did not get is `unproven`, not red**, and
+a test that passed still counts. `Environment.incomplete` is the one place that judgement is made.
+
 **The project's own tests are the run the graph observes** (Q7). `probe.py` runs the suite with the
 carriers instrumented by code object — tracing, never wrapping, since FastAPI holds its own reference
 to each endpoint — and a node is proven by a test that entered it and passed. Test evidence outranks a
 direct call wherever both exist, and that rule lives in `probe.run_plan` and nowhere else. Never
 count import-time execution as "exercised", and never let a suite that fails to collect redden the
 nodes: a broken test suite is not a broken application.
+
+**`probe.py` is handed to the project's own interpreter as a plain file**, which works only because
+it imports nothing from this package — a project's virtual environment has never heard of
+`aibuilder_core`. Never add an import from the toolchain to it, and never resolve it by importing it
+here; `observe.probe_script()` finds it by path, and the frozen build ships it as data.
 
 **`probe.py` is the only module that imports the user's project, and the toolchain never imports it**
 — `observe.py` spawns it as a subprocess with a timeout. Keep it that way: everything else reads
@@ -212,7 +255,7 @@ agent's system prompt used to and was moved into the package for exactly that re
 - [architecture.md](docs/architecture.md) — the v0 spec. Sections 2 (invariants) and 7 (the parser as
   a gate) carry everything load-bearing.
 - [roadmap.md](docs/roadmap.md) — phases P0–P10 with per-phase acceptance criteria and the invariant
-  each protects. Current position: P10.
+  each protects. Current position: P12.
 - [open-questions.md](docs/open-questions.md) — nothing open; Q1–Q5 are settled, with the reasoning
   kept in the log. **Read before starting any phase**, and add an entry the moment two documents
   disagree — an unrecorded conflict is worse than an open one.

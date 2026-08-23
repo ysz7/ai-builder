@@ -133,7 +133,7 @@ uv run python -m aibuilder_core failures examples/fastapi-service   # what the a
 
 ## Status
 
-P0 through P10 are done: the window opens, React Flow renders a canvas, the Rust shell reaches the Python
+P0 through P11 are done: the window opens, React Flow renders a canvas, the Rust shell reaches the Python
 core over NDJSON, the markup layer exists and is provably inert, and
 [examples/fastapi-service/](examples/fastapi-service/) is the annotated reference project the rest is
 tested against. `npm run check` is the gate.
@@ -183,6 +183,17 @@ equal stages with no owner, each carrying the knobs that belong to it, so tuning
 retrieval rather than in a settings file three directories away. Neither can be proven by a call the
 toolchain invents, so both are proven by their own tests.
 
-What is left of v0 is the UI, which is delivered separately.
+The checks now run in the **project's own** interpreter and know which services its compose file
+declares. A failing test in an environment the project asked for and did not get comes back
+`unproven` with the environment named, never as a broken node — while a test that passed still counts,
+whatever was absent. Nothing is ever started implicitly: bringing services up is an action a person
+takes, which is also why there is nothing left running afterwards to leak.
 
-Python only; the supported technologies are FastAPI, LangGraph and RAG.
+What is left is the vocabulary for a database or a vector store, the ability to run and watch the
+application itself, and the UI, which is delivered separately.
+
+The application's source language is Python, and the supported technologies are FastAPI, LangGraph
+and RAG. That is a statement about what the graph projects, not about what a project may contain: a
+production project's Docker files, compose, migrations and configuration are part of the work, and
+such an artifact may even be a node, carried by the file itself — with the file staying the source of
+truth.

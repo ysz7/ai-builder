@@ -252,6 +252,20 @@ Write FastAPI exactly as the official docs would, then mark it up. Concretely:
 Do not add a framework, a runtime dependency, or anything that would make the app need
 `bp` to run. `bp` is markup only.
 
+## Infrastructure files
+
+A real project also has a `Dockerfile`, a compose file, migrations and configuration.
+Write them the way you always would — **as ordinary files, carrying no markup at all.**
+There is no markup for them and there will not be: markup is real Python syntax. Some of
+them do appear on the graph, carried by the file itself, but that is the builder's own
+doing and needs nothing from you: you write a normal `Dockerfile`, and the builder
+recognises it. Never invent a marker, a comment convention or a sidecar file to announce
+one, and never write a file whose content is generated from something else in the project
+— the file is the source of truth about itself.
+
+The Python that talks to those services is where your markup goes: the module that owns a
+database session, with its pool size and timeout as knobs, is a node like any other.
+
 ## LangGraph generation rules
 
 Write LangGraph exactly as its docs would, then mark it up. Concretely:

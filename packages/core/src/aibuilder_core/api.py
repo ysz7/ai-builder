@@ -17,6 +17,7 @@ from typing import Any
 
 from aibuilder_core.agent import build_brief, failure_modes, record_outcome
 from aibuilder_core.catalog import find_catalog, list_blueprints
+from aibuilder_core.environment import describe_environment, start_services, stop_services
 from aibuilder_core.gate import GateMode, check_graph
 from aibuilder_core.kinds import REGISTRY
 from aibuilder_core.observe import run_observations
@@ -32,7 +33,9 @@ __all__ = [
     "AGENT_BRIEF_SCHEMA",
     "AGENT_FAILURES_SCHEMA",
     "AGENT_RECORD_SCHEMA",
+    "ENVIRONMENT_SCHEMA",
     "GRAPH_API_VERSION",
+    "SERVICE_SCHEMA",
     "GRAPH_KINDS_SCHEMA",
     "GRAPH_READ_SCHEMA",
     "SNAPSHOT_STATUS_SCHEMA",
@@ -41,6 +44,9 @@ __all__ = [
     "REPAIR_LIST_SCHEMA",
     "WRITE_SCHEMA",
     "agent_blueprints",
+    "environment_status",
+    "services_start",
+    "services_stop",
     "agent_brief",
     "agent_failures",
     "agent_record",
@@ -56,7 +62,12 @@ __all__ = [
 
 #: Bumped when the payload's shape changes in a way a client would notice. Additive fields
 #: do not bump it; removing or retyping one does.
-GRAPH_API_VERSION = 1
+#:
+#: 2: the environment's services stopped being a list of names plus a list of running ones,
+#: and became one list of services each carrying its ports and whether anything answers
+#: there. Readiness is now a connection rather than docker's own status, so the old fields
+#: had nothing behind them (P11).
+GRAPH_API_VERSION = 2
 
 
 # -- the contract ---------------------------------------------------------------
@@ -135,6 +146,26 @@ _DIAGNOSTIC = {
     "node": "str?",
 }
 
+_ENVIRONMENT = {
+    "interpreter": "str",
+    "interpreter_origin": "str",
+    "compose_file": "str?",
+    # Each declared service, and whether anything answers where it publishes. Readiness is
+    # a connection rather than a status field: it is the question the application asks.
+    "services": [{"name": "str", "ports": ["int"], "reachable": "bool"}],
+    "missing": ["str"],
+    "docker_unavailable": "str?",
+    "incomplete": "str?",
+}
+
+#: The `env.status` payload: what the project runs in. Read-only, always -- describing an
+#: environment never changes it (P11).
+ENVIRONMENT_SCHEMA = {"api_version": "int", "environment": _ENVIRONMENT}
+
+#: The `env.up` / `env.down` payload. These are the two methods that do change something,
+#: and they exist so that nothing else has to.
+SERVICE_SCHEMA = {"api_version": "int", "ok": "bool", "detail": "str", "services": ["str"]}
+
 #: The `graph.read` payload.
 GRAPH_READ_SCHEMA = {
     "api_version": "int",
@@ -153,6 +184,9 @@ GRAPH_READ_SCHEMA = {
     # executes the project, which is never a side effect a read should have by surprise.
     "observations": {"<key>": {"passed": "bool", "check": "str", "detail": "str?"}},
     "skipped": {"<key>": "str"},
+    # Present only when the checks ran: it describes the environment they ran in, and
+    # describing it means asking docker, which a plain read has no business doing.
+    "environment": _null_or(_ENVIRONMENT),
     "mode": "str",
     "accepted": "bool",
 }
@@ -310,6 +344,7 @@ def read_graph(
     mode: GateMode = GateMode.SOFT,
     observe: bool = False,
     observations: dict[str, Observation] | None = None,
+    python: str | None = None,
 ) -> dict[str, Any]:
     """Parse a project, judge it, and return the whole answer in one envelope.
 
@@ -326,9 +361,11 @@ def read_graph(
     graph = parse_project(root)
 
     skipped: dict[str, str] = {}
+    environment: dict[str, Any] | None = None
     if observe and observations is None:
-        run = run_observations(graph, root)
+        run = run_observations(graph, root, python=python)
         observations, skipped = run.observations, run.skipped
+        environment = None if run.environment is None else run.environment.as_dict()
 
     result = check_graph(graph, mode=mode, observations=observations)
 
@@ -343,9 +380,28 @@ def read_graph(
             for node, o in (observations or {}).items()
         },
         "skipped": skipped,
+        "environment": environment,
         "mode": result.mode,
         "accepted": result.accepted,
     }
+
+
+def environment_status(project: Path | str, python: str | None = None) -> dict[str, Any]:
+    """What the project runs in: its interpreter, its services, and what is up right now."""
+    return {
+        "api_version": GRAPH_API_VERSION,
+        "environment": describe_environment(project, python).as_dict(),
+    }
+
+
+def services_start(project: Path | str, python: str | None = None) -> dict[str, Any]:
+    """Bring the project's declared services up. Only ever because a person asked (P11)."""
+    return {"api_version": GRAPH_API_VERSION, **start_services(project, python).as_dict()}
+
+
+def services_stop(project: Path | str) -> dict[str, Any]:
+    """Take them down again."""
+    return {"api_version": GRAPH_API_VERSION, **stop_services(project).as_dict()}
 
 
 def take_project_snapshot(project: Path | str) -> dict[str, Any]:

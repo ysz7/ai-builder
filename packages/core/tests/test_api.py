@@ -17,11 +17,13 @@ from aibuilder_core.api import (
     AGENT_BRIEF_SCHEMA,
     AGENT_FAILURES_SCHEMA,
     AGENT_RECORD_SCHEMA,
+    ENVIRONMENT_SCHEMA,
     GRAPH_API_VERSION,
     GRAPH_KINDS_SCHEMA,
     GRAPH_READ_SCHEMA,
     REPAIR_APPLY_SCHEMA,
     REPAIR_LIST_SCHEMA,
+    SERVICE_SCHEMA,
     SNAPSHOT_STATUS_SCHEMA,
     SNAPSHOT_TAKE_SCHEMA,
     WRITE_SCHEMA,
@@ -30,9 +32,11 @@ from aibuilder_core.api import (
     agent_failures,
     agent_record,
     describe_kinds,
+    environment_status,
     read_graph,
     repair_divergence,
     repairs_available,
+    services_start,
     snapshot_status,
     take_project_snapshot,
     write_knob,
@@ -304,6 +308,15 @@ def test_an_agent_record_of_a_flawed_generation_matches_the_same_contract() -> N
 
     validate(payload, AGENT_RECORD_SCHEMA)
     assert payload["entry"]["diagnostics"]
+
+
+def test_the_environment_payloads_match_the_declared_contract(tmp_path: Path) -> None:
+    """Two shapes: what the environment is, and what an action on it answered."""
+    validate(wire_form(environment_status(str(EXAMPLE))), ENVIRONMENT_SCHEMA)
+    validate(wire_form(services_start(str(tmp_path))), SERVICE_SCHEMA)
+
+    refused = services_start(str(tmp_path))
+    assert refused["ok"] is False and "no compose file" in refused["detail"]
 
 
 # -- over the wire ----------------------------------------------------------------

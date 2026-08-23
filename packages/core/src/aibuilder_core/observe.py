@@ -13,6 +13,11 @@ it is the erosion that would be easiest to introduce here, one convenience at a 
 The plan names the project's test suite when it has one, because that suite is the run the
 graph observes (Q7). Which evidence then counts for which node is decided in `probe.py`,
 once -- this side only says where the tests are.
+
+**The probe is spawned with the project's own interpreter** (P11), which is possible only
+because the probe imports nothing from this package: it is handed to that interpreter as a
+plain file, and a project's virtual environment has no `aibuilder_core` in it. The rule that
+looked like tidiness in P4 is what makes the environment work at all.
 """
 
 from __future__ import annotations
@@ -23,12 +28,13 @@ import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from aibuilder_core.environment import Environment, describe_environment
 from aibuilder_core.ir import Graph
 from aibuilder_core.kinds import lookup, technology_of
 from aibuilder_core.markup import GROUP_MANIFEST
 from aibuilder_core.verdict import Observation
 
-__all__ = ["ObservationRun", "run_observations", "tests_path"]
+__all__ = ["ObservationRun", "probe_script", "run_observations", "tests_path"]
 
 #: How long the whole probe may take -- the project's own test suite included, since P9.
 #: A project that hangs is a failing project, and the runner has to come back to say so.
@@ -47,9 +53,13 @@ class ObservationRun:
     observations: dict[str, Observation] = field(default_factory=dict)
     #: node id -> why its check did not run. Never an absence of information.
     skipped: dict[str, str] = field(default_factory=dict)
+    #: The environment the run happened in. Travels with the evidence, because evidence
+    #: from an environment nobody described is evidence about nothing in particular.
+    environment: Environment | None = None
 
     def as_dict(self) -> dict[str, object]:
         return {
+            "environment": None if self.environment is None else self.environment.as_dict(),
             "observations": {
                 node: {
                     "passed": observation.passed,
@@ -62,7 +72,27 @@ class ObservationRun:
         }
 
 
-def build_plan(graph: Graph, project: Path) -> dict[str, object]:
+def probe_script() -> Path:
+    """The probe, as a file another interpreter can be handed.
+
+    By path, never by import: importing it here would run the module that imports the
+    user's project, in the process the UI is talking to. Frozen, it travels as bundled data
+    beside the package, for the same reason the prompt does.
+    """
+    beside = Path(__file__).resolve().with_name("probe.py")
+    if beside.is_file():
+        return beside
+
+    bundled = Path(getattr(sys, "_MEIPASS", Path(sys.executable).parent))
+    candidate = bundled / "aibuilder_core" / "probe.py"
+    if candidate.is_file():
+        return candidate
+    raise FileNotFoundError(f"the probe is missing at {beside}")
+
+
+def build_plan(
+    graph: Graph, project: Path, environment: Environment | None = None
+) -> dict[str, object]:
     """What the probe is asked to import and check.
 
     Only the modules the graph already knows about are imported -- the ones that carry a
@@ -106,6 +136,9 @@ def build_plan(graph: Graph, project: Path) -> dict[str, object]:
         "modules": sorted(name for name in modules if name),
         "nodes": nodes,
         "tests": tests_path(project),
+        # What the run is happening in. The probe needs it to know when a failing test
+        # cannot be attributed to the node that failed it.
+        "environment": {} if environment is None else environment.as_dict(),
         # Only the technologies this graph actually uses, and only those whose checks read
         # library internals. The probe compares them with what is installed *there* -- it
         # is the process that has the project's world in front of it.
@@ -145,34 +178,44 @@ def run_observations(
     project: Path | str,
     *,
     timeout_s: int = DEFAULT_TIMEOUT_S,
+    python: str | None = None,
 ) -> ObservationRun:
-    """Run every node's observable check and return what could be proven."""
+    """Run every node's observable check and return what could be proven.
+
+    Reads the environment; never changes it. If the project declares services and they are
+    not running, that fact travels into the plan and comes back in the reasons -- it does
+    not cause anything to be started (P11).
+    """
     project = Path(project)
-    plan = build_plan(graph, project)
+    environment = describe_environment(project, python)
+    plan = build_plan(graph, project, environment)
     if not plan["nodes"]:
-        return ObservationRun()
+        return ObservationRun(environment=environment)
 
     try:
         completed = subprocess.run(
-            [sys.executable, "-m", "aibuilder_core.probe"],
+            # The project's interpreter, and the probe as a plain file -- see `probe_script`.
+            [environment.interpreter, str(probe_script())],
             input=json.dumps(plan),
             capture_output=True,
             text=True,
             timeout=timeout_s,
         )
     except subprocess.TimeoutExpired:
-        return _all_failed(plan, f"the checks did not finish within {timeout_s}s")
+        return _all_failed(plan, f"the checks did not finish within {timeout_s}s", environment)
 
     if completed.returncode != 0:
         detail = (completed.stderr or "").strip().splitlines()
         return _all_failed(
-            plan, f"the checker exited {completed.returncode}: {detail[-1] if detail else ''}"
+            plan,
+            f"the checker exited {completed.returncode}: {detail[-1] if detail else ''}",
+            environment,
         )
 
     try:
         payload = json.loads(completed.stdout.strip() or "{}")
     except json.JSONDecodeError:
-        return _all_failed(plan, "the checker produced no readable result")
+        return _all_failed(plan, "the checker produced no readable result", environment)
 
     observations: dict[str, Observation] = {}
     skipped: dict[str, str] = {}
@@ -187,15 +230,18 @@ def run_observations(
                 detail=result["detail"],
             )
 
-    return ObservationRun(observations=observations, skipped=skipped)
+    return ObservationRun(observations=observations, skipped=skipped, environment=environment)
 
 
-def _all_failed(plan: dict[str, object], detail: str) -> ObservationRun:
+def _all_failed(
+    plan: dict[str, object], detail: str, environment: Environment | None = None
+) -> ObservationRun:
     """Nothing could be proven, and the reason is the same for every node."""
     nodes: list[dict[str, str]] = plan["nodes"]  # type: ignore[assignment]
     return ObservationRun(
         observations={
             node["id"]: Observation(passed=False, check=node["check"], detail=detail)
             for node in nodes
-        }
+        },
+        environment=environment,
     )

@@ -21,9 +21,12 @@ from aibuilder_core.api import (
     agent_failures,
     agent_record,
     describe_kinds,
+    environment_status,
     read_graph,
     repair_divergence,
     repairs_available,
+    services_start,
+    services_stop,
     snapshot_status,
     take_project_snapshot,
     write_knob,
@@ -87,7 +90,26 @@ def graph_read(params: dict[str, Any]) -> dict[str, Any]:
     if not isinstance(observe, bool):
         raise ProtocolError("invalid_params", "'observe' must be true or false")
 
-    return read_graph(project, mode=mode, observe=observe)
+    return read_graph(project, mode=mode, observe=observe, python=_optional_str(params, "python"))
+
+
+def env_status(params: dict[str, Any]) -> dict[str, Any]:
+    """Describe the environment. Reads; starts nothing."""
+    return environment_status(_project_of(params), _optional_str(params, "python"))
+
+
+def env_up(params: dict[str, Any]) -> dict[str, Any]:
+    """Bring the declared services up -- the button on the compose file's node (§5.7).
+
+    A method of its own rather than a flag on `graph.read`: starting containers is not
+    something a caller should be able to do by accident while asking a question.
+    """
+    return services_start(_project_of(params), _optional_str(params, "python"))
+
+
+def env_down(params: dict[str, Any]) -> dict[str, Any]:
+    """Take them down again."""
+    return services_stop(_project_of(params))
 
 
 def _project_of(params: dict[str, Any]) -> str:
@@ -233,6 +255,9 @@ HANDLERS: dict[str, Handler] = {
     "agent.blueprints": agent_blueprints_method,
     "agent.record": agent_record_method,
     "agent.failures": agent_failures_method,
+    "env.status": env_status,
+    "env.up": env_up,
+    "env.down": env_down,
 }
 
 

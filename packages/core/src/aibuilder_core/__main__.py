@@ -19,6 +19,9 @@ With a subcommand it is a small CLI, used by CI and by hand:
     uv run python -m aibuilder_core brief <project> [--request TEXT] [--blueprint ID]
     uv run python -m aibuilder_core record <project> --source chat|blueprint [--observe]
     uv run python -m aibuilder_core failures <project>
+    uv run python -m aibuilder_core env <project>
+    uv run python -m aibuilder_core env-up <project>
+    uv run python -m aibuilder_core env-down <project>
 """
 
 from __future__ import annotations
@@ -35,8 +38,11 @@ from aibuilder_core.api import (
     agent_brief,
     agent_failures,
     agent_record,
+    environment_status,
     repair_divergence,
     repairs_available,
+    services_start,
+    services_stop,
     snapshot_status,
     take_project_snapshot,
     write_knob,
@@ -298,6 +304,37 @@ def run_failures(project: Path) -> int:
     return 0
 
 
+def run_env(project: Path) -> int:
+    """Describe the environment. Reads only -- nothing here starts anything (P11)."""
+    environment = environment_status(project)["environment"]
+
+    print(f"interpreter: {environment['interpreter']} ({environment['interpreter_origin']})")
+    if environment["compose_file"] is None:
+        print("services: none declared (no compose file)")
+    elif environment["docker_unavailable"]:
+        print(f"services: declared in {environment['compose_file']}")
+        print(f"  cannot be read: {environment['docker_unavailable']}")
+    else:
+        for service in environment["services"]:
+            ports = ", ".join(str(port) for port in service["ports"]) or "no published port"
+            state = "answering" if service["reachable"] else "nothing answers"
+            print(f"  {service['name']}: {state} ({ports})")
+    return 0
+
+
+def run_env_up(project: Path) -> int:
+    """Bring the declared services up, because someone asked."""
+    result = services_start(project)
+    print(result["detail"])
+    return 0 if result["ok"] else 1
+
+
+def run_env_down(project: Path) -> int:
+    result = services_stop(project)
+    print(result["detail"])
+    return 0 if result["ok"] else 1
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="aibuilder-core", description=__doc__)
     sub = parser.add_subparsers(dest="command")
@@ -367,6 +404,15 @@ def build_parser() -> argparse.ArgumentParser:
     failures_cmd = sub.add_parser("failures", help="tally the agent's logged failure modes")
     failures_cmd.add_argument("project", type=Path)
 
+    env_cmd = sub.add_parser("env", help="describe the project's interpreter and services")
+    env_cmd.add_argument("project", type=Path)
+
+    env_up_cmd = sub.add_parser("env-up", help="bring the project's declared services up")
+    env_up_cmd.add_argument("project", type=Path)
+
+    env_down_cmd = sub.add_parser("env-down", help="take the project's services down")
+    env_down_cmd.add_argument("project", type=Path)
+
     return parser
 
 
@@ -404,6 +450,12 @@ def main(argv: list[str] | None = None) -> int:
         )
     if parsed.command == "failures":
         return run_failures(parsed.project)
+    if parsed.command == "env":
+        return run_env(parsed.project)
+    if parsed.command == "env-up":
+        return run_env_up(parsed.project)
+    if parsed.command == "env-down":
+        return run_env_down(parsed.project)
 
     build_parser().print_help()
     return 2

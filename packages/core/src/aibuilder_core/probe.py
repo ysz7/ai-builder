@@ -44,7 +44,7 @@ from dataclasses import dataclass, field
 from types import CodeType, FrameType
 from typing import Any
 
-__all__ = ["TestRun", "main", "observe_tests", "run_plan", "version_note"]
+__all__ = ["TestRun", "environment_note", "main", "observe_tests", "run_plan", "version_note"]
 
 PASSED = "passed"
 FAILED = "failed"
@@ -622,12 +622,30 @@ def run_plan(plan: dict[str, Any]) -> list[dict[str, str]]:
         evidence = run.evidence(node["id"])
         if evidence is not None:
             status, detail = evidence
+            # A failure in an environment that is missing what the project asked for is
+            # **unattributable**, and the asymmetry is deliberate: a test that passed proves
+            # the node did its job, whatever else was absent, while a test that failed could
+            # have failed because a database was not there. Calling that node broken would
+            # be blaming code for the environment it was denied.
+            if status == FAILED and (note := environment_note(plan)):
+                status = SKIPPED
+                detail = f"{detail}{note} -- a failure cannot be attributed to the node"
             results.append(Result(node["id"], "tests.exercised", status, detail))
             continue
 
         results.append(_direct(context, node, run, plan))
 
     return [result.as_dict() for result in results]
+
+
+def environment_note(plan: dict[str, Any]) -> str:
+    """ "the services this project declares are not running" -- when that is the case.
+
+    Attached to results that are not a pass, like the version note, and for the same
+    reason: it is context the reader would otherwise have to go and find.
+    """
+    incomplete = plan.get("environment", {}).get("incomplete")
+    return f"; {incomplete}" if incomplete else ""
 
 
 def version_note(plan: dict[str, Any], kind: str) -> str:
@@ -682,7 +700,7 @@ def _direct(context: Context, node: dict[str, Any], run: TestRun, plan: dict[str
         unreached = "no test exercised this node" if run.ran else run.detail
         detail = f"{detail}; {unreached}"
     if status != PASSED:
-        detail = f"{detail}{version_note(plan, node['kind'])}"
+        detail = f"{detail}{environment_note(plan)}{version_note(plan, node['kind'])}"
     return Result(node["id"], node["check"], status, detail)
 
 
