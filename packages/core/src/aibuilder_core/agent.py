@@ -41,7 +41,7 @@ from typing import Any
 from aibuilder_core.catalog import Blueprint, load_blueprint
 from aibuilder_core.gate import GateMode
 from aibuilder_core.ir import Graph
-from aibuilder_core.kinds import REGISTRY
+from aibuilder_core.kinds import REGISTRY, installed_version, technology_of
 from aibuilder_core.parser import parse_project
 
 __all__ = [
@@ -370,6 +370,10 @@ def record_outcome(
         ],
         "verdicts": result["verdicts"],
         "accepted": result["accepted"],
+        # What the project was built against, for the technologies whose internals our
+        # checks read. Recorded with the outcome so a failure mode that arrives with an
+        # upgrade can be seen to have arrived with an upgrade.
+        "versions": _versions(result["graph"]["nodes"]),
     }
 
     path = root / AGENT_LOG_PATH
@@ -378,6 +382,21 @@ def record_outcome(
         handle.write(json.dumps(entry) + "\n")
 
     return entry
+
+
+def _versions(nodes: list[dict[str, Any]]) -> dict[str, str | None]:
+    """The installed versions of the technologies this graph uses, or `None` if absent.
+
+    Read in the toolchain's own environment, which in v0 is also the one the checks run in.
+    When the two come apart -- a project with its own interpreter -- this has to be read
+    where the project lives, not here.
+    """
+    distributions = {
+        technology.distribution
+        for node in nodes
+        if (technology := technology_of(str(node.get("kind", "")))) is not None
+    }
+    return {name: installed_version(name) for name in sorted(distributions)}
 
 
 def failure_modes(project: Path | str) -> dict[str, Any]:

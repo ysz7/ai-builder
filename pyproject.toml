@@ -14,10 +14,17 @@ dev = [
     "pyinstaller>=6.22.2",
     "ruff>=0.9",
     "mypy>=1.14",
-    # The example project the gates are proven against. Test-only: neither `bp` nor
-    # the core may ever depend on a web framework.
+    # The example projects the gates are proven against. Test-only, every one of them:
+    # neither `bp` nor the core may ever depend on a web framework, an agent runtime or a
+    # vector store. The core reads those projects statically and runs them in a subprocess.
     "fastapi>=0.115",
     "httpx>=0.28",
+    "langgraph>=1.2.11",
+    # Pulled in by the RAG example's vector store, and pinned for one reason: numpy 2.5's
+    # bundled stubs are written in syntax newer than the Python floor we typecheck against,
+    # and mypy ignores `follow_imports` for stub files, so there is no way to tell it not
+    # to read someone else's package. Lift the pin when the floor moves past 3.11.
+    "numpy<2.5",
 ]
 
 [tool.uv.workspace]

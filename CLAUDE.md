@@ -10,7 +10,7 @@ AST-addressable markup layer (`bp`); a parser projects that into a graph; edits 
 written back through the syntax tree with `libcst`. Assembled applications deploy as plain Python
 projects with no runtime dependency on the builder.
 
-Current state: **P0–P9 done, P10 next.** Window opens, React Flow renders a scaffold canvas, Rust
+Current state: **P0–P10 done; v0 is feature-complete apart from the UI.** Window opens, React Flow renders a scaffold canvas, Rust
 reaches the Python core over NDJSON, the five `bp` primitives exist and are proven inert, and
 `strip` removes the markup with the example service answering identically before and after. The parser
 turns an annotated project into a graph IR, the static gate judges it into addressed diagnostics, and
@@ -19,11 +19,17 @@ no longer matches the last valid state, the writer edits knobs and node declarat
 code through the syntax tree, and the repair system acts on divergences — or refuses to, and says
 who must decide, the agent integration assembles one brief for both inputs and logs what the agent
 gets wrong, and the FastAPI slice runs end to end — brief, graph, knob write, breakage, repair, green
-again, stripped copy proving the same things. LangGraph and RAG (P10) are next.
+again, stripped copy proving the same things — and the same loop closes on a LangGraph agent and a
+RAG pipeline, which is what makes the mechanism general rather than FastAPI-shaped.
 
 [examples/fastapi-service/](examples/fastapi-service/) is the annotated reference project: it is what
 the parser is written against, and the shape every generation rule in the system prompt has an
-instance of. Change it only deliberately — later phases snapshot-test against it.
+instance of. Change it only deliberately — the graph snapshot test compares against it byte for byte.
+[examples/langgraph-agent/](examples/langgraph-agent/) and
+[examples/rag-pipeline/](examples/rag-pipeline/) are the other two topologies: a group over state
+nodes, and a group over pipeline stages whose **knobs live on the stages themselves**. Each example
+carries its own test suite, and that suite is the run its graph is observed by — a stage with no test
+is a node with no evidence, by design.
 
 Note: the git repository root is the **parent** directory (`Awesome Blueprints/`), a monorepo holding
 this project alongside `Awesome AI Blueprints` and `Awesome Blueprints Website`.
@@ -66,9 +72,11 @@ uv run python -m aibuilder_core failures examples/fastapi-service
 The brief is the agent's whole input: the system prompt verbatim, the request (a sentence, a
 blueprint's specification text, or both), and the project as it stands. **Both inputs carry the same
 prompt, byte for byte** — §3's rule that the annotation rules live in the prompt and not in the
-blueprints is a test, not a convention. The blueprint catalog is the sibling `Awesome AI Blueprints`
-checkout, found automatically or pointed at with `AIBUILDER_BLUEPRINTS`; only `blueprint.md` is ever
-read from it, never the `architecture.mmd` beside it.
+blueprints is a test, not a convention. **A blueprint catalog is never discovered** — its location is
+passed in by the caller or set in `AIBUILDER_BLUEPRINTS`, and with neither, input B is simply
+unavailable. Nothing reads a directory because it happens to sit next to the project: what the agent
+is told must not depend on the shape of someone's disk. When a catalog is given, only `blueprint.md`
+is read from an entry, never the `architecture.mmd` beside it.
 
 The system prompt is package data at
 [packages/core/src/aibuilder_core/prompts/system-prompt-claude-code.md](packages/core/src/aibuilder_core/prompts/system-prompt-claude-code.md),
@@ -218,6 +226,13 @@ Known naming drift: the roadmap calls the toolchain package `aibuilder`; it exis
 A new node `kind` is a new entry in `kinds.REGISTRY` **and** a row in the system prompt's `kind`
 table — a test holds the two together, because an agent told about a kind the checker cannot dispatch
 on generates code nothing can prove (Q8).
+
+If that kind's check **reads a library's internals**, the technology also needs an entry in
+`kinds.TECHNOLOGIES` with the release the check was written against. A test asserts that number equals
+what is installed, so upgrading the dependency is what updates it. It is a statement about our code,
+never a claim that another version is broken: nothing warns about, gates, or refuses an upgrade, and
+the note only ever appears attached to a result that is *not* a pass. A technology whose checks touch
+no library gets no entry — RAG is the standing example.
 
 A new diagnostic is a new entry in `diagnostics.CATALOGUE` with its rule and its repair text — never
 an ad-hoc message at the call site, or repair prompts stop being writable from the diagnostic alone.

@@ -54,6 +54,7 @@ apps/desktop/          Tauri app
 packages/bp/           inert markup primitives (ships to user projects)
 packages/core/         Python core, runs as the sidecar
 scripts/               sidecar dev shim and PyInstaller build
+examples/              the three annotated reference projects, each with its own tests
 docs/                  specification and roadmap — local only, not committed
 assets/                design references — local only, not committed
 ```
@@ -106,12 +107,12 @@ uv run python -m aibuilder_core strip examples/fastapi-service /tmp/stripped
 ```
 
 To see what the code-generation agent is handed — the system prompt, the request, and the project as
-it stands — for a chat request or for a blueprint out of the sibling MIT catalog:
+it stands — for a chat request, or for a blueprint out of a catalog you point it at:
 
 ```bash
-uv run python -m aibuilder_core blueprints                          # what input B can be given
+uv run python -m aibuilder_core blueprints --catalog <path>         # what input B can be given
 uv run python -m aibuilder_core brief examples/fastapi-service --request "add a users router"
-uv run python -m aibuilder_core brief examples/fastapi-service --blueprint fastapi-routing
+uv run python -m aibuilder_core brief examples/fastapi-service --blueprint <id> --catalog <path>
 uv run python -m aibuilder_core failures examples/fastapi-service   # what the agent gets wrong
 ```
 
@@ -132,7 +133,7 @@ uv run python -m aibuilder_core failures examples/fastapi-service   # what the a
 
 ## Status
 
-P0 through P9 are done: the window opens, React Flow renders a canvas, the Rust shell reaches the Python
+P0 through P10 are done: the window opens, React Flow renders a canvas, the Rust shell reaches the Python
 core over NDJSON, the markup layer exists and is provably inert, and
 [examples/fastapi-service/](examples/fastapi-service/) is the annotated reference project the rest is
 tested against. `npm run check` is the gate.
@@ -160,7 +161,7 @@ both and waits, because one that always reverts would eventually delete work som
 that always accepts would eventually bless a breakage inside a green node.
 
 Code generation enters through the same gates as everything else. The agent gets one brief, assembled
-the same way whether the request is a sentence or a blueprint from the sibling MIT catalog: the system
+the same way whether the request is a sentence or a blueprint from a catalog it is pointed at: the system
 prompt verbatim, the request, and the project as it stands. The prompt is the same text in both cases
 — the annotation rules live there and never in a blueprint, which is why a blueprint stays plain
 documentation that works in bare Claude Code. What the agent then gets wrong is written down rather
@@ -175,7 +176,13 @@ whether a test actually entered it; the direct calls prove whatever no test reac
 service every node is proven, including the POST route no tool may prove by inventing a request body.
 The stripped copy is then put through the same checks and answers identically.
 
-Next is P10 — LangGraph and RAG, each a repeat of that loop against a new topology, in the order set
-out in the roadmap.
+That same loop then closes on two more topologies, which is what makes it a mechanism rather than a
+FastAPI feature: a **LangGraph agent** — a group over state nodes, where the state schema is itself a
+node and each step is proven by being registered in the compiled graph — and a **RAG pipeline** — four
+equal stages with no owner, each carrying the knobs that belong to it, so tuning `top_k` happens on
+retrieval rather than in a settings file three directories away. Neither can be proven by a call the
+toolchain invents, so both are proven by their own tests.
 
-Python only; the first supported technology is FastAPI.
+What is left of v0 is the UI, which is delivered separately.
+
+Python only; the supported technologies are FastAPI, LangGraph and RAG.

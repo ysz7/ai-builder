@@ -365,3 +365,26 @@ def test_a_node_whose_kind_is_unregistered_gets_no_check(tmp_path: Path) -> None
     plan = build_plan(parse_project(root), root)
 
     assert plan["nodes"] == []
+
+
+def test_a_degraded_check_says_what_it_was_written_against(tmp_path: Path) -> None:
+    """The note travels with the result that is missing, not with the graph as a whole.
+
+    A node that could not be proven and a library that is not the one the check was written
+    against are two facts the reader has to put together; printing them apart makes that
+    the reader's job.
+    """
+    from aibuilder_core.observe import build_plan
+    from aibuilder_core.probe import run_plan
+
+    root = without_tests(tmp_path)
+    plan = build_plan(parse_project(root), root)
+    plan["technologies"] = {
+        "fastapi": {"distribution": "fastapi", "verified": "0.0.1-never-released"}
+    }
+
+    results = {result["node"]: result for result in run_plan(plan)}
+
+    assert results["users.create"]["status"] == "skipped"
+    assert "written against fastapi 0.0.1-never-released" in results["users.create"]["detail"]
+    assert "written against" not in results["health"]["detail"]

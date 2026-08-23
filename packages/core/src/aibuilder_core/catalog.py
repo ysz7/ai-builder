@@ -16,8 +16,15 @@ Two consequences are mechanical here rather than left to good intentions:
 - **Markup found in a blueprint is reported, not obeyed.** `carries_markup` is a hygiene
   signal about the catalog. The brief's rules do not change because of it.
 
-The catalog is a sibling MIT repository, not a dependency: it is located, and its absence
-is an answer ("no catalog here") rather than a crash.
+**The catalog is wherever the application says it is.** Nothing is discovered: no directory
+next door is opened because it happens to be named the right thing, and no path is guessed
+from where the process was started. A caller passes the location, or sets `CATALOG_ENV`,
+or there is no catalog -- and no catalog is an answer ("input B is unavailable here"),
+never a crash.
+
+That is a deliberate narrowing. Reading a checkout that merely sits beside the project
+would make what the agent is told depend on the shape of someone's disk, which is exactly
+the kind of ambient input that is impossible to reason about when it goes wrong.
 """
 
 from __future__ import annotations
@@ -40,12 +47,9 @@ __all__ = [
 #: The one file a blueprint is read from. `architecture.mmd` beside it is deliberately not.
 BLUEPRINT_FILE = "blueprint.md"
 
-#: Where a caller points us when the catalog is not the sibling checkout -- the frozen
-#: sidecar has no repository around it, so guessing has to be overridable.
+#: How the location is given when it is not passed in directly -- the frozen sidecar has no
+#: repository around it, and there is nothing else for it to fall back on.
 CATALOG_ENV = "AIBUILDER_BLUEPRINTS"
-
-#: The sibling checkout, as it is named in the monorepo.
-CATALOG_DIRNAME = "Awesome AI Blueprints"
 
 #: The public sections of the catalog. Private ones are not ours to read from here.
 SECTIONS = ("blueprints", "project-blueprints")
@@ -79,31 +83,20 @@ class Blueprint:
 
 
 def find_catalog(explicit: Path | str | None = None) -> Path | None:
-    """Locate the catalog: what the caller said, then the environment, then the sibling.
+    """The catalog the caller named, or the one `CATALOG_ENV` points at, or nothing.
 
-    A pointer that turns out not to be a catalog returns `None` rather than falling through
-    to the sibling checkout -- a caller who named a directory gets that directory or an
-    honest nothing, never a different catalog than the one it asked for.
+    A pointer that turns out not to hold a catalog answers `None`. It does not fall back to
+    somewhere else: a caller that named a directory gets that directory or an honest
+    nothing, never a different catalog than the one it asked for.
 
-    `None` means input B is unavailable. Input A is unaffected, because the two inputs
+    `None` means input B is unavailable here. Input A is unaffected, because the two inputs
     differ only in how detailed the request is (§3).
     """
     if explicit is not None:
         return _catalog_or_none(Path(explicit))
 
     from_env = os.environ.get(CATALOG_ENV)
-    if from_env:
-        return _catalog_or_none(Path(from_env))
-
-    # The sibling checkout, looked for from the working directory and from this file: a
-    # developer runs the CLI from anywhere in the monorepo, and the sidecar is spawned with
-    # a working directory we do not choose.
-    for start in (Path.cwd(), Path(__file__).resolve()):
-        for parent in [start, *start.parents]:
-            found = _catalog_or_none(parent / CATALOG_DIRNAME)
-            if found is not None:
-                return found
-    return None
+    return _catalog_or_none(Path(from_env)) if from_env else None
 
 
 def _catalog_or_none(path: Path) -> Path | None:

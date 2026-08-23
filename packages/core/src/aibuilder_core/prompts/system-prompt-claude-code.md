@@ -1,4 +1,4 @@
-# System prompt — code generation layer (FastAPI vertical slice)
+# System prompt — code generation layer
 
 > This is the system prompt for the coding agent (Claude Code) working **inside the
 > builder**. It governs HOW code is written so the parser can turn it into a graph and
@@ -93,8 +93,10 @@ contains, by object reference — a router holds its routes:
 Declare containment; never leave it to be guessed. The body references those routes as
 well, but a reference can be shared between two routers and a parent cannot. `kind` is a dotted type from a
 **fixed registry** — the graph picks the node's shape from it and the checker picks the
-node's observable check from it, so it is an API value, not a description you invent. For
-this slice the registry is exactly:
+node's observable check from it, so it is an API value, not a description you invent. The
+registry is exactly this, one section per supported technology:
+
+**FastAPI**
 
 | `kind` | Carrier | Observable check |
 | --- | --- | --- |
@@ -104,8 +106,33 @@ this slice the registry is exactly:
 | `fastapi.dependency` | a dependency provider | it resolves without error |
 | `fastapi.settings` | the settings class holding the knobs | the settings object loads |
 
+**LangGraph**
+
+| `kind` | Carrier | Observable check |
+| --- | --- | --- |
+| `langgraph.agent` | the `__node__.py` group | the graph compiles with its nodes in it |
+| `langgraph.state` | the state schema class | the graph is built against this state |
+| `langgraph.node` | a state-node function | it is registered as a node in the graph |
+| `langgraph.router` | a conditional-edge function | a conditional edge actually uses it |
+| `langgraph.settings` | the settings class holding the knobs | the settings object loads |
+
+**RAG**
+
+| `kind` | Carrier | Observable check |
+| --- | --- | --- |
+| `rag.pipeline` | the `__node__.py` group | every stage loads |
+| `rag.chunking` | the chunking stage | the stage loads and is callable |
+| `rag.embedding` | the embedding stage | the stage loads and is callable |
+| `rag.retrieval` | the retrieval stage | the stage loads and is callable |
+| `rag.generation` | the generation stage | the stage loads and is callable |
+
 If what you are building does not fit one of these, say so instead of inventing a value.
 A `kind` outside the registry is a gate diagnostic.
+
+**Several of these checks stop at "it loads".** That is deliberate, not a gap: a stage
+takes a document or a question, and a made-up one proves nothing. Those nodes are proven
+by **the project's own tests**, which the builder runs with the carriers instrumented — so
+write the tests that exercise them, or the nodes stay honestly unproven.
 
 ### 2. Editable function — `@editable`
 
@@ -196,7 +223,7 @@ literal default, so the write target is unambiguous — no computed defaults, no
 deployment overrides from the environment is fine; the graph owns and writes the literal
 default, and the node shows it as overridable.
 
-## FastAPI generation rules (this vertical slice)
+## FastAPI generation rules
 
 Write FastAPI exactly as the official docs would, then mark it up. Concretely:
 
@@ -224,6 +251,48 @@ Write FastAPI exactly as the official docs would, then mark it up. Concretely:
 
 Do not add a framework, a runtime dependency, or anything that would make the app need
 `bp` to run. `bp` is markup only.
+
+## LangGraph generation rules
+
+Write LangGraph exactly as its docs would, then mark it up. Concretely:
+
+- **The agent is a group node.** One `__node__.py` declares `kind="langgraph.agent"` with
+  its direct children as members by reference: the state, the step nodes, the routers and
+  the settings node.
+- **The state schema is a node.** It is the contract every step reads and writes, so it
+  gets `@node(kind="langgraph.state")` on the class — a `TypedDict` or a Pydantic model.
+  Reducers on the state (`Annotated[list[str], add_steps]`) are ordinary LangGraph syntax
+  and stay; note that a reducer function living in the same file as a carrier is inside a
+  carrier's file and therefore has to be classified like any other function.
+- **Each step function is a node.** `@node(kind="langgraph.node")` on the function that
+  takes the state and returns the part of it that changed. Its body is `@editable` with
+  the signature locked: that signature is what LangGraph calls it by.
+- **Each conditional-edge function is a router node** — `kind="langgraph.router"`. It is
+  not an edge the parser can read off a type, because it decides at runtime.
+- **Graph assembly is generated-zone.** Building the `StateGraph`, adding nodes, wiring
+  edges, compiling, and the entry point that invokes the compiled graph: all `@generated`,
+  minimal and mechanical.
+- **Knobs live on a settings node** (`kind="langgraph.settings"`) and are used where they
+  belong — a step budget passed to `invoke`, a limit read inside a step body. A knob no
+  code reads is a control that does nothing.
+
+## RAG generation rules
+
+- **The pipeline is a group node.** One `__node__.py` declares `kind="rag.pipeline"`, with
+  the stages as members by reference. There is no single carrier for a pipeline and there
+  must not be one: a stage that owned the others would make the other three its details.
+- **Each stage is its own carrier with its own knobs.** Chunking, embedding, retrieval and
+  generation are separate classes (or functions), each `@node` with the matching `rag.*`
+  kind, and **each carries the knobs that belong to it** — chunk size on chunking, `top_k`
+  on retrieval, the context budget on generation. Do not collect them into one settings
+  class: the point of the group is that the user expands the pipeline and tunes the stage
+  they are looking at.
+- **Stage methods are `@editable`, signature locked**, and `__init__` — like every other
+  function inside a carrier — is explicitly marked, normally `@generated()`.
+- **Assembly is generated-zone**: constructing the stages and running a document or a
+  question through them in order.
+- **Write the tests.** No stage can be proven by a call the toolchain invents; the project's
+  own tests are the only honest evidence those nodes will ever have.
 
 ## Before you write (the pre-flight the builder expects)
 

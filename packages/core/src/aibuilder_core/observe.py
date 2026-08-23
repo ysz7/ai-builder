@@ -24,7 +24,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from aibuilder_core.ir import Graph
-from aibuilder_core.kinds import lookup
+from aibuilder_core.kinds import lookup, technology_of
 from aibuilder_core.markup import GROUP_MANIFEST
 from aibuilder_core.verdict import Observation
 
@@ -106,6 +106,17 @@ def build_plan(graph: Graph, project: Path) -> dict[str, object]:
         "modules": sorted(name for name in modules if name),
         "nodes": nodes,
         "tests": tests_path(project),
+        # Only the technologies this graph actually uses, and only those whose checks read
+        # library internals. The probe compares them with what is installed *there* -- it
+        # is the process that has the project's world in front of it.
+        "technologies": {
+            technology.name: {
+                "distribution": technology.distribution,
+                "verified": technology.verified,
+            }
+            for node in graph.nodes
+            if (technology := technology_of(node.kind)) is not None
+        },
     }
 
 

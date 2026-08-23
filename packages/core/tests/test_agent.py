@@ -53,9 +53,9 @@ DIAGRAM = "graph TD\n  client --> endpoint\n"
 def _no_ambient_catalog(monkeypatch: pytest.MonkeyPatch) -> None:
     """Every test says which catalog it means.
 
-    The sibling checkout exists on a developer's machine and may not exist elsewhere; a
-    test that silently read it would pass or fail for reasons that have nothing to do with
-    the code.
+    Nothing is discovered any more, but the environment variable still points somewhere on
+    a machine that has one set -- and a test that silently read it would pass or fail for
+    reasons that have nothing to do with the code.
     """
     monkeypatch.delenv("AIBUILDER_BLUEPRINTS", raising=False)
 

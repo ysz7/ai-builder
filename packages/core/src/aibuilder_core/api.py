@@ -281,6 +281,7 @@ _LOG_ENTRY = {
     ],
     "verdicts": {"<key>": "str"},
     "accepted": "bool",
+    "versions": {"<key>": "str?"},
 }
 
 #: The `agent.record` payload: what the gates said about one generation, as it was logged.

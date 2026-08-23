@@ -44,7 +44,7 @@ from dataclasses import dataclass, field
 from types import CodeType, FrameType
 from typing import Any
 
-__all__ = ["TestRun", "main", "observe_tests", "run_plan"]
+__all__ = ["TestRun", "main", "observe_tests", "run_plan", "version_note"]
 
 PASSED = "passed"
 FAILED = "failed"
@@ -234,12 +234,197 @@ def dependency_resolves(context: Context, node: dict[str, Any]) -> tuple[str, st
     return PASSED, "the provider resolves"
 
 
+# -- LangGraph -------------------------------------------------------------------
+#
+# The registration checks below ask an identity question -- "is *this* function the one
+# the graph actually calls?" -- and answer it through attributes LangGraph does not
+# promise. When a version stops exposing them the answer is `skipped`, never `failed`: a
+# library that moved an attribute has not broken the user's node, and the node's real
+# evidence comes from the project's own tests either way (Q7).
+
+
+def _compiled_graph(context: Context) -> Any:
+    """The one compiled LangGraph in the project, found the way the app is found."""
+    try:
+        from langgraph.graph.state import CompiledStateGraph
+    except ImportError:
+        return None
+
+    found = [
+        value
+        for module in context.modules.values()
+        for value in vars(module).values()
+        if isinstance(value, CompiledStateGraph)
+    ]
+    unique = {id(graph): graph for graph in found}
+    return next(iter(unique.values())) if len(unique) == 1 else None
+
+
+def _underlying(runnable: Any) -> Any:
+    """The user's own function inside whatever LangGraph wrapped it in."""
+    import functools
+
+    for attribute in ("func", "afunc", "bound"):
+        candidate = getattr(runnable, attribute, None)
+        if isinstance(candidate, functools.partial):
+            candidate = next((arg for arg in candidate.args if callable(arg)), None)
+        if candidate is not None:
+            return candidate
+    return None
+
+
+def graph_compiles(context: Context, node: dict[str, Any]) -> tuple[str, str]:
+    graph = _compiled_graph(context)
+    if graph is None:
+        return FAILED, "no single compiled LangGraph was found among the project's modules"
+
+    names = [name for name in getattr(graph, "nodes", {}) if not name.startswith("__")]
+    if not names:
+        return FAILED, "the graph compiled with no nodes in it"
+    return PASSED, f"the graph compiles with {len(names)} node(s)"
+
+
+def graph_state_schema(context: Context, node: dict[str, Any]) -> tuple[str, str]:
+    graph = _compiled_graph(context)
+    carrier = context.resolve(node["carrier"])
+    if carrier is None:
+        return FAILED, f"{node['carrier']} does not exist at runtime"
+    if graph is None:
+        return FAILED, "no single compiled LangGraph was found among the project's modules"
+
+    builder = getattr(graph, "builder", None)
+    schema = next(
+        (
+            candidate
+            for attribute in ("state_schema", "schema", "input_schema")
+            if (candidate := getattr(builder, attribute, None)) is not None
+        ),
+        None,
+    )
+    if schema is None:
+        return SKIPPED, "this LangGraph version does not expose the graph's state schema"
+    if schema is not carrier:
+        return FAILED, f"the graph was built against {getattr(schema, '__name__', schema)!r}"
+    return PASSED, "the graph is built against this state"
+
+
+def graph_node_registered(context: Context, node: dict[str, Any]) -> tuple[str, str]:
+    graph = _compiled_graph(context)
+    carrier = context.resolve(node["carrier"])
+    if carrier is None:
+        return FAILED, f"{node['carrier']} does not exist at runtime"
+    if graph is None:
+        return FAILED, "no single compiled LangGraph was found among the project's modules"
+
+    specs = getattr(getattr(graph, "builder", None), "nodes", None)
+    if not specs:
+        return SKIPPED, "this LangGraph version does not expose the graph's nodes"
+
+    resolved = {name: _underlying(getattr(spec, "runnable", None)) for name, spec in specs.items()}
+    for name, underlying in resolved.items():
+        if underlying is carrier:
+            return PASSED, f"registered as the node {name!r}"
+    # Nothing at all could be unwrapped: that is a version whose shape we cannot read, not
+    # a node the user failed to register. Saying "never registered" there would be a red
+    # badge invented by a library upgrade.
+    if not any(resolved.values()):
+        return SKIPPED, "this LangGraph version does not expose the callable behind a node"
+    return FAILED, "the function is declared a node but the graph never registered it"
+
+
+def graph_branch_registered(context: Context, node: dict[str, Any]) -> tuple[str, str]:
+    graph = _compiled_graph(context)
+    carrier = context.resolve(node["carrier"])
+    if carrier is None:
+        return FAILED, f"{node['carrier']} does not exist at runtime"
+    if graph is None:
+        return FAILED, "no single compiled LangGraph was found among the project's modules"
+
+    branches = getattr(getattr(graph, "builder", None), "branches", None)
+    if branches is None:
+        return SKIPPED, "this LangGraph version does not expose the graph's branches"
+
+    resolved = {
+        source: [_underlying(getattr(spec, "path", None)) for spec in named.values()]
+        for source, named in branches.items()
+    }
+    for source, paths in resolved.items():
+        if any(path is carrier for path in paths):
+            return PASSED, f"decides the edges leaving {source!r}"
+    if branches and not any(path for paths in resolved.values() for path in paths):
+        return SKIPPED, "this LangGraph version does not expose the callable behind a branch"
+    return FAILED, "the function is declared a router but no conditional edge uses it"
+
+
+# -- RAG -------------------------------------------------------------------------
+#
+# A stage takes a document, a query or a set of chunks. None of those can be invented --
+# a made-up question proves that the pipeline does not crash, not that it retrieves the
+# right thing -- so the direct checks here stop at what needs no input: the stage exists,
+# it constructs, and it is callable. Everything beyond that is the project's own tests,
+# which is exactly the split Q7 settled.
+
+
+def _stage(context: Context, carrier: Any) -> tuple[Any, str | None]:
+    """A stage ready to be used: the class constructed, or the function itself."""
+    if isinstance(carrier, type):
+        try:
+            return carrier(), None
+        except Exception as exc:
+            return None, f"the stage does not construct: {type(exc).__name__}: {exc}"
+    if callable(carrier):
+        return carrier, None
+    return None, "the stage is neither a class nor a callable"
+
+
+def rag_stage_ready(context: Context, node: dict[str, Any]) -> tuple[str, str]:
+    carrier = context.resolve(node["carrier"])
+    if carrier is None:
+        return FAILED, f"{node['carrier']} does not exist at runtime"
+
+    stage, problem = _stage(context, carrier)
+    if problem is not None:
+        return FAILED, problem
+
+    if isinstance(carrier, type) and not any(
+        callable(getattr(stage, name, None)) for name in vars(carrier) if not name.startswith("_")
+    ):
+        return FAILED, "the stage constructs but exposes nothing to call"
+    return SKIPPED, "the stage loads; proving what it does needs real input"
+
+
+def rag_stages_load(context: Context, node: dict[str, Any]) -> tuple[str, str]:
+    members = node.get("member_carriers") or []
+    if not members:
+        return SKIPPED, "the pipeline declares no stages, so there is nothing to load"
+
+    broken: list[str] = []
+    for dotted in members:
+        carrier = context.resolve(dotted)
+        if carrier is None:
+            broken.append(f"{dotted} (missing)")
+            continue
+        _, problem = _stage(context, carrier)
+        if problem is not None:
+            broken.append(f"{dotted} ({problem})")
+
+    if broken:
+        return FAILED, f"the pipeline does not assemble: {'; '.join(sorted(broken))}"
+    return PASSED, f"all {len(members)} stage(s) load"
+
+
 CHECKS = {
     "http.app_serves": app_serves,
     "http.route_answers": route_answers,
     "http.router_mounts": router_mounts,
     "http.dependency_resolves": dependency_resolves,
     "settings.load": settings_load,
+    "graph.compiles": graph_compiles,
+    "graph.state_schema": graph_state_schema,
+    "graph.node_registered": graph_node_registered,
+    "graph.branch_registered": graph_branch_registered,
+    "rag.stages_load": rag_stages_load,
+    "rag.stage_ready": rag_stage_ready,
 }
 
 
@@ -440,12 +625,41 @@ def run_plan(plan: dict[str, Any]) -> list[dict[str, str]]:
             results.append(Result(node["id"], "tests.exercised", status, detail))
             continue
 
-        results.append(_direct(context, node, run))
+        results.append(_direct(context, node, run, plan))
 
     return [result.as_dict() for result in results]
 
 
-def _direct(context: Context, node: dict[str, Any], run: TestRun) -> Result:
+def version_note(plan: dict[str, Any], kind: str) -> str:
+    """ "The checks were written against X, you have Y" -- when, and only when, X != Y.
+
+    Attached to results that are **not** a pass, and to nothing else. A node proven by a
+    real run needs no footnote about library versions, and a note on a green node would be
+    a warning about a problem that demonstrably is not there.
+
+    It is context, never a cause: the mismatch is stated, and no claim is made that it is
+    what went wrong. Anything stronger would be a guess about a release we have not run.
+    """
+    import importlib.metadata
+
+    technology = plan.get("technologies", {}).get(kind.partition(".")[0])
+    if not technology:
+        return ""
+
+    try:
+        installed = importlib.metadata.version(technology["distribution"])
+    except Exception:
+        return ""
+
+    if installed == technology["verified"]:
+        return ""
+    return (
+        f"; these checks were written against {technology['distribution']} "
+        f"{technology['verified']}, and {installed} is installed"
+    )
+
+
+def _direct(context: Context, node: dict[str, Any], run: TestRun, plan: dict[str, Any]) -> Result:
     """The fallback check: what the toolchain can call without inventing anything.
 
     Whatever it answers, the reason the tests did not answer first travels with it. A node
@@ -467,6 +681,8 @@ def _direct(context: Context, node: dict[str, Any], run: TestRun) -> Result:
     if status == SKIPPED:
         unreached = "no test exercised this node" if run.ran else run.detail
         detail = f"{detail}; {unreached}"
+    if status != PASSED:
+        detail = f"{detail}{version_note(plan, node['kind'])}"
     return Result(node["id"], node["check"], status, detail)
 
 
