@@ -1,0 +1,64 @@
+[project]
+name = "awesome-ai-builder"
+version = "0.1.0"
+description = "Workspace root. The shippable pieces are packages/bp and packages/core."
+requires-python = ">=3.10"
+dependencies = [
+    "bp",
+    "aibuilder-core",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0",
+    "pyinstaller>=6.22.2",
+    "ruff>=0.9",
+    "mypy>=1.14",
+    # The example project the gates are proven against. Test-only: neither `bp` nor
+    # the core may ever depend on a web framework.
+    "fastapi>=0.115",
+    "httpx>=0.28",
+]
+
+[tool.uv.workspace]
+members = ["packages/*"]
+
+[tool.uv.sources]
+bp = { workspace = true }
+aibuilder-core = { workspace = true }
+
+[tool.pytest.ini_options]
+testpaths = ["packages/bp/tests", "packages/core/tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+# The mis-annotated fixture is broken on purpose, down to a file that will not parse.
+extend-exclude = ["examples/*/stripped", "packages/core/tests/fixtures"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM", "TID"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["bp", "aibuilder_core", "app"]
+
+[tool.ruff.lint.per-file-ignores]
+# The example is generated-agent output: it exists to be parsed, not to be tidy.
+"examples/**" = ["B008"]
+
+[tool.mypy]
+python_version = "3.10"
+strict = true
+files = ["packages/bp/src", "packages/core/src"]
+
+[[tool.mypy.overrides]]
+# libcst ships types, but its matchers module is loose enough to fight strict mode.
+module = "libcst.*"
+follow_untyped_imports = true
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+bypass-selection = true

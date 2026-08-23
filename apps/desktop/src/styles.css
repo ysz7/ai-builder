@@ -1,0 +1,74 @@
+/* Scaffold styling only. The real visual language comes from assets/ when the
+   design phase starts; nothing here should be treated as a decision. */
+
+:root {
+  --bg: #050505;
+  --panel: #0c0c0c;
+  --border: rgba(255, 255, 255, 0.1);
+  --text: #f3f3f3;
+  --muted: #8c8c8c;
+  --ok: #4ade80;
+  --pending: #facc15;
+  --failed: #f87171;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font: 13px/1.5 ui-sans-serif, -apple-system, "Helvetica Neue", sans-serif;
+  -webkit-font-smoothing: antialiased;
+  overflow: hidden;
+}
+
+.app {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 14px;
+  background: var(--panel);
+  border-bottom: 1px solid var(--border);
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--pending);
+  flex: none;
+}
+
+.status[data-state="ok"] .dot {
+  background: var(--ok);
+}
+
+.status[data-state="failed"] .dot {
+  background: var(--failed);
+}
+
+.status[data-state="failed"] .status-text {
+  color: var(--failed);
+}
+
+.canvas {
+  flex: 1;
+  min-height: 0;
+}

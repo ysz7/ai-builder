@@ -1,0 +1,50 @@
+.DS_Store
+
+# node
+node_modules/
+dist/
+
+# python
+__pycache__/
+*.py[cod]
+.venv/
+build/
+*.egg-info/
+
+# rust / tauri
+target/
+gen/
+
+# PyInstaller output (the dev shim in src-tauri/binaries/ IS tracked;
+# the compiled sidecar that overwrites it in release builds is not)
+packages/core/build/
+packages/core/dist/
+
+# tauri codegen output (regenerated on build)
+apps/desktop/src-tauri/gen/schemas/
+
+# tool caches: ruff, mypy and pytest all keep one, and all three rebuild themselves
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# per-machine agent settings: permission grants and local overrides, one developer's own
+.claude
+
+# design references, not wired into the build (CLAUDE.md says so) -- kept locally
+/assets
+
+# secrets. Nothing here reads a .env today; the entry exists so that the first thing
+# that does cannot make its first commit the one that leaks a key.
+.env
+.env.*
+!.env.example
+
+# the reconciliation reference: a build artifact, rewritten by any passing gate run
+.aibuilder/
+
+# design documents: kept locally, not published. The one file in here that the toolchain
+# actually reads -- the agent's system prompt -- is package data under
+# packages/core/src/aibuilder_core/prompts/, precisely so `npm run check` does not depend
+# on an ignored directory.
+docs/

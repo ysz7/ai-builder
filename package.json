@@ -1,0 +1,21 @@
+{
+  "name": "awesome-ai-builder",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "apps/desktop"
+  ],
+  "scripts": {
+    "dev": "npm run tauri dev",
+    "build": "scripts/build-sidecar.sh && npm run tauri build",
+    "tauri": "tauri",
+    "web:dev": "npm run dev -w desktop",
+    "web:build": "npm run build -w desktop",
+    "test:py": "uv run pytest -q",
+    "check": "scripts/check.sh"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "2.11.4"
+  }
+}

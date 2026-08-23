@@ -1,0 +1,22 @@
+#!/bin/sh
+# DEV SHIM -- not the real sidecar binary.
+#
+# Tauri requires an executable at this exact path (<name>-<target-triple>) and
+# copies it next to the app binary at build time, so the repo root cannot be
+# reached by a fixed relative path: walk up from wherever this copy landed until
+# the workspace shows itself.
+#
+# scripts/build-sidecar.sh overwrites this file with the PyInstaller binary for
+# release builds; `git checkout` brings the shim back.
+set -eu
+
+dir="$(cd "$(dirname "$0")" && pwd)"
+while [ "$dir" != "/" ]; do
+    if [ -x "$dir/scripts/dev-sidecar.sh" ]; then
+        exec "$dir/scripts/dev-sidecar.sh" "$@"
+    fi
+    dir="$(dirname "$dir")"
+done
+
+echo "[dev-shim] could not locate scripts/dev-sidecar.sh above $0" >&2
+exit 127

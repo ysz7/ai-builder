@@ -1,0 +1,223 @@
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
+## What this is
+
+A visual builder for Python applications in which **the Python code is the source of truth** and the
+node graph is a two-way projection of it. A coding agent writes ordinary Python plus an inert,
+AST-addressable markup layer (`bp`); a parser projects that into a graph; edits made in a node are
+written back through the syntax tree with `libcst`. Assembled applications deploy as plain Python
+projects with no runtime dependency on the builder.
+
+Current state: **P0–P8 done, P9 next.** Window opens, React Flow renders a scaffold canvas, Rust
+reaches the Python core over NDJSON, the five `bp` primitives exist and are proven inert, and
+`strip` removes the markup with the example service answering identically before and after. The parser
+turns an annotated project into a graph IR, the static gate judges it into addressed diagnostics, and
+the observable checks run the project to prove nodes actually work, and reconciliation reports what
+no longer matches the last valid state, the writer edits knobs and node declarations back into
+code through the syntax tree, and the repair system acts on divergences — or refuses to, and says
+who must decide, and the agent integration assembles one brief for both inputs and logs what the
+agent gets wrong. The end-to-end slice (P9) is next.
+
+[examples/fastapi-service/](examples/fastapi-service/) is the annotated reference project: it is what
+the parser is written against, and the shape every generation rule in the system prompt has an
+instance of. Change it only deliberately — later phases snapshot-test against it.
+
+Note: the git repository root is the **parent** directory (`Awesome Blueprints/`), a monorepo holding
+this project alongside `Awesome AI Blueprints` and `Awesome Blueprints Website`.
+
+## Commands
+
+```bash
+uv sync                 # Python workspace (bp + core + dev tools)
+npm install             # front-end and Tauri CLI
+
+npm run dev             # full app: Vite + Tauri window + Python sidecar
+npm run web:dev         # front-end alone in a browser (core absent, ping will fail)
+npm run test:py         # all Python tests (pytest across packages/bp + packages/core)
+npm run check           # scripts/check.sh: ruff lint + format, mypy --strict, pytest — what CI runs
+npm run build           # freeze the sidecar (scripts/build-sidecar.sh), then bundle .app/.dmg
+```
+
+`scripts/check.sh` is the gate a phase must pass to count as done; CI
+(`.github/workflows/ai-builder.yml`, at the **monorepo root**) runs that same script and nothing else,
+plus a check that the built `bp` wheel has no `Requires-Dist`.
+
+Single test / subset: `uv run pytest packages/core/tests/test_ping.py -q`, or
+`uv run pytest -k inert -q`. Front-end typecheck: `npm run web:build` (`tsc --noEmit && vite build`).
+
+Read the graph out of a project, or strip its markup (the mechanical form of I-2):
+
+```bash
+uv run python -m aibuilder_core graph examples/fastapi-service
+uv run python -m aibuilder_core check examples/fastapi-service
+uv run python -m aibuilder_core check examples/fastapi-service --observe   # runs the project
+uv run python -m aibuilder_core snapshot examples/fastapi-service
+uv run python -m aibuilder_core status examples/fastapi-service
+uv run python -m aibuilder_core set-knob examples/fastapi-service api.settings page_size 50
+uv run python -m aibuilder_core repairs examples/fastapi-service
+uv run python -m aibuilder_core blueprints
+uv run python -m aibuilder_core brief examples/fastapi-service --request "add a users router"
+uv run python -m aibuilder_core failures examples/fastapi-service
+```
+
+The brief is the agent's whole input: the system prompt verbatim, the request (a sentence, a
+blueprint's specification text, or both), and the project as it stands. **Both inputs carry the same
+prompt, byte for byte** — §3's rule that the annotation rules live in the prompt and not in the
+blueprints is a test, not a convention. The blueprint catalog is the sibling `Awesome AI Blueprints`
+checkout, found automatically or pointed at with `AIBUILDER_BLUEPRINTS`; only `blueprint.md` is ever
+read from it, never the `architecture.mmd` beside it.
+
+The system prompt is package data at
+[packages/core/src/aibuilder_core/prompts/system-prompt-claude-code.md](packages/core/src/aibuilder_core/prompts/system-prompt-claude-code.md),
+not documentation: the core reads it at runtime, a test asserts its `kind` table against the registry,
+and the frozen sidecar bundles it. Never add a second copy anywhere — two files would mean two sets of
+rules, and the one in force would be whichever was found first.
+
+
+```bash
+uv run python -m aibuilder_core strip examples/fastapi-service /tmp/stripped
+```
+
+Talk to the core by hand, no app involved:
+
+```bash
+echo '{"id":1,"method":"ping"}' | uv run python -m aibuilder_core
+```
+
+A Rust toolchain (rustup) is required — Tauri will not build without it. `.app`/`.dmg` can only be
+built on macOS; see the README's signing section before planning a release.
+
+### The sidecar shim
+
+`apps/desktop/src-tauri/binaries/aibuilder-core-<target-triple>` is a **tracked shell shim** that
+execs `scripts/dev-sidecar.sh`, so dev mode runs the core from source with no PyInstaller step.
+`npm run build` overwrites that file with the frozen binary; `git checkout -- apps/desktop/src-tauri/binaries`
+restores the shim. Do not commit the frozen binary.
+
+## Architecture
+
+Four layers, and the boundaries between them are load-bearing:
+
+| Layer | Where | Rule |
+| --- | --- | --- |
+| React 19 + React Flow | `apps/desktop/src/` | Renders the graph the core returns; never a second source of truth. |
+| Tauri 2 / Rust shell | `apps/desktop/src-tauri/src/` | Transport only. Spawn the core, move JSON, match responses by `id`. |
+| Python core | `packages/core/` (`aibuilder_core`) | Parser, gates, snapshot, writer, repair, orchestration. All decisions live here. |
+
+Inside the core: `markup.py` (how `bp` is spelled — the one place that knows) and `paths.py` (what
+counts as project source) are shared by everything; `kinds.py` is the node-kind registry; `ir.py` is
+the graph IR; `parser.py` reads a project into it; `gate.py` judges it; `diagnostics.py` holds the
+diagnostic record and the closed catalogue of codes; `verdict.py` is the single green verdict;
+`api.py` assembles the versioned payload and declares its schema; `observe.py` runs the observable
+checks and `probe.py` contains them; `snapshot.py` records the outline of the last valid state and
+`reconcile.py` diffs against it; `writer.py` writes back through `libcst`; `repair.py` acts on
+divergences; `agent.py` assembles the agent's brief and records its failure modes and `catalog.py`
+reads the blueprint catalog; `strip.py` removes the markup.
+
+`apply_repair` takes `resolution` as a required keyword with no default. That is not style: §9 case 2
+has two non-equivalent answers and the toolchain is not entitled to either, so there must be no call
+that resolves a generated-zone divergence while leaving the decision implicit. Never add a default,
+an "auto" mode, or a convenience wrapper that picks one.
+
+Every write addresses a **syntax node**, never a line or a span of text — that is what the markup
+being real Python buys. A write validates against the knob's own declaration first, is undone if the
+gate comes back worse than before, and updates the snapshot when it passes.
+
+**`probe.py` is the only module that imports the user's project, and the toolchain never imports it**
+— `observe.py` spawns it as a subprocess with a timeout. Keep it that way: everything else reads
+statically so that drawing a graph never runs a stranger's code, and a project that hangs or crashes
+must cost a subprocess rather than the core the UI is talking to. The parser and the
+strip must never disagree about markup or file discovery — that is why both import the shared pair
+rather than keeping their own copy.
+| `bp` | `packages/bp/` | The inert markup primitives (`@node`, `@editable`, `@generated`, `group_node`, `Param`). Ships into generated user projects. |
+
+Hierarchy is declared, never inferred: both `@node` and `group_node` take `members`, and a node has
+at most one parent. The edges the parser draws are a different relation — a type crossing a boundary
+— and a node referenced by two carriers still has one parent.
+
+**The Rust shell exposes exactly one IPC command, `core_request`.** A new capability is a new
+*method in the Python core* (registered in `HANDLERS` in [handlers.py](packages/core/src/aibuilder_core/handlers.py)),
+never a new Tauri command. Anything in Rust that inspects a method name or interprets a result is
+misplaced logic.
+
+**The wire is NDJSON over the sidecar's stdio** — one JSON object per line, shape defined in
+[protocol.py](packages/core/src/aibuilder_core/protocol.py). `id` is opaque to the core and echoed
+verbatim. **stdout carries the wire and nothing else**; every log line goes to stderr, or the stream
+is corrupted (there is a test asserting this). A handler that raises is turned into an error
+response, never a crash.
+
+`aibuilder_core` may import `bp`; **`bp` must never import `aibuilder_core`**, and `bp` must have zero
+third-party dependencies — enforced by a test that AST-walks the package for non-stdlib imports.
+
+### The invariants everything follows from
+
+Full statements in [docs/architecture.md](docs/architecture.md) §2; the ones that constrain day-to-day
+work:
+
+- **Stay close to Unreal Engine Blueprints.** This is the tie-breaker for design questions, and it
+  is what settled all five v0 open questions (see the settled log in open-questions.md): explicit
+  marks over inference, a registry over free strings, one uniform shape at the top level, controls
+  derived from types, defaults shown as defaults.
+- **I-1 Code is the only source of truth.** No manifest, no graph file. Anything that starts to look
+  like a second store of state is a design error. The snapshot is a diff reference, never a source
+  the graph reads from.
+- **I-2 The markup layer is inert.** `@node`, `@editable`, `group_node` return their carrier — *the
+  same object*, not a wrapper (`test_inert.py` asserts identity, not equivalence). `Param` is
+  metadata inside `Annotated`. Putting behavior into `bp` breaks the only thing separating this from
+  Flowise/Langflow. Its mechanical form is `aibuilder-core strip`
+  ([strip.py](packages/core/src/aibuilder_core/strip.py)), and the test that runs the example and its
+  stripped copy in separate processes and demands identical answers.
+- **I-3 Every visible node has a carrier object** — class, function, or module. Every top-level node
+  is a `group_node`, even a one-member one; every function inside a carrier is explicitly `@editable`
+  or `@generated`, never classified by absence.
+- **I-4 Markup is real Python syntax.** Decorators and `Annotated`, never comments — the AST must see it.
+- **I-5 A green node parses AND passes its observable checks.** `verdict_for` in
+  [verdict.py](packages/core/src/aibuilder_core/verdict.py) is that one implementation. Never add a
+  second path to a green verdict, never let an absent observation read as a passing one, and never
+  report green from the static gate alone — that is the agent fitting to the parser, and it is the
+  invariant most likely to be eroded by a convenience. A check that could not run reports `skipped`
+  and leaves the node `unproven`; never turn "could not check" into "fine". And never synthesize
+  input to manufacture a pass — evidence comes from a real run with real input, or it is not
+  evidence.
+- **I-6 Code is edited only through a node.** Everything else is detected, not prevented — by
+  reconciliation against the snapshot, never by a file watcher. The snapshot is a diff reference and
+  nothing may read a fact out of it to draw or decide with; it holds no editable bodies, so an edit
+  inside one raises nothing.
+
+### Reading order for docs
+
+[docs/](docs/) is the source of truth for what gets built. **It is gitignored — local only, never
+committed.** Anything the toolchain has to read at runtime therefore does not belong there; the
+agent's system prompt used to and was moved into the package for exactly that reason. Nothing in
+`docs/` may become a test input or a build input.
+
+- [architecture.md](docs/architecture.md) — the v0 spec. Sections 2 (invariants) and 7 (the parser as
+  a gate) carry everything load-bearing.
+- [roadmap.md](docs/roadmap.md) — phases P0–P10 with per-phase acceptance criteria and the invariant
+  each protects. Current position: P9.
+- [open-questions.md](docs/open-questions.md) — nothing open; Q1–Q5 are settled, with the reasoning
+  kept in the log. **Read before starting any phase**, and add an entry the moment two documents
+  disagree — an unrecorded conflict is worse than an open one.
+- [prompts/system-prompt-claude-code.md](packages/core/src/aibuilder_core/prompts/system-prompt-claude-code.md)
+  — in the package, not in `docs/`. The prompt for the agent that generates user code. It **fixes the `bp` syntax** the toolchain parses; where it and the
+  architecture doc disagree, the prompt wins and the disagreement is recorded in open-questions.
+
+Known naming drift: the roadmap calls the toolchain package `aibuilder`; it exists as
+`aibuilder-core` / `aibuilder_core` (the sidecar). The `bp` name is fixed and must not change.
+
+A new node `kind` is a new entry in `kinds.REGISTRY` **and** a row in the system prompt's `kind`
+table — a test holds the two together, because an agent told about a kind the checker cannot dispatch
+on generates code nothing can prove (Q8).
+
+A new diagnostic is a new entry in `diagnostics.CATALOGUE` with its rule and its repair text — never
+an ad-hoc message at the call site, or repair prompts stop being writable from the diagnostic alone.
+A new capability the UI can call is a new entry in `handlers.HANDLERS`, plus its schema in `api.py`.
+
+## Conventions
+
+Comments in this codebase explain *why a thing is the way it is* — which invariant it protects, what
+breaks without it — rather than restating the code. Match that; a new module without that reasoning
+reads as foreign here. UI/design is deliberately out of scope for v0; `assets/` holds references not
+wired into the build, and — like `docs/` — is gitignored and local only.
