@@ -9,6 +9,10 @@ What comes back is deliberately three-valued. `passed` and `failed` are evidence
 a check could not run is **skipped**, which leaves the node unproven rather than green.
 Turning "could not check" into "fine" is precisely the erosion I-5 is written against, and
 it is the erosion that would be easiest to introduce here, one convenience at a time.
+
+The plan names the project's test suite when it has one, because that suite is the run the
+graph observes (Q7). Which evidence then counts for which node is decided in `probe.py`,
+once -- this side only says where the tests are.
 """
 
 from __future__ import annotations
@@ -21,13 +25,19 @@ from pathlib import Path
 
 from aibuilder_core.ir import Graph
 from aibuilder_core.kinds import lookup
+from aibuilder_core.markup import GROUP_MANIFEST
 from aibuilder_core.verdict import Observation
 
-__all__ = ["ObservationRun", "run_observations"]
+__all__ = ["ObservationRun", "run_observations", "tests_path"]
 
-#: How long the whole probe may take. A project that hangs is a failing project, and the
-#: runner has to come back to say so.
+#: How long the whole probe may take -- the project's own test suite included, since P9.
+#: A project that hangs is a failing project, and the runner has to come back to say so.
 DEFAULT_TIMEOUT_S = 120
+
+#: Where a project keeps its tests. Convention, not configuration: this is what a Python
+#: project does, and a project that does something else is one whose nodes fall back to
+#: the direct checks -- a smaller claim, not a wrong one.
+TESTS_DIRECTORY = "tests"
 
 
 @dataclass(frozen=True)
@@ -61,10 +71,16 @@ def build_plan(graph: Graph, project: Path) -> dict[str, object]:
     """
     carriers = {node.id: node.carrier for node in graph.nodes}
 
+    # Group manifests are left out on purpose. A `__node__.py` is markup and nothing else
+    # -- the strip deletes it -- so a plan that imported one could only ever run against
+    # annotated code, and the claim that the stripped copy proves the same things would be
+    # untestable (I-2). Nothing is lost: the manifest declares members it imports from the
+    # modules already in this set.
     modules = {
         _module_of(location.file)
         for location in [node.location for node in graph.nodes]
         + [function.location for function in graph.functions]
+        if Path(location.file).name != GROUP_MANIFEST
     }
 
     nodes = []
@@ -89,7 +105,21 @@ def build_plan(graph: Graph, project: Path) -> dict[str, object]:
         "project": str(project.resolve()),
         "modules": sorted(name for name in modules if name),
         "nodes": nodes,
+        "tests": tests_path(project),
     }
+
+
+def tests_path(project: Path) -> str:
+    """The project's own test suite, if it has one where a Python project keeps it.
+
+    An empty string means "no suite", and the probe says so in the reason it gives for
+    every node the direct checks could not prove. Absence of tests is a fact about the
+    project worth reporting, not a condition to work around.
+    """
+    tests = project.resolve() / TESTS_DIRECTORY
+    if tests.is_dir() and any(tests.rglob("test_*.py")):
+        return str(tests)
+    return ""
 
 
 def _module_of(relative_file: str) -> str:

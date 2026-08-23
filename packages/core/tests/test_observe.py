@@ -8,6 +8,7 @@ returning a 500 must be red, for the observable reason and not for a parse reaso
 
 from __future__ import annotations
 
+import shutil
 import textwrap
 from pathlib import Path
 
@@ -62,15 +63,18 @@ def test_the_reason_names_the_observable_check_not_the_parse() -> None:
 
 
 def test_the_example_service_proves_itself() -> None:
+    """Every node green, and the unreached band empty -- the P9 measurement (Q7).
+
+    `users.create` is the one that matters: no direct call can prove a POST without
+    inventing a request body, and the project's own test creates a user with a name a
+    person chose. That is the difference between evidence and a manufactured pass.
+    """
     observations, skipped, verdicts = observe(EXAMPLE)
 
     assert all(observation.passed for observation in observations.values())  # type: ignore[union-attr]
-    assert verdicts["api"] == Verdict.GREEN.value
-    assert verdicts["health"] == Verdict.GREEN.value
-    # The POST route cannot be called without inventing a body, so it stays unproven --
-    # which is the honest answer, not a passing one.
-    assert verdicts["users.create"] == Verdict.UNPROVEN.value
-    assert "users.create" in skipped
+    assert set(verdicts.values()) == {Verdict.GREEN.value}
+    assert skipped == {}
+    assert observations["users.create"].check == "tests.exercised"  # type: ignore[union-attr]
 
 
 def test_a_router_check_proves_its_routes_are_mounted() -> None:
@@ -81,15 +85,100 @@ def test_a_router_check_proves_its_routes_are_mounted() -> None:
     assert router.check == "http.router_mounts"  # type: ignore[union-attr]
 
 
+def copy_example(tmp_path: Path) -> Path:
+    """The example service, somewhere it can be broken on purpose."""
+    root = tmp_path / "project"
+    shutil.copytree(EXAMPLE, root, ignore=shutil.ignore_patterns("__pycache__"))
+    return root
+
+
+def without_tests(tmp_path: Path) -> Path:
+    """The same service as a project that never wrote a test."""
+    root = copy_example(tmp_path)
+    shutil.rmtree(root / "tests")
+    return root
+
+
+# -- the observed run (Q7): the project's own tests ------------------------------
+
+
+def test_a_node_no_test_reaches_falls_back_to_its_direct_check() -> None:
+    """Two sources of evidence, and the fallback is not second-class -- just narrower.
+
+    `users_router` runs at import time, when the application is assembled, and never
+    inside a test. Import-time execution is deliberately not counted as exercised: the
+    claim "a test ran this" has to stay true.
+    """
+    observations, _, verdicts = observe(EXAMPLE)
+    router = observations["users"]
+
+    assert router.check == "http.router_mounts"  # type: ignore[union-attr]
+    assert verdicts["users"] == Verdict.GREEN.value
+
+
+def test_a_failing_test_reddens_the_node_it_exercised(tmp_path: Path) -> None:
+    """Test evidence outranks a direct call, including when it is the worse news.
+
+    The route still answers 200 here, so the direct check would pass it. The project's own
+    test says the answer is wrong, and the project is the authority on that.
+    """
+    root = copy_example(tmp_path)
+    health = root / "app" / "api" / "health.py"
+    health.write_text(health.read_text().replace('{"status": "ok"}', '{"status": "nope"}'))
+
+    observations, _, verdicts = observe(root)
+
+    assert observations["health"].check == "tests.exercised"  # type: ignore[union-attr]
+    assert observations["health"].passed is False  # type: ignore[union-attr]
+    assert "test_health_reports_ok" in observations["health"].detail  # type: ignore[union-attr]
+    assert verdicts["health"] == Verdict.BROKEN.value
+
+
+def test_a_node_the_failing_test_never_touched_stays_green(tmp_path: Path) -> None:
+    """A failing suite is not a blanket verdict. Only what it ran is what it judged."""
+    root = copy_example(tmp_path)
+    health = root / "app" / "api" / "health.py"
+    health.write_text(health.read_text().replace('{"status": "ok"}', '{"status": "nope"}'))
+
+    _, _, verdicts = observe(root)
+
+    assert verdicts["health"] == Verdict.BROKEN.value
+    assert verdicts["users.create"] == Verdict.GREEN.value
+
+
+def test_a_suite_that_cannot_run_falls_back_instead_of_reddening_nodes(tmp_path: Path) -> None:
+    """A broken test suite is not a broken application, and must not be reported as one."""
+    root = copy_example(tmp_path)
+    (root / "tests" / "test_api.py").write_text("this is not python(\n")
+
+    observations, skipped, verdicts = observe(root)
+
+    assert observations["health"].check == "http.route_answers"  # type: ignore[union-attr]
+    assert verdicts["health"] == Verdict.GREEN.value
+    # And the node the suite would have proven is unproven with the suite as the reason.
+    assert "pytest exit" in skipped["users.create"]
+
+
+def test_a_project_with_no_tests_says_so_rather_than_going_quiet(tmp_path: Path) -> None:
+    _, skipped, _ = observe(without_tests(tmp_path))
+
+    assert "no test suite" in skipped["users.create"]
+
+
 # -- what the runner must never do ------------------------------------------------
 
 
 def test_a_check_that_cannot_run_is_skipped_not_passed(tmp_path: Path) -> None:
-    """The erosion I-5 exists against would enter here, as a convenience."""
-    _, skipped, verdicts = observe(EXAMPLE)
+    """The erosion I-5 exists against would enter here, as a convenience.
+
+    Without the suite, the POST route is exactly what it was before P9: a node nothing can
+    prove without inventing input, and therefore unproven.
+    """
+    _, skipped, verdicts = observe(without_tests(tmp_path))
 
     assert skipped["users.create"]
-    assert verdicts["users.create"] != Verdict.GREEN.value
+    assert "no test" in skipped["users.create"] or "no test suite" in skipped["users.create"]
+    assert verdicts["users.create"] == Verdict.UNPROVEN.value
 
 
 def test_a_route_that_is_declared_but_not_mounted_fails(tmp_path: Path) -> None:

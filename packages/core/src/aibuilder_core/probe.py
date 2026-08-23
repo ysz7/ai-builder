@@ -14,18 +14,37 @@ exception -- a check that blew up is a red node with a reason, not a dead runner
 **A check that cannot run reports `skipped`, never `passed`.** A skipped check leaves the
 node unproven, which is the honest state; a check that quietly passed because it could not
 find anything to test would be the exact failure I-5 exists to prevent.
+
+There are two sources of evidence here, and exactly one rule for choosing between them
+(Q7):
+
+1. **The project's own tests**, run with the carriers instrumented. This is the primary
+   source. It is a real run with real input, authored by whoever knows the domain, and it
+   is the only thing that can prove a node the toolchain cannot call at all -- `POST
+   /users` has no valid body we are entitled to invent.
+2. **The direct calls** built in P4, for the nodes no test reached. Cheap, and they need
+   nothing made up: an app serves its schema, a router's routes are mounted, a GET with no
+   parameters answers.
+
+Test evidence outranks a direct call wherever both exist. A node neither exercised nor
+callable is `skipped` -- which is the "no evidence" state Unreal shows as a dark node, and
+it is a measurement, not a failure.
 """
 
 from __future__ import annotations
 
+import contextlib
 import importlib
 import json
+import os
 import sys
+import threading
 import traceback
 from dataclasses import dataclass, field
+from types import CodeType, FrameType
 from typing import Any
 
-__all__ = ["main", "run_plan"]
+__all__ = ["TestRun", "main", "observe_tests", "run_plan"]
 
 PASSED = "passed"
 FAILED = "failed"
@@ -224,6 +243,167 @@ CHECKS = {
 }
 
 
+# -- the observed run: the project's own tests, with the carriers instrumented ----
+
+
+@dataclass
+class TestRun:
+    """What the project's tests proved about each node, and nothing beyond that."""
+
+    #: node id -> the tests that actually entered its carrier.
+    fired: dict[str, set[str]] = field(default_factory=dict)
+    #: test id -> "passed" / "failed" / "skipped", as pytest reported it.
+    outcomes: dict[str, str] = field(default_factory=dict)
+    ran: bool = False
+    #: Why the suite did not run, when it did not. Never an absence of information.
+    detail: str = ""
+
+    def evidence(self, node: str) -> tuple[str, str] | None:
+        """The verdict this run supports for one node, or `None` if it reached it not.
+
+        A node is proven by a test that entered it **and passed**. A node entered only by
+        failing tests is not proven -- and it is not merely unproven either, because
+        something did run it and something did go wrong in that run.
+        """
+        tests = self.fired.get(node)
+        if not tests:
+            return None
+
+        passing = sorted(test for test in tests if self.outcomes.get(test) == "passed")
+        if passing:
+            return PASSED, f"exercised by {len(passing)} passing test(s), e.g. {passing[0]}"
+
+        failing = sorted(test for test in tests if self.outcomes.get(test) == "failed")
+        if failing:
+            return FAILED, f"every test that exercised this node failed, e.g. {failing[0]}"
+        return None  # only skipped tests touched it: a run, but not a verdict
+
+
+class _Recorder:
+    """A pytest plugin and a trace hook, recording which carrier ran inside which test.
+
+    Tracing rather than wrapping. A wrapper would have to be installed on the carrier
+    object, and FastAPI captured its own reference to the endpoint when the route was
+    added -- so the wrapper would sit on a name nothing calls. Code objects are what the
+    interpreter actually enters, whichever reference got there first, and watching them
+    changes no object the application holds. The markup layer is inert, and so is this.
+    """
+
+    def __init__(self, codes: dict[CodeType, str]):
+        self.codes = codes
+        self.fired: dict[str, set[str]] = {}
+        self.outcomes: dict[str, str] = {}
+        self.current: str | None = None
+
+    # the trace hook
+    def trace(self, frame: FrameType, event: str, arg: Any) -> Any:
+        if event == "call" and self.current is not None:
+            node = self.codes.get(frame.f_code)
+            if node is not None:
+                self.fired.setdefault(node, set()).add(self.current)
+        # No local trace function: entering the frame is the whole observation, and
+        # tracing every line of a stranger's test suite would cost far more than it says.
+        return None
+
+    # the pytest hooks
+    def pytest_runtest_logstart(self, nodeid: str, location: Any) -> None:
+        self.current = nodeid
+
+    def pytest_runtest_logfinish(self, nodeid: str, location: Any) -> None:
+        self.current = None
+
+    def pytest_runtest_logreport(self, report: Any) -> None:
+        # A failure in setup or teardown is a failed test as far as evidence goes: the
+        # node was not proven by it, whatever phase the error was reported in.
+        if report.when == "call" or report.failed:
+            previous = self.outcomes.get(report.nodeid)
+            if previous != "failed":
+                self.outcomes[report.nodeid] = report.outcome
+
+
+def carrier_codes(context: Context, nodes: list[dict[str, Any]]) -> dict[CodeType, str]:
+    """The code objects that mean "this node ran".
+
+    A function carrier is its own code object. A class carrier contributes the functions
+    defined in its body -- a class with no methods of its own (a Pydantic settings model,
+    typically) contributes nothing, and is proven by its direct check instead. A group has
+    no code at all, by definition: it is a declaration over other carriers.
+    """
+    codes: dict[CodeType, str] = {}
+    for node in nodes:
+        carrier = context.resolve(node["carrier"])
+        if carrier is None:
+            continue
+        for code in _codes_of(carrier):
+            codes[code] = node["id"]
+    return codes
+
+
+def _codes_of(carrier: Any) -> list[CodeType]:
+    code = getattr(carrier, "__code__", None)
+    if isinstance(code, CodeType):
+        return [code]
+    if isinstance(carrier, type):
+        return [
+            value.__code__
+            for value in vars(carrier).values()
+            if isinstance(getattr(value, "__code__", None), CodeType)
+        ]
+    return []
+
+
+def observe_tests(plan: dict[str, Any], codes: dict[CodeType, str]) -> TestRun:
+    """Run the project's test suite with the carriers instrumented.
+
+    Everything that can go wrong here -- no suite, no pytest, a suite that will not even
+    collect -- comes back as `ran=False` with a reason, and the nodes fall back to their
+    direct checks. A broken suite must not read as a broken node, and it must not read as
+    a passing one either.
+    """
+    tests = plan.get("tests")
+    if not tests:
+        return TestRun(detail="the project has no test suite to observe")
+    if not codes:
+        return TestRun(detail="no node carrier has code a run could enter")
+
+    try:
+        import pytest
+    except ImportError:  # pragma: no cover -- pytest is a dependency of the core
+        return TestRun(detail="pytest is not available to run the project's tests")
+
+    recorder = _Recorder(codes)
+    previous = sys.gettrace()
+    sys.settrace(recorder.trace)
+    # The application runs its request in a worker thread (the TestClient's portal), and
+    # a trace hook set on this thread would never see it.
+    threading.settrace(recorder.trace)
+    project = plan["project"]
+    working_directory = os.getcwd()
+    try:
+        # Run the suite from inside the project, the way its author runs it: a test that
+        # opens a fixture file by relative path is an ordinary test, not a broken one.
+        os.chdir(project)
+        # pytest writes its report to stdout, and stdout here is the wire back to the
+        # runner. Onto stderr with it, where every other log line in this system goes.
+        with contextlib.redirect_stdout(sys.stderr):
+            status = pytest.main(
+                [str(tests), "-q", "-p", "no:cacheprovider", f"--rootdir={project}"],
+                plugins=[recorder],
+            )
+    finally:
+        os.chdir(working_directory)
+        sys.settrace(previous)
+        threading.settrace(None)
+
+    code = int(getattr(status, "value", status))
+    if code >= 2:
+        return TestRun(detail=f"the project's tests could not be run (pytest exit {code})")
+    if not recorder.outcomes:
+        return TestRun(detail="the project's test suite collected nothing")
+
+    return TestRun(fired=recorder.fired, outcomes=recorder.outcomes, ran=True)
+
+
 # -- the runner ------------------------------------------------------------------
 
 
@@ -248,25 +428,46 @@ def run_plan(plan: dict[str, Any]) -> list[dict[str, str]]:
         detail = f"the project did not import: {failed}"
         return [Result(node["id"], node["check"], FAILED, detail).as_dict() for node in nodes]
 
+    # The suite runs after the imports, deliberately: "exercised" means a test entered
+    # the carrier, and a carrier that merely ran at import time was not tested.
+    run = observe_tests(plan, carrier_codes(context, nodes))
+
     results: list[Result] = []
     for node in nodes:
-        check = CHECKS.get(node["check"])
-        if check is None:
-            results.append(
-                Result(node["id"], node["check"], SKIPPED, "no runner for this check yet")
-            )
+        evidence = run.evidence(node["id"])
+        if evidence is not None:
+            status, detail = evidence
+            results.append(Result(node["id"], "tests.exercised", status, detail))
             continue
 
-        try:
-            status, detail = check(context, node)
-        except Exception:
-            # The traceback is the diagnosis. Truncated because a node badge is not a
-            # place to read a stack, and the tail is the part that names the cause.
-            trace = traceback.format_exc().strip().splitlines()
-            status, detail = FAILED, f"the check raised: {trace[-1]}"
-        results.append(Result(node["id"], node["check"], status, detail))
+        results.append(_direct(context, node, run))
 
     return [result.as_dict() for result in results]
+
+
+def _direct(context: Context, node: dict[str, Any], run: TestRun) -> Result:
+    """The fallback check: what the toolchain can call without inventing anything.
+
+    Whatever it answers, the reason the tests did not answer first travels with it. A node
+    that stays unproven has to say which run did not reach it, or "unproven" degrades into
+    a shrug.
+    """
+    check = CHECKS.get(node["check"])
+    if check is None:
+        return Result(node["id"], node["check"], SKIPPED, "no runner for this check yet")
+
+    try:
+        status, detail = check(context, node)
+    except Exception:
+        # The traceback is the diagnosis. Truncated because a node badge is not a
+        # place to read a stack, and the tail is the part that names the cause.
+        trace = traceback.format_exc().strip().splitlines()
+        status, detail = FAILED, f"the check raised: {trace[-1]}"
+
+    if status == SKIPPED:
+        unreached = "no test exercised this node" if run.ran else run.detail
+        detail = f"{detail}; {unreached}"
+    return Result(node["id"], node["check"], status, detail)
 
 
 def main() -> int:

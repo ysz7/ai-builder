@@ -132,7 +132,7 @@ uv run python -m aibuilder_core failures examples/fastapi-service   # what the a
 
 ## Status
 
-P0 through P8 are done: the window opens, React Flow renders a canvas, the Rust shell reaches the Python
+P0 through P9 are done: the window opens, React Flow renders a canvas, the Rust shell reaches the Python
 core over NDJSON, the markup layer exists and is provably inert, and
 [examples/fastapi-service/](examples/fastapi-service/) is the annotated reference project the rest is
 tested against. `npm run check` is the gate.
@@ -167,6 +167,15 @@ documentation that works in bare Claude Code. What the agent then gets wrong is 
 than refused: the soft gate flags it, and the log of those flags is the list the next phase works
 from.
 
-Next is P9 — the FastAPI slice end to end, in the order set out in the roadmap.
+The slice closes the loop on a real service: a brief, the graph, a knob written back through the
+syntax tree, a deliberate hand edit in generated code, reconciliation that names it, a repair the
+caller chooses, and green again — where green means proven by a run, not accepted by the parser. The
+evidence comes from the project's own test suite, with the carriers instrumented so each node reports
+whether a test actually entered it; the direct calls prove whatever no test reached. On the reference
+service every node is proven, including the POST route no tool may prove by inventing a request body.
+The stripped copy is then put through the same checks and answers identically.
+
+Next is P10 — LangGraph and RAG, each a repeat of that loop against a new topology, in the order set
+out in the roadmap.
 
 Python only; the first supported technology is FastAPI.

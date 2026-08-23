@@ -14,6 +14,11 @@ It has no dependency on the toolchain, and `bp` only ever contributes no-ops —
 `aibuilder-core strip` proves: strip the markup and this same service still serves the same
 responses.
 
+`tests/` is the service's own suite, and it is also **the run the graph observes**: the builder
+instruments the carriers while those tests execute and records which nodes actually fired. Nothing in
+them is arranged for the builder's benefit — that is the point. `POST /users` is proven there and
+nowhere else, because a valid request body can only come from someone who knows what a user is.
+
 Run it like any FastAPI app:
 
 ```bash

@@ -315,6 +315,155 @@
       },
       "body_digest": "d54f6d0e92d456f8",
       "body_source": "# GENERATED. App assembly; edited through the graph, not by hand.\n    app = FastAPI(title=\"Example Service\")\n    app.add_middleware(\n        CORSMiddleware,\n        allow_origins=settings.cors_origins,\n        allow_methods=[\"*\"],\n        allow_headers=[\"*\"],\n    )\n    app.add_api_route(\"/health\", health, methods=[\"GET\"])\n    app.include_router(users_router())\n    return app"
+    },
+    {
+      "path": "conftest.client",
+      "zone": null,
+      "signature": {
+        "parameters": [],
+        "returns": "TestClient"
+      },
+      "signature_locked": false,
+      "location": {
+        "file": "conftest.py",
+        "object": "client",
+        "start_line": 14,
+        "end_line": 16
+      },
+      "body_digest": null,
+      "body_source": null
+    },
+    {
+      "path": "tests.test_api.test_a_created_user_is_then_listed",
+      "zone": null,
+      "signature": {
+        "parameters": [
+          {
+            "name": "client",
+            "annotation": "TestClient",
+            "default": null
+          }
+        ],
+        "returns": "None"
+      },
+      "signature_locked": false,
+      "location": {
+        "file": "tests/test_api.py",
+        "object": "test_a_created_user_is_then_listed",
+        "start_line": 47,
+        "end_line": 52
+      },
+      "body_digest": null,
+      "body_source": null
+    },
+    {
+      "path": "tests.test_api.test_creating_a_user_returns_it_with_an_id",
+      "zone": null,
+      "signature": {
+        "parameters": [
+          {
+            "name": "client",
+            "annotation": "TestClient",
+            "default": null
+          }
+        ],
+        "returns": "None"
+      },
+      "signature_locked": false,
+      "location": {
+        "file": "tests/test_api.py",
+        "object": "test_creating_a_user_returns_it_with_an_id",
+        "start_line": 38,
+        "end_line": 44
+      },
+      "body_digest": null,
+      "body_source": null
+    },
+    {
+      "path": "tests.test_api.test_health_reports_ok",
+      "zone": null,
+      "signature": {
+        "parameters": [
+          {
+            "name": "client",
+            "annotation": "TestClient",
+            "default": null
+          }
+        ],
+        "returns": "None"
+      },
+      "signature_locked": false,
+      "location": {
+        "file": "tests/test_api.py",
+        "object": "test_health_reports_ok",
+        "start_line": 17,
+        "end_line": 21
+      },
+      "body_digest": null,
+      "body_source": null
+    },
+    {
+      "path": "tests.test_api.test_listing_users_respects_an_explicit_limit",
+      "zone": null,
+      "signature": {
+        "parameters": [
+          {
+            "name": "client",
+            "annotation": "TestClient",
+            "default": null
+          }
+        ],
+        "returns": "None"
+      },
+      "signature_locked": false,
+      "location": {
+        "file": "tests/test_api.py",
+        "object": "test_listing_users_respects_an_explicit_limit",
+        "start_line": 31,
+        "end_line": 35
+      },
+      "body_digest": null,
+      "body_source": null
+    },
+    {
+      "path": "tests.test_api.test_listing_users_returns_the_seeded_two",
+      "zone": null,
+      "signature": {
+        "parameters": [
+          {
+            "name": "client",
+            "annotation": "TestClient",
+            "default": null
+          }
+        ],
+        "returns": "None"
+      },
+      "signature_locked": false,
+      "location": {
+        "file": "tests/test_api.py",
+        "object": "test_listing_users_returns_the_seeded_two",
+        "start_line": 24,
+        "end_line": 28
+      },
+      "body_digest": null,
+      "body_source": null
+    },
+    {
+      "path": "tests.test_api.test_the_settings_carry_their_declared_defaults",
+      "zone": null,
+      "signature": {
+        "parameters": [],
+        "returns": "None"
+      },
+      "signature_locked": false,
+      "location": {
+        "file": "tests/test_api.py",
+        "object": "test_the_settings_carry_their_declared_defaults",
+        "start_line": 55,
+        "end_line": 61
+      },
+      "body_digest": null,
+      "body_source": null
     }
   ],
   "edges": [

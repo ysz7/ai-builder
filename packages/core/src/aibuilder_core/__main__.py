@@ -150,6 +150,11 @@ def run_check(project: Path, observe: bool) -> int:
         print(f"unproven: {node} -- {reason}")
 
     print(summarize(result))
+    if observe:
+        # The unreached band, stated as a number (Q7). A node no run entered is not a
+        # failure and not a pass; it is the dark node in the editor, and the only way to
+        # decide whether it needs an authored example is to see how many there are.
+        print(f"{len(skipped)} node(s) reached by no run")
     return 0 if result.accepted else 1
 
 

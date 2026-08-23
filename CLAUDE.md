@@ -10,15 +10,16 @@ AST-addressable markup layer (`bp`); a parser projects that into a graph; edits 
 written back through the syntax tree with `libcst`. Assembled applications deploy as plain Python
 projects with no runtime dependency on the builder.
 
-Current state: **P0–P8 done, P9 next.** Window opens, React Flow renders a scaffold canvas, Rust
+Current state: **P0–P9 done, P10 next.** Window opens, React Flow renders a scaffold canvas, Rust
 reaches the Python core over NDJSON, the five `bp` primitives exist and are proven inert, and
 `strip` removes the markup with the example service answering identically before and after. The parser
 turns an annotated project into a graph IR, the static gate judges it into addressed diagnostics, and
 the observable checks run the project to prove nodes actually work, and reconciliation reports what
 no longer matches the last valid state, the writer edits knobs and node declarations back into
 code through the syntax tree, and the repair system acts on divergences — or refuses to, and says
-who must decide, and the agent integration assembles one brief for both inputs and logs what the
-agent gets wrong. The end-to-end slice (P9) is next.
+who must decide, the agent integration assembles one brief for both inputs and logs what the agent
+gets wrong, and the FastAPI slice runs end to end — brief, graph, knob write, breakage, repair, green
+again, stripped copy proving the same things. LangGraph and RAG (P10) are next.
 
 [examples/fastapi-service/](examples/fastapi-service/) is the annotated reference project: it is what
 the parser is written against, and the shape every generation rule in the system prompt has an
@@ -125,6 +126,13 @@ Every write addresses a **syntax node**, never a line or a span of text — that
 being real Python buys. A write validates against the knob's own declaration first, is undone if the
 gate comes back worse than before, and updates the snapshot when it passes.
 
+**The project's own tests are the run the graph observes** (Q7). `probe.py` runs the suite with the
+carriers instrumented by code object — tracing, never wrapping, since FastAPI holds its own reference
+to each endpoint — and a node is proven by a test that entered it and passed. Test evidence outranks a
+direct call wherever both exist, and that rule lives in `probe.run_plan` and nowhere else. Never
+count import-time execution as "exercised", and never let a suite that fails to collect redden the
+nodes: a broken test suite is not a broken application.
+
 **`probe.py` is the only module that imports the user's project, and the toolchain never imports it**
 — `observe.py` spawns it as a subprocess with a timeout. Keep it that way: everything else reads
 statically so that drawing a graph never runs a stranger's code, and a project that hangs or crashes
@@ -196,7 +204,7 @@ agent's system prompt used to and was moved into the package for exactly that re
 - [architecture.md](docs/architecture.md) — the v0 spec. Sections 2 (invariants) and 7 (the parser as
   a gate) carry everything load-bearing.
 - [roadmap.md](docs/roadmap.md) — phases P0–P10 with per-phase acceptance criteria and the invariant
-  each protects. Current position: P9.
+  each protects. Current position: P10.
 - [open-questions.md](docs/open-questions.md) — nothing open; Q1–Q5 are settled, with the reasoning
   kept in the log. **Read before starting any phase**, and add an entry the moment two documents
   disagree — an unrecorded conflict is worse than an open one.

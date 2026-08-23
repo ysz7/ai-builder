@@ -42,7 +42,7 @@ __all__ = [
 
 #: Bumped when the outline's shape changes. An older snapshot is discarded rather than
 #: guessed at: a wrong reference produces confident, wrong divergences.
-SNAPSHOT_VERSION = 2
+SNAPSHOT_VERSION = 3
 
 #: Where the reference lives, relative to the project root. A build artifact, like a lock
 #: file for a state rather than for dependencies -- safe to delete, and the next successful
@@ -122,7 +122,8 @@ def take_snapshot(graph: Graph) -> Snapshot:
 
     Everything dropped here is dropped on purpose. Locations are not kept: a node that
     moved down a file has not diverged, and remembering where it used to be would turn
-    every insertion above it into a false divergence.
+    every insertion above it into a false divergence. Unclassified functions are not kept
+    either -- see the comment on `functions` below.
     """
     return Snapshot(
         version=SNAPSHOT_VERSION,
@@ -149,6 +150,11 @@ def take_snapshot(graph: Graph) -> Snapshot:
             )
             for node in graph.nodes
         ),
+        # Classified functions only. An unclassified function outside every carrier -- a
+        # test, a conftest fixture, a script -- is not part of the graph: it cannot be
+        # edited through a node, it carries no contract anything binds to, and there is no
+        # divergence the graph would be entitled to report about it. Remembering it would
+        # make deleting a test read as a broken application (P9).
         functions=tuple(
             FunctionOutline(
                 path=function.path,
@@ -159,6 +165,7 @@ def take_snapshot(graph: Graph) -> Snapshot:
                 body_source=function.body_source,
             )
             for function in graph.functions
+            if function.zone is not None
         ),
         edges=tuple(
             EdgeOutline(source=edge.source, target=edge.target, contract=edge.contract)

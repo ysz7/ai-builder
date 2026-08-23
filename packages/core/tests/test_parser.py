@@ -556,9 +556,19 @@ def test_every_kind_in_the_example_is_registered() -> None:
     assert unknown == []
 
 
-def test_the_example_has_no_unmarked_functions() -> None:
-    """The rule the gate will enforce in P3, held here from the moment it can be checked."""
-    functions = parse_project(EXAMPLE).functions
-    unmarked = [function.path for function in functions if function.zone is None]
+def test_the_example_has_no_unmarked_functions_inside_a_carrier() -> None:
+    """The rule the gate enforces: unmarked *inside a carrier* is a forgotten mark (§4).
 
-    assert unmarked == []
+    Outside every carrier -- the project's own tests, its conftest -- a function needs no
+    mark and gets none. The parser still sees those functions; they simply are not the
+    graph's to classify.
+    """
+    from aibuilder_core.gate import check_graph
+
+    unclassified = [
+        diagnostic.location.object
+        for diagnostic in check_graph(parse_project(EXAMPLE)).diagnostics
+        if diagnostic.code == "function.unclassified"
+    ]
+
+    assert unclassified == []
