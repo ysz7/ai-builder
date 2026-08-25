@@ -46,7 +46,7 @@ from aibuilder_core.markup import (
 )
 from aibuilder_core.paths import iter_python_files, module_name, package_name
 
-__all__ = ["parse_project", "parse_source"]
+__all__ = ["parse_project", "parse_source", "signature_of"]
 
 #: Renders syntax nodes back to source text, for annotations and defaults.
 _RENDERER = cst.Module([])
@@ -248,27 +248,7 @@ class _ModuleParser:
         return node_args, members, zone, locked
 
     def _signature(self, function: cst.FunctionDef) -> Signature:
-        params = function.params
-        collected: list[Parameter] = []
-
-        for param in (*params.posonly_params, *params.params):
-            collected.append(self._parameter(param))
-        if isinstance(params.star_arg, cst.Param):
-            collected.append(self._parameter(params.star_arg, prefix="*"))
-        for param in params.kwonly_params:
-            collected.append(self._parameter(param))
-        if params.star_kwarg is not None:
-            collected.append(self._parameter(params.star_kwarg, prefix="**"))
-
-        returns = _code(function.returns.annotation) if function.returns else None
-        return Signature(parameters=tuple(collected), returns=returns)
-
-    def _parameter(self, param: cst.Param, prefix: str = "") -> Parameter:
-        return Parameter(
-            name=f"{prefix}{param.name.value}",
-            annotation=_code(param.annotation.annotation) if param.annotation else None,
-            default=_code(param.default),
-        )
+        return signature_of(function)
 
     # -- definitions ------------------------------------------------------------
 
@@ -582,6 +562,37 @@ class _Resolver:
         if target.signature is not None:
             return target.signature.render()
         return target.carrier.rsplit(".", 1)[-1]
+
+
+def signature_of(function: cst.FunctionDef) -> Signature:
+    """A function's contract, read off the syntax tree.
+
+    Module level and public because the writer needs the *same* answer when it is handed a
+    replacement body (P15/Q15): "is this the same signature?" must be decided by one
+    implementation, or a second one drifts and the lock stops meaning anything.
+    """
+    params = function.params
+    collected: list[Parameter] = []
+
+    for param in (*params.posonly_params, *params.params):
+        collected.append(_parameter_of(param))
+    if isinstance(params.star_arg, cst.Param):
+        collected.append(_parameter_of(params.star_arg, prefix="*"))
+    for param in params.kwonly_params:
+        collected.append(_parameter_of(param))
+    if params.star_kwarg is not None:
+        collected.append(_parameter_of(params.star_kwarg, prefix="**"))
+
+    returns = _code(function.returns.annotation) if function.returns else None
+    return Signature(parameters=tuple(collected), returns=returns)
+
+
+def _parameter_of(param: cst.Param, prefix: str = "") -> Parameter:
+    return Parameter(
+        name=f"{prefix}{param.name.value}",
+        annotation=_code(param.annotation.annotation) if param.annotation else None,
+        default=_code(param.default),
+    )
 
 
 def parse_project(root: Path) -> Graph:

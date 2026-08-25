@@ -42,7 +42,7 @@ from aibuilder_core.runner import (
 )
 from aibuilder_core.snapshot import load_snapshot, save_snapshot, take_snapshot
 from aibuilder_core.verdict import Observation
-from aibuilder_core.writer import set_knob, set_node_title
+from aibuilder_core.writer import set_body, set_knob, set_node_title
 
 __all__ = [
     "AGENT_BLUEPRINTS_SCHEMA",
@@ -84,6 +84,7 @@ __all__ = [
     "take_project_snapshot",
     "repair_divergence",
     "repairs_available",
+    "write_body",
     "write_knob",
     "write_node_title",
 ]
@@ -402,6 +403,10 @@ _LOG_ENTRY = {
     "blueprint": "str?",
     "request": "str",
     "observed": "bool",
+    # Which turn of which conversation produced this (Q16). Null when nothing drove it
+    # from a session -- the entry then stands alone, as every entry used to.
+    "session": "str?",
+    "turn": "int?",
     "diagnostics": [
         {"code": "str", "severity": "str", "rule": "str", "node": "str?", "address": "str"}
     ],
@@ -659,6 +664,17 @@ def write_node_title(project: Path | str, node: str, title: str) -> dict[str, An
     return {"api_version": GRAPH_API_VERSION, **result.as_dict()}
 
 
+def write_body(project: Path | str, node: str, function: str, source: str) -> dict[str, Any]:
+    """Write a new body for one editable function of a node's carrier (Q15).
+
+    The same `WRITE_SCHEMA` as the other two verbs, because it is the same kind of answer:
+    a refusal is a result the panel shows, never a protocol fault -- a locked signature and
+    a generated zone are both ordinary things for a person to try.
+    """
+    result = set_body(project, node, function, source)
+    return {"api_version": GRAPH_API_VERSION, **result.as_dict()}
+
+
 def repairs_available(project: Path | str) -> dict[str, Any]:
     """Every divergence, what may be done about it, and the request text for an agent."""
     return {"api_version": GRAPH_API_VERSION, "repairs": list_repairs(project)}
@@ -724,10 +740,22 @@ def agent_record(
     request: str = "",
     blueprint: str | None = None,
     observe: bool = False,
+    session: str | None = None,
+    turn: int | None = None,
 ) -> dict[str, Any]:
-    """Run the gates over what the agent produced and log what they said (§7)."""
+    """Run the gates over what the agent produced and log what they said (§7).
+
+    `session` and `turn` address the conversation turn this came from (Q16); both absent
+    means nothing drove it from a session.
+    """
     entry = record_outcome(
-        project, source=source, request=request, blueprint=blueprint, observe=observe
+        project,
+        source=source,
+        request=request,
+        blueprint=blueprint,
+        observe=observe,
+        session=session,
+        turn=turn,
     )
     return {"api_version": GRAPH_API_VERSION, "entry": entry}
 

@@ -230,6 +230,38 @@ def test_a_generation_that_misses_is_recorded_with_its_addresses(tmp_path: Path)
     assert (root / AGENT_LOG_PATH).is_file()
 
 
+def test_an_entry_addresses_the_conversation_turn_it_came_from(tmp_path: Path) -> None:
+    """Q16: the agent is driven as a chat, so an entry is a turn rather than a whole input.
+
+    This narrowed what the log is -- an entry used to be replayable on its own and is now a
+    point inside a discussion that carried state the entry does not hold. Recording the
+    address of that turn is the honest version of the change: the entry points into a
+    transcript instead of pretending to be self-contained.
+    """
+    root = project(tmp_path, MIS_ANNOTATED)
+
+    entry = record_outcome(
+        root,
+        source="chat",
+        request="add an endpoint",
+        session="62ffbbf8-d2e9-439d-bec2-f39b0c7db1c5",
+        turn=3,
+    )
+
+    assert entry["session"] == "62ffbbf8-d2e9-439d-bec2-f39b0c7db1c5"
+    assert entry["turn"] == 3
+
+
+def test_a_generation_driven_by_hand_says_so_rather_than_omitting_it(tmp_path: Path) -> None:
+    """Absent is an answer, not a missing field. Nothing drove this from a session."""
+    root = project(tmp_path, MIS_ANNOTATED)
+
+    entry = record_outcome(root, source="chat", request="add an endpoint")
+
+    assert entry["session"] is None
+    assert entry["turn"] is None
+
+
 def test_the_failure_modes_are_tallied_across_generations(tmp_path: Path) -> None:
     root = project(tmp_path, MIS_ANNOTATED)
 

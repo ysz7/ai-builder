@@ -65,6 +65,7 @@ from aibuilder_core.api import (
     work_start,
     work_state,
     work_stop,
+    write_body,
     write_knob,
 )
 from aibuilder_core.catalog import CATALOG_ENV
@@ -243,6 +244,25 @@ def run_set_knob(project: Path, node: str, knob: str, raw: str) -> int:
         return 1
 
     print(f"{node}.{knob} = {value!r} written to {result['file']}")
+    return 0
+
+
+def run_set_body(project: Path, node: str, function: str, source_file: str) -> int:
+    """Write a new body for one editable function, read from a file or from stdin.
+
+    From a file rather than an argument: a body is many lines, and a shell is the wrong
+    place to quote one. `-` reads stdin, which is what a pipe wants.
+    """
+    source = sys.stdin.read() if source_file == "-" else Path(source_file).read_text("utf-8")
+
+    result = write_body(project, node, function, source)
+    if not result["written"]:
+        print(f"refused: {result['refused']}")
+        for diagnostic in result["diagnostics"]:
+            print(f"  {diagnostic['code']} -- {diagnostic['message']}")
+        return 1
+
+    print(f"{function} rewritten in {result['file']}")
     return 0
 
 
@@ -496,6 +516,12 @@ def build_parser() -> argparse.ArgumentParser:
     knob_cmd.add_argument("knob")
     knob_cmd.add_argument("value")
 
+    body_cmd = sub.add_parser("set-body", help="write a new body for an editable function")
+    body_cmd.add_argument("project", type=Path)
+    body_cmd.add_argument("node")
+    body_cmd.add_argument("function", help="the dotted path of the function to rewrite")
+    body_cmd.add_argument("source", help="a file holding the replacement, or - for stdin")
+
     repairs_cmd = sub.add_parser("repairs", help="list divergences and how they can be resolved")
     repairs_cmd.add_argument("project", type=Path)
 
@@ -603,6 +629,8 @@ def main(argv: list[str] | None = None) -> int:
         return run_status(parsed.project)
     if parsed.command == "set-knob":
         return run_set_knob(parsed.project, parsed.node, parsed.knob, parsed.value)
+    if parsed.command == "set-body":
+        return run_set_body(parsed.project, parsed.node, parsed.function, parsed.source)
     if parsed.command == "repairs":
         return run_repairs(parsed.project)
     if parsed.command == "repair":

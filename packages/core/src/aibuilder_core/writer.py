@@ -18,6 +18,12 @@ it would make the promise decorative.
 
 **A passing write becomes the new reference.** Otherwise the graph's own edit would show
 up as a divergence the next time reconciliation ran (§8).
+
+`set_body` (Q15) is the third verb and it obeys all three. It exists because the editor
+lives **inside the application**: a node shows the slice of the file it owns, and the
+editable part of that slice has to be writable from there or the panel is a viewer. What it
+will not do is loosen anything -- a generated zone is refused, a locked signature is
+refused, and the decorators are not its business at all.
 """
 
 from __future__ import annotations
@@ -31,13 +37,13 @@ import libcst as cst
 
 from aibuilder_core.diagnostics import Diagnostic
 from aibuilder_core.gate import check_graph
-from aibuilder_core.ir import Graph, Knob, Node
+from aibuilder_core.ir import Function, Graph, Knob, Node
 from aibuilder_core.markup import Bindings, collect_bindings
-from aibuilder_core.parser import parse_project
+from aibuilder_core.parser import parse_project, signature_of
 from aibuilder_core.paths import package_name
 from aibuilder_core.snapshot import save_snapshot, take_snapshot
 
-__all__ = ["WriteResult", "set_knob", "set_node_title"]
+__all__ = ["WriteResult", "set_body", "set_knob", "set_node_title"]
 
 
 @dataclass(frozen=True)
@@ -339,3 +345,139 @@ def set_node_title(project: Path | str, node_id: str, title: str) -> WriteResult
         transformer,
         f"the declaration of {node_id!r} was not found where the graph said it was",
     )
+
+
+# -- editing a body ----------------------------------------------------------------
+
+
+class _SetFunctionBody(cst.CSTTransformer):
+    """Replace one function's body, keeping its decorators and everything around it.
+
+    Scoped by the owner chain, so a `run` inside one class is never confused with the `run`
+    inside another -- the same reason `_SetKnobDefault` carries a stack.
+
+    The decorators are deliberately untouched: they are the markup layer, and the panel
+    that calls this shows them read-only. A write that could move a decorator would be a
+    write that can reclassify a zone, which is not an edit -- it is a change of who owns
+    the code.
+    """
+
+    def __init__(self, qualname: str, replacement: cst.FunctionDef, keep_signature: bool) -> None:
+        self.qualname = qualname
+        self.replacement = replacement
+        self.keep_signature = keep_signature
+        self.changed = False
+        self._stack: list[str] = []
+
+    def visit_ClassDef(self, node: cst.ClassDef) -> bool:
+        self._stack.append(node.name.value)
+        return True
+
+    def leave_ClassDef(self, original: cst.ClassDef, updated: cst.ClassDef) -> cst.ClassDef:
+        self._stack.pop()
+        return updated
+
+    def visit_FunctionDef(self, node: cst.FunctionDef) -> bool:
+        self._stack.append(node.name.value)
+        return True
+
+    def leave_FunctionDef(
+        self, original: cst.FunctionDef, updated: cst.FunctionDef
+    ) -> cst.FunctionDef:
+        here = ".".join(self._stack)
+        self._stack.pop()
+        if here != self.qualname:
+            return updated
+
+        self.changed = True
+        changes: dict[str, Any] = {"body": self.replacement.body}
+        if not self.keep_signature:
+            # Only reachable for a function whose signature was never locked. A locked one
+            # is refused before the transformer is built, never quietly rewritten.
+            changes["params"] = self.replacement.params
+            changes["returns"] = self.replacement.returns
+        return updated.with_changes(**changes)
+
+
+def _submitted(source: str) -> tuple[cst.FunctionDef | None, str | None]:
+    """The one function definition in what the caller sent, or the reason it is not one."""
+    try:
+        module = cst.parse_module(source)
+    except cst.ParserSyntaxError as exc:
+        return None, f"the replacement does not parse: {exc}"
+
+    statements = [item for item in module.body if not isinstance(item, cst.EmptyLine)]
+    if len(statements) != 1 or not isinstance(statements[0], cst.FunctionDef):
+        return None, "the replacement must be exactly one function definition"
+
+    function = statements[0]
+    if function.decorators:
+        # The markup is not edited here. Letting a decorator through this path would let a
+        # body edit reclassify its own zone, which is the one thing §4 exists to prevent.
+        return None, "the replacement must carry no decorators; the markup is not edited here"
+    return function, None
+
+
+def set_body(project: Path | str, node_id: str, function_path: str, source: str) -> WriteResult:
+    """Write a new body for one editable function of a node's carrier (Q15).
+
+    Addressed by node **and** function, not by function alone: I-6 says code is edited
+    through a node, and a verb that took a bare path would be a second way in that happens
+    to bypass it. The function must belong to the carrier the node names, or this refuses.
+    """
+    project = Path(project)
+    graph = parse_project(project)
+
+    node, problem = _find(graph, node_id)
+    if node is None:
+        return _refused(problem or "")
+
+    function = next((item for item in graph.functions if item.path == function_path), None)
+    if function is None:
+        return _refused(f"no function at {function_path!r}")
+    if not _belongs_to(function, node):
+        return _refused(f"{function_path!r} is not part of the carrier of {node_id!r}")
+
+    if function.zone == "generated":
+        return _refused(
+            f"{function_path!r} is a generated zone: it is edited through the graph, not by hand"
+        )
+    if function.zone != "editable":
+        return _refused(
+            f"{function_path!r} is not classified @editable, so it has no editable body"
+        )
+
+    replacement, invalid = _submitted(source)
+    if replacement is None:
+        return _refused(invalid or "")
+
+    submitted = signature_of(replacement)
+    if function.signature_locked and submitted != function.signature:
+        # The signature is the contract an edge binds to (§6). Refusing here is the whole
+        # point of `signature_locked`, and it is refused rather than repaired because only
+        # the author knows which of the two they meant.
+        return _refused(
+            f"the signature is locked: {function.signature.render()} was declared, "
+            f"{submitted.render()} was submitted"
+        )
+
+    transformer = _SetFunctionBody(
+        function.location.object, replacement, keep_signature=function.signature_locked
+    )
+    return _apply(
+        project,
+        graph,
+        function.location.file,
+        transformer,
+        f"{function_path!r} was not found where the graph said it was",
+    )
+
+
+def _belongs_to(function: Function, node: Node) -> bool:
+    """Is this function part of what the node carries?
+
+    A function carrier is the function itself; a class or a module carrier owns everything
+    defined inside it. Anything else belongs to some other node, and editing it from here
+    would be editing one node's code through another's panel.
+    """
+    return function.path == node.carrier or function.path.startswith(f"{node.carrier}.")

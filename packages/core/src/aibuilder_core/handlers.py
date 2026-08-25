@@ -41,6 +41,7 @@ from aibuilder_core.api import (
     work_start,
     work_state,
     work_stop,
+    write_body,
     write_knob,
     write_node_title,
 )
@@ -174,6 +175,24 @@ def node_set_title(params: dict[str, Any]) -> dict[str, Any]:
     )
 
 
+def node_set_body(params: dict[str, Any]) -> dict[str, Any]:
+    """Write a new body for one of a node's editable functions.
+
+    Addressed by node **and** function: I-6 says code is edited through a node, so a verb
+    that took a bare path would be a second way in that quietly bypasses it.
+    """
+    source = params.get("source")
+    if not isinstance(source, str):
+        raise ProtocolError("invalid_params", "'source' must be a string")
+
+    return write_body(
+        _project_of(params),
+        _required_str(params, "node"),
+        _required_str(params, "function"),
+        source,
+    )
+
+
 def repair_list(params: dict[str, Any]) -> dict[str, Any]:
     """What diverged, and what may be done about each."""
     return repairs_available(_project_of(params))
@@ -229,10 +248,18 @@ def agent_brief_method(params: dict[str, Any]) -> dict[str, Any]:
 
 
 def agent_record_method(params: dict[str, Any]) -> dict[str, Any]:
-    """Log what the gates said about a generation -- the soft mode's whole purpose (§7)."""
+    """Log what the gates said about a generation -- the soft mode's whole purpose (§7).
+
+    `session` and `turn` say which turn of which conversation this was (Q16). Optional,
+    because a generation driven by hand belongs in the log just as much as one from a chat.
+    """
     observe = params.get("observe", False)
     if not isinstance(observe, bool):
         raise ProtocolError("invalid_params", "'observe' must be true or false")
+
+    turn = params.get("turn")
+    if turn is not None and (not isinstance(turn, int) or isinstance(turn, bool)):
+        raise ProtocolError("invalid_params", "'turn' must be a number when given")
 
     return agent_record(
         _project_of(params),
@@ -240,6 +267,8 @@ def agent_record_method(params: dict[str, Any]) -> dict[str, Any]:
         _optional_str(params, "request") or "",
         _optional_str(params, "blueprint"),
         observe,
+        _optional_str(params, "session"),
+        turn,
     )
 
 
@@ -349,6 +378,7 @@ HANDLERS: dict[str, Handler] = {
     "snapshot.status": snapshot_status_method,
     "knob.set": knob_set,
     "node.set_title": node_set_title,
+    "node.set_body": node_set_body,
     "repair.list": repair_list,
     "repair.apply": repair_apply,
     "agent.brief": agent_brief_method,

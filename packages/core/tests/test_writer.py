@@ -17,7 +17,7 @@ import libcst as cst
 from aibuilder_core.parser import parse_project
 from aibuilder_core.reconcile import reconcile
 from aibuilder_core.snapshot import load_snapshot, save_snapshot, take_snapshot
-from aibuilder_core.writer import WriteResult, set_knob, set_node_title
+from aibuilder_core.writer import WriteResult, set_body, set_knob, set_node_title
 
 EXAMPLE = Path(__file__).resolve().parents[3] / "examples" / "fastapi-service"
 
@@ -234,3 +234,164 @@ def test_a_write_that_would_break_the_gate_is_undone(tmp_path: Path) -> None:
     assert result.written is False
     assert result.diagnostics
     assert (root / "app/api/health.py").read_text() == before
+
+
+# -- editing a body from inside the application (Q15) ----------------------------
+#
+# The panel that shows a node's code has to be able to write it back, or it is a viewer.
+# What that verb must never do is loosen anything: a generated zone stays the graph's, a
+# locked signature stays locked, and the markup is not reachable from it at all.
+
+
+BODY = (
+    "def list_users(limit: int | None = None) -> list[User]:\n"
+    "    # USER-EDITABLE. Signature is locked; changing it breaks the node's edge.\n"
+    "    return _USERS[: limit or settings.page_size][::-1]\n"
+)
+
+
+def test_a_body_written_from_a_node_lands_in_the_file(tmp_path: Path) -> None:
+    root = project(tmp_path)
+
+    result = set_body(root, "users.list", "app.api.users.list_users", BODY)
+
+    assert result.written is True
+    assert result.file == "app/api/users.py"
+    assert "[::-1]" in (root / "app/api/users.py").read_text()
+
+
+def test_the_markup_around_an_edited_body_is_untouched(tmp_path: Path) -> None:
+    """The decorators are the graph's own declaration, not part of what the user types.
+
+    A write that could move one would be a write that can reclassify a zone, which is not
+    an edit at all -- it is a change of who owns the code.
+    """
+    root = project(tmp_path)
+
+    set_body(root, "users.list", "app.api.users.list_users", BODY)
+
+    source = (root / "app/api/users.py").read_text()
+    assert '@node(id="users.list", kind="fastapi.route", title="List users")' in source
+    assert "@editable(signature_locked=True)" in source
+    # And the neighbour in the same file is byte for byte what it was.
+    assert "created = User(id=max((u.id for u in _USERS), default=0) + 1" in source
+
+
+def test_everything_outside_the_edited_body_is_byte_identical(tmp_path: Path) -> None:
+    root = project(tmp_path)
+    before = files(root)
+
+    set_body(root, "users.list", "app.api.users.list_users", BODY)
+
+    after = files(root)
+    assert set(before) == set(after)
+    changed = [name for name in before if before[name] != after[name]]
+    assert changed == ["app/api/users.py"]
+
+
+def test_a_changed_signature_is_refused_when_it_is_locked(tmp_path: Path) -> None:
+    """The signature is the contract an edge binds to (§6), so this is the whole point.
+
+    Refused rather than repaired: only the author knows whether they meant to change the
+    contract or mistyped it, and guessing would break the node's edge silently.
+    """
+    root = project(tmp_path)
+
+    result = set_body(
+        root,
+        "users.list",
+        "app.api.users.list_users",
+        "def list_users(limit: int) -> list[User]:\n    return _USERS\n",
+    )
+
+    assert result.written is False
+    assert "the signature is locked" in (result.refused or "")
+    assert "limit: int | None = None" in (root / "app/api/users.py").read_text()
+
+
+def test_a_generated_zone_is_refused(tmp_path: Path) -> None:
+    """Case 2 of §9 has two non-equivalent answers, and neither of them is "type over it"."""
+    root = project(tmp_path)
+
+    result = set_body(
+        root, "users", "app.api.users.users_router", "def users_router() -> APIRouter:\n    ...\n"
+    )
+
+    assert result.written is False
+    assert "generated zone" in (result.refused or "")
+
+
+def test_a_function_of_another_node_is_refused(tmp_path: Path) -> None:
+    """I-6: code is edited **through a node**, so the address is node plus function.
+
+    A verb that took a bare path would be a second way in that bypasses the invariant while
+    looking like a convenience.
+    """
+    root = project(tmp_path)
+
+    result = set_body(
+        root, "health", "app.api.users.list_users", "def list_users() -> list[User]:\n    ...\n"
+    )
+
+    assert result.written is False
+    assert "not part of the carrier" in (result.refused or "")
+
+
+def test_a_replacement_carrying_decorators_is_refused(tmp_path: Path) -> None:
+    root = project(tmp_path)
+
+    result = set_body(
+        root,
+        "users.list",
+        "app.api.users.list_users",
+        "@generated()\ndef list_users(limit: int | None = None) -> list[User]:\n    ...\n",
+    )
+
+    assert result.written is False
+    assert "no decorators" in (result.refused or "")
+
+
+def test_a_replacement_that_is_not_one_function_is_refused(tmp_path: Path) -> None:
+    root = project(tmp_path)
+
+    assert set_body(root, "users.list", "app.api.users.list_users", "x = 1\n").written is False
+    assert set_body(root, "users.list", "app.api.users.list_users", "def a(:\n").written is False
+
+
+def test_an_unknown_node_or_function_is_refused_by_name(tmp_path: Path) -> None:
+    root = project(tmp_path)
+
+    assert "no node with id" in (set_body(root, "nope", "a.b", "def b():\n    ...\n").refused or "")
+    assert "no function at" in (
+        set_body(root, "users.list", "app.api.users.nope", "def nope():\n    ...\n").refused or ""
+    )
+
+
+def test_a_body_write_moves_the_reference_with_it(tmp_path: Path) -> None:
+    """The graph's own edit must not read as a divergence the next time §8 asks."""
+    root = project(tmp_path)
+
+    assert set_body(root, "users.list", "app.api.users.list_users", BODY).written is True
+
+    reference = load_snapshot(root)
+    assert reference is not None
+    assert reconcile(reference, parse_project(root)) == ()
+
+
+def test_the_body_verb_is_a_method_in_the_core(tmp_path: Path) -> None:
+    """The extension point is `HANDLERS`, never a new command in the Rust shell."""
+    from aibuilder_core.handlers import dispatch
+
+    root = project(tmp_path)
+
+    answer = dispatch(
+        "node.set_body",
+        {
+            "project": str(root),
+            "node": "users.list",
+            "function": "app.api.users.list_users",
+            "source": BODY,
+        },
+    )
+
+    assert answer["written"] is True

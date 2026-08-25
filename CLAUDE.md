@@ -73,6 +73,14 @@ gate is a static judgement and this one needed a run. The claim carries its own 
 state, the probe imports **every** module rather than only the annotated ones, and a module that will
 not import costs the claim rather than the nodes. Kinds opt in through `NodeKind.completeness`.
 
+**The person owns the layout; the code owns the graph** (Q13). Node positions live in
+`.aibuilder/layout.json` as `id -> {x, y}` and nothing else — tooling state beside `run.json` and the
+snapshot. It answers one question, "where do I draw this node?", and **cannot add, remove or rename
+one**: a node with no entry still draws, an entry with no node is unused, and orphaned coordinates are
+kept rather than tidied on sight, because an agent rewriting a file makes a node vanish and come back.
+Which is also why there is no `node.create` (Q14): a node exists because code declares it, so "add a
+node" is a generation, and the new ids are a set difference the canvas computes rather than guesses.
+
 **A contract edge and a flow are different relations** (Q9). Edges are types crossing a boundary, read
 from signatures. Flow — a pipeline's order, an agent's wiring — is never parsed out of assembly code
 and never declared in markup; it comes from a run: the compiled graph the framework exposes, or the
@@ -121,6 +129,7 @@ uv run python -m aibuilder_core check examples/fastapi-service --observe   # run
 uv run python -m aibuilder_core snapshot examples/fastapi-service
 uv run python -m aibuilder_core status examples/fastapi-service
 uv run python -m aibuilder_core set-knob examples/fastapi-service api.settings page_size 50
+uv run python -m aibuilder_core set-body examples/fastapi-service health app.api.health.health -
 uv run python -m aibuilder_core repairs examples/fastapi-service
 uv run python -m aibuilder_core blueprints
 uv run python -m aibuilder_core brief examples/fastapi-service --request "add a users router"
@@ -193,6 +202,13 @@ reads the blueprint catalog; `strip.py` removes the markup.
 has two non-equivalent answers and the toolchain is not entitled to either, so there must be no call
 that resolves a generated-zone divergence while leaving the decision implicit. Never add a default,
 an "auto" mode, or a convenience wrapper that picks one.
+
+There are three write verbs and no more: `set_knob`, `set_node_title`, `set_body`. The third (Q15) is
+what makes the node's code panel an editor rather than a viewer, and it loosens nothing — a generated
+zone is refused, a locked signature is refused against `parser.signature_of` (module level so the lock
+and the parser cannot drift), decorators are refused outright because a body edit that could move one
+could reclassify its own zone, and the address is **node plus function** because I-6 says code is
+edited through a node.
 
 Every write addresses a **syntax node**, never a line or a span of text — that is what the markup
 being real Python buys. A write validates against the knob's own declaration first, is undone if the
@@ -306,9 +322,10 @@ agent's system prompt used to and was moved into the package for exactly that re
   a gate) carry everything load-bearing.
 - [roadmap.md](docs/roadmap.md) — phases P0–P15 with per-phase acceptance criteria and the invariant
   each protects. Current position: P15 done; the UI is next.
-- [open-questions.md](docs/open-questions.md) — nothing open; Q1–Q5 are settled, with the reasoning
-  kept in the log. **Read before starting any phase**, and add an entry the moment two documents
-  disagree — an unrecorded conflict is worse than an open one.
+- [open-questions.md](docs/open-questions.md) — nothing open; Q1–Q17 are settled, with the reasoning
+  kept in the log.
+  **Read before starting any phase**, and add an entry the moment two documents disagree — an
+  unrecorded conflict is worse than an open one.
 - [prompts/system-prompt-claude-code.md](packages/core/src/aibuilder_core/prompts/system-prompt-claude-code.md)
   — in the package, not in `docs/`. The prompt for the agent that generates user code. It **fixes the `bp` syntax** the toolchain parses; where it and the
   architecture doc disagree, the prompt wins and the disagreement is recorded in open-questions.

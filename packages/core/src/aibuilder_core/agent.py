@@ -335,6 +335,8 @@ def record_outcome(
     request: str = "",
     blueprint: str | None = None,
     observe: bool = False,
+    session: str | None = None,
+    turn: int | None = None,
 ) -> dict[str, Any]:
     """Run the gates over what the agent produced and append what they said.
 
@@ -342,6 +344,14 @@ def record_outcome(
     refused the code would collect one failure and then nothing (§7). `observe` also runs
     the observable checks, so a node that parses but does not work is recorded as what it
     is rather than as a pass.
+
+    `session` and `turn` are where the entry came from (Q16). They exist because the agent
+    is driven as a **conversation** rather than as a one-shot generation, which narrows what
+    this log is: an entry used to be a complete input that could be replayed, and now it is
+    a turn inside a discussion that carried state the entry does not hold. Recording the
+    address of that turn is the honest version -- the entry points into a transcript instead
+    of pretending to be self-contained. Both are `None` when nothing drove this from a
+    session, and that is a real answer rather than a missing one.
     """
     from aibuilder_core.api import read_graph  # imported here: api assembles, agent supplies
 
@@ -354,6 +364,8 @@ def record_outcome(
         "blueprint": blueprint,
         "request": request,
         "observed": observe,
+        "session": session,
+        "turn": turn,
         "diagnostics": [
             {
                 "code": diagnostic["code"],

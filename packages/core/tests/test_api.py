@@ -39,6 +39,7 @@ from aibuilder_core.api import (
     services_start,
     snapshot_status,
     take_project_snapshot,
+    write_body,
     write_knob,
     write_node_title,
 )
@@ -235,12 +236,27 @@ def test_the_write_payloads_match_the_declared_contract(tmp_path: Path) -> None:
     written = wire_form(write_knob(root, "api.settings", "page_size", 50))
     refused = wire_form(write_knob(root, "api.settings", "page_size", 500))
     renamed = wire_form(write_node_title(root, "health", "Liveness"))
+    # The third write verb (Q15) answers in the same shape, because a refusal is the same
+    # kind of answer: a locked signature is an ordinary thing for a person to try.
+    body = wire_form(
+        write_body(
+            root,
+            "health",
+            "app.api.health.health",
+            'def health() -> dict[str, str]:\n    return {"status": "ok"}\n',
+        )
+    )
+    body_refused = wire_form(
+        write_body(root, "users", "app.api.users.users_router", "def users_router():\n    ...\n")
+    )
 
-    for payload in (written, refused, renamed):
+    for payload in (written, refused, renamed, body, body_refused):
         validate(payload, WRITE_SCHEMA)
 
     assert written["written"] is True
     assert refused["written"] is False and refused["refused"]
+    assert body["written"] is True
+    assert body_refused["written"] is False and "generated zone" in body_refused["refused"]
 
 
 def test_the_repair_payloads_match_the_declared_contract(tmp_path: Path) -> None:
