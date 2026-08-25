@@ -1,0 +1,128 @@
+/* The design system, ported from assets/app-design.html.
+ *
+ * The site's tokens unchanged, plus what a canvas needs and the site has no answer
+ * for: a status scale, six kind tints, wire and pin values, and the syntax palette.
+ *
+ * Two rules carried over from the design and easy to erode here:
+ *   - colour identifies the *kind* and never the state (a rule down the node's edge);
+ *   - **proven has no hue** -- a working graph is quiet, and colour appears only where
+ *     something wants attention. The accents belong to the site's uses: signals, live
+ *     state, chat, primary action; glow, structure, focus.
+ */
+
+:root {
+  --bg: #080808;
+  --bg-2: #0d0d0d;
+  --fg: #f5f5f5;
+  --muted: #8a8a8a;
+  --muted-2: #5a5a5a;
+  --line: rgba(255, 255, 255, 0.08);
+  --line-strong: rgba(255, 255, 255, 0.18);
+
+  --accent: #a3e635;
+  --accent-rgb: 163, 230, 53;
+  --accent-blue: #2a78d6;
+  --accent-blue-rgb: 42, 120, 214;
+  --on-accent: #0a0a0a;
+
+  --surface: #0a0a0a;
+  --surface-2: #101010;
+  --surface-glass: rgba(10, 10, 10, 0.55);
+  --nav-bg: rgba(8, 8, 8, 0.6);
+
+  --grid-fine: rgba(255, 255, 255, 0.022);
+  --grid-coarse: rgba(255, 255, 255, 0.05);
+  --noise-opacity: 0.5;
+  --noise-blend: overlay;
+  --glow-opacity: 1;
+
+  /* status -- a mark, never a fill */
+  --ok: #f5f5f5;
+  --unknown: #c08a3e;
+  --bad: #e5484d;
+
+  /* kind -- three families: application code, runs elsewhere, carried by a file */
+  --k-fastapi: #4a8fd0;
+  --k-mcp: #5f7fd8;
+  --k-langgraph: #7a6ad4;
+  --k-rag: #3f9d9d;
+  --k-queue: #c08a3e;
+  --k-docker: #6e7f8c;
+  --k-none: #5a5a5a;
+
+  --exec: #f2f2f2;
+  --exec-dim: #4f4f4f;
+  --pin-hollow: #0a0a0a;
+  --select: #ffb02e;
+
+  /* syntax -- VS Code Dark+ */
+  --s-key: #569cd6;
+  --s-ctl: #c586c0;
+  --s-fn: #dcdcaa;
+  --s-type: #4ec9b0;
+  --s-var: #9cdcfe;
+  --s-str: #ce9178;
+  --s-num: #b5cea8;
+  --s-cmt: #6a9955;
+  --s-punct: #d4d4d4;
+
+  --display: "Onest", system-ui, sans-serif;
+  --body: "Onest", system-ui, sans-serif;
+  --mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+:root[data-theme="light"] {
+  --bg: #fbfbf9;
+  --bg-2: #f2f2ee;
+  --fg: #0c0c0c;
+  --muted: #5f5f5c;
+  --muted-2: #96968f;
+  --line: rgba(0, 0, 0, 0.1);
+  --line-strong: rgba(0, 0, 0, 0.22);
+
+  --accent: #4d7c0f;
+  --accent-rgb: 77, 124, 15;
+  --accent-blue: #1d5fb0;
+  --accent-blue-rgb: 29, 95, 176;
+  --on-accent: #ffffff;
+
+  --surface: #ffffff;
+  --surface-2: #f4f4f0;
+  --surface-glass: rgba(255, 255, 255, 0.7);
+  --nav-bg: rgba(251, 251, 249, 0.72);
+
+  --grid-fine: rgba(0, 0, 0, 0.04);
+  --grid-coarse: rgba(0, 0, 0, 0.075);
+  --noise-opacity: 0;
+  --noise-blend: normal;
+  --glow-opacity: 0.55;
+
+  --ok: #0c0c0c;
+  --unknown: #a3671a;
+  --bad: #c62828;
+
+  /* derived against the light ground, not the same hues dimmed */
+  --k-fastapi: #2f6ea8;
+  --k-mcp: #4560ab;
+  --k-langgraph: #5b4bab;
+  --k-rag: #2a7878;
+  --k-queue: #96662a;
+  --k-docker: #55636e;
+  --k-none: #96968f;
+
+  --exec: #151515;
+  --exec-dim: #b4b4ae;
+  --pin-hollow: #ffffff;
+  --select: #b26a00;
+
+  /* syntax -- VS Code Light+ */
+  --s-key: #0000ff;
+  --s-ctl: #af00db;
+  --s-fn: #795e26;
+  --s-type: #267f99;
+  --s-var: #001080;
+  --s-str: #a31515;
+  --s-num: #098658;
+  --s-cmt: #008000;
+  --s-punct: #000000;
+}

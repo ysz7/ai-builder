@@ -80,6 +80,7 @@ from aibuilder_core.protocol import (
     encode_result,
 )
 from aibuilder_core.runner import stop_everything_started_here
+from aibuilder_core.session import close_everything_started_here
 from aibuilder_core.strip import strip_project
 from aibuilder_core.verdict import Observation
 
@@ -134,6 +135,9 @@ def serve_forever() -> int:
             serve(sys.stdin, sys.stdout)
     finally:
         stop_everything_started_here()
+        # A session is the sidecar's lifetime (Q16): ending here ends the agent too, or a
+        # closed window leaves somebody's agent running with nothing to talk to.
+        close_everything_started_here()
     log("stdin closed, exiting")
     return 0
 

@@ -22,6 +22,7 @@ from aibuilder_core.environment import describe_environment, start_services, sto
 from aibuilder_core.gate import GateMode, check_graph
 from aibuilder_core.ir import Location
 from aibuilder_core.kinds import REGISTRY
+from aibuilder_core.layout import create_project, read_layout, write_layout
 from aibuilder_core.observe import run_observations
 from aibuilder_core.project import read_project
 from aibuilder_core.reconcile import reconcile
@@ -40,6 +41,13 @@ from aibuilder_core.runner import (
     stop_worker,
     worker_status,
 )
+from aibuilder_core.session import (
+    poll_session,
+    say,
+    session_status,
+    start_session,
+    stop_session,
+)
 from aibuilder_core.snapshot import load_snapshot, save_snapshot, take_snapshot
 from aibuilder_core.verdict import Observation
 from aibuilder_core.writer import set_body, set_knob, set_node_title
@@ -47,6 +55,7 @@ from aibuilder_core.writer import set_body, set_knob, set_node_title
 __all__ = [
     "AGENT_BLUEPRINTS_SCHEMA",
     "AGENT_BRIEF_SCHEMA",
+    "AGENT_SESSION_SCHEMA",
     "AGENT_FAILURES_SCHEMA",
     "AGENT_RECORD_SCHEMA",
     "ENVIRONMENT_SCHEMA",
@@ -56,6 +65,8 @@ __all__ = [
     "SERVICE_SCHEMA",
     "GRAPH_KINDS_SCHEMA",
     "GRAPH_READ_SCHEMA",
+    "LAYOUT_READ_SCHEMA",
+    "LAYOUT_WRITE_SCHEMA",
     "MCP_CALL_SCHEMA",
     "MCP_INSPECT_SCHEMA",
     "SNAPSHOT_STATUS_SCHEMA",
@@ -75,8 +86,16 @@ __all__ = [
     "services_stop",
     "agent_brief",
     "agent_failures",
+    "agent_open",
+    "agent_poll",
+    "agent_say",
+    "agent_session",
+    "agent_shut",
     "agent_record",
     "describe_kinds",
+    "create_new_project",
+    "layout_get",
+    "layout_put",
     "mcp_call",
     "mcp_inspect",
     "read_graph",
@@ -284,6 +303,16 @@ MCP_CALL_SCHEMA = {
     "result": "str",
 }
 
+#: The `layout.read` payload: where the person put things (Q13).
+#:
+#: `"<opaque>"` is not a shrug — it is the contract. The core stores this and refuses to
+#: look inside, because a core that understood a coordinate would sooner or later be asked
+#: to produce one, and a graph the toolchain laid out is a graph it has an opinion about.
+LAYOUT_READ_SCHEMA = {"api_version": "int", "layout": {"<key>": "<opaque>"}}
+
+#: The `layout.write` payload. A refusal is a result, as everywhere else.
+LAYOUT_WRITE_SCHEMA = {"api_version": "int", "ok": "bool", "detail": "str"}
+
 _DIVERGENCE = {
     "code": "str",
     "message": "str",
@@ -413,6 +442,28 @@ _LOG_ENTRY = {
     "verdicts": {"<key>": "str"},
     "accepted": "bool",
     "versions": {"<key>": "str?"},
+}
+
+#: The payload of every `agent.*` session verb. One schema because they are one shape: an
+#: agent was found, a session was opened, something was said, or events came back. `events`
+#: is what an interface can act on -- what is happening, which file, what was refused -- and
+#: the raw stream stays in the log where it can be read whole.
+AGENT_SESSION_SCHEMA = {
+    "api_version": "int",
+    "ok": "bool",
+    "detail": "str",
+    "session": "str?",
+    "running": "bool",
+    "available": "bool",
+    "version": "str",
+    "events": [{"kind": "str", "text": "str", "file": "str"}],
+    # Where the reader got to. Events are polled, never pushed (P13).
+    "offset": "int",
+    # The conversations this project has had -- ids and labels, never a transcript.
+    "sessions": [{"id": "str", "label": "str", "at": "str"}],
+    # Tokens the last turn carried. A **number, never a percentage**: the stream declares no
+    # context window, so whoever draws a ring has to say what they divided by.
+    "context": "int",
 }
 
 #: The `agent.record` payload: what the gates said about one generation, as it was logged.
@@ -580,6 +631,21 @@ def work_state(project: Path | str, python: str | None = None) -> dict[str, Any]
 def work_logs(project: Path | str, offset: int = 0) -> dict[str, Any]:
     """What the worker has printed since `offset`. Polled, like the application's."""
     return {"api_version": GRAPH_API_VERSION, **read_worker_logs(project, offset).as_dict()}
+
+
+def create_new_project(parent: Path | str, name: str) -> dict[str, Any]:
+    """Make an empty directory for a project. `detail` is the path when it worked."""
+    return {"api_version": GRAPH_API_VERSION, **create_project(parent, name).as_dict()}
+
+
+def layout_get(project: Path | str) -> dict[str, Any]:
+    """Where the person put things. Empty is the ordinary first answer, not a failure."""
+    return {"api_version": GRAPH_API_VERSION, "layout": read_layout(project)}
+
+
+def layout_put(project: Path | str, layout: dict[str, Any]) -> dict[str, Any]:
+    """Store the whole layout. The client holds it; the core keeps it and reads nothing."""
+    return {"api_version": GRAPH_API_VERSION, **write_layout(project, layout).as_dict()}
 
 
 def mcp_inspect(project: Path | str, node: str, python: str | None = None) -> dict[str, Any]:
@@ -758,6 +824,33 @@ def agent_record(
         turn=turn,
     )
     return {"api_version": GRAPH_API_VERSION, "entry": entry}
+
+
+def agent_session(project: Path | str) -> dict[str, Any]:
+    """Is there an agent on this machine, and is a session open? Starts nothing."""
+    return {"api_version": GRAPH_API_VERSION, **session_status(project).as_dict()}
+
+
+def agent_open(
+    project: Path | str, resume: str | None = None, fork: bool = False
+) -> dict[str, Any]:
+    """Open a session: a new one, one continued by id, or one forked from it (Q16)."""
+    return {"api_version": GRAPH_API_VERSION, **start_session(project, resume, fork).as_dict()}
+
+
+def agent_say(project: Path | str, text: str) -> dict[str, Any]:
+    """Send one turn. What comes back arrives through `agent.poll`, never through here."""
+    return {"api_version": GRAPH_API_VERSION, **say(project, text).as_dict()}
+
+
+def agent_poll(project: Path | str, offset: int = 0) -> dict[str, Any]:
+    """What the agent has said since `offset`. The caller keeps the offset it was given."""
+    return {"api_version": GRAPH_API_VERSION, **poll_session(project, offset).as_dict()}
+
+
+def agent_shut(project: Path | str) -> dict[str, Any]:
+    """Close the session -- this sidecar's, or one a crashed sidecar left behind."""
+    return {"api_version": GRAPH_API_VERSION, **stop_session(project).as_dict()}
 
 
 def agent_failures(project: Path | str) -> dict[str, Any]:

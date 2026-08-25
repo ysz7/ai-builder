@@ -88,6 +88,11 @@ def validate(payload: Any, schema: Any, path: str = "$") -> None:
             validate(item, schema[0], f"{path}[{index}]")
         return
 
+    if schema == "<opaque>":
+        # Declared as "the core does not look inside this". The contract is the refusal,
+        # so there is nothing here to check beyond the fact that something arrived.
+        return
+
     nullable = schema.endswith("?")
     if payload is None:
         assert nullable, f"{path}: null is not allowed here"

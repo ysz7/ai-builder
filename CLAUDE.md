@@ -74,12 +74,23 @@ state, the probe imports **every** module rather than only the annotated ones, a
 not import costs the claim rather than the nodes. Kinds opt in through `NodeKind.completeness`.
 
 **The person owns the layout; the code owns the graph** (Q13). Node positions live in
-`.aibuilder/layout.json` as `id -> {x, y}` and nothing else — tooling state beside `run.json` and the
-snapshot. It answers one question, "where do I draw this node?", and **cannot add, remove or rename
+`.aibuilder/layout.json` — tooling state beside `run.json` and the snapshot, reached through
+`layout.read` / `layout.write` because the webview may call `core_request` and nothing else. **The core
+stores it and refuses to understand it**: the contract is `"<opaque>"`, and the refusal is the
+protection — a core that knew what a coordinate was would end up being asked to produce a layout. It
+answers one question, "where do I draw this node?", and **cannot add, remove or rename
 one**: a node with no entry still draws, an entry with no node is unused, and orphaned coordinates are
 kept rather than tidied on sight, because an agent rewriting a file makes a node vanish and come back.
 Which is also why there is no `node.create` (Q14): a node exists because code declares it, so "add a
 node" is a generation, and the new ids are a set difference the canvas computes rather than guesses.
+
+**Three things spawn a process, and they are one shape** — `run.*` (uvicorn), `work.*` (celery) and
+`agent.*` (Claude Code, in `session.py`). All three follow P13: nothing is pushed, output is polled
+with an offset the caller keeps, a record on disk survives a crash, and **nothing starts implicitly**.
+The agent being one of them is Q16 amended about *where the process lives* and nothing else: the core
+still holds no HTTP client to a model and no SDK, and every decision about what to ask and what to do
+with the answer stays in the application. The agent is denied writes to `.aibuilder/`, because an agent
+that could edit the snapshot would be forging evidence about itself.
 
 **A contract edge and a flow are different relations** (Q9). Edges are types crossing a boundary, read
 from signatures. Flow — a pipeline's order, an agent's wiring — is never parsed out of assembly code
@@ -320,8 +331,11 @@ agent's system prompt used to and was moved into the package for exactly that re
 
 - [architecture.md](docs/architecture.md) — the v0 spec. Sections 2 (invariants) and 7 (the parser as
   a gate) carry everything load-bearing.
-- [roadmap.md](docs/roadmap.md) — phases P0–P15 with per-phase acceptance criteria and the invariant
-  each protects. Current position: P15 done; the UI is next.
+- [roadmap.md](docs/roadmap.md) — phases P0–P16 with per-phase acceptance criteria and the invariant
+  each protects. Current position: P16, the UI, starting with its design.
+- [design.md](docs/design.md) — the plan for the UI: what the design has to answer, which method sits
+  behind each surface, and what it may not invent. Written before the design, so the design can be
+  judged against it.
 - [open-questions.md](docs/open-questions.md) — nothing open; Q1–Q17 are settled, with the reasoning
   kept in the log.
   **Read before starting any phase**, and add an entry the moment two documents disagree — an

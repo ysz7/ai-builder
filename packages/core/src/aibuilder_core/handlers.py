@@ -19,9 +19,17 @@ from aibuilder_core.api import (
     agent_blueprints,
     agent_brief,
     agent_failures,
+    agent_open,
+    agent_poll,
     agent_record,
+    agent_say,
+    agent_session,
+    agent_shut,
+    create_new_project,
     describe_kinds,
     environment_status,
+    layout_get,
+    layout_put,
     mcp_call,
     mcp_inspect,
     read_graph,
@@ -338,6 +346,70 @@ def work_logs_method(params: dict[str, Any]) -> dict[str, Any]:
     return work_logs(_project_of(params), offset)
 
 
+def agent_session_method(params: dict[str, Any]) -> dict[str, Any]:
+    """Is there an agent, and is a session open? Reads; starts nothing."""
+    return agent_session(_project_of(params))
+
+
+def agent_start_method(params: dict[str, Any]) -> dict[str, Any]:
+    """Open a session with the agent.
+
+    A method of its own rather than a flag on anything, for the reason `env.up` is: starting
+    somebody else's program is not something a caller should do by accident (P11).
+
+    `resume` continues a conversation the agent already has; `fork` branches from it and
+    leaves the original alone -- which is what "do that again differently" has to mean if the
+    first attempt is not to be lost.
+    """
+    fork = params.get("fork", False)
+    if not isinstance(fork, bool):
+        raise ProtocolError("invalid_params", "'fork' must be true or false")
+
+    return agent_open(_project_of(params), _optional_str(params, "resume"), fork)
+
+
+def agent_say_method(params: dict[str, Any]) -> dict[str, Any]:
+    """Send one turn. The answer arrives through `agent.poll`, not through this call."""
+    return agent_say(_project_of(params), _required_str(params, "text"))
+
+
+def agent_poll_method(params: dict[str, Any]) -> dict[str, Any]:
+    """Poll the session. The caller keeps the offset it was last given."""
+    offset = params.get("offset", 0)
+    if not isinstance(offset, int) or isinstance(offset, bool):
+        raise ProtocolError("invalid_params", "'offset' must be a number")
+
+    return agent_poll(_project_of(params), offset)
+
+
+def agent_stop_method(params: dict[str, Any]) -> dict[str, Any]:
+    return agent_shut(_project_of(params))
+
+
+def project_create(params: dict[str, Any]) -> dict[str, Any]:
+    """Make an empty directory for a project the agent has not written yet."""
+    return create_new_project(_required_str(params, "parent"), _required_str(params, "name"))
+
+
+def layout_read(params: dict[str, Any]) -> dict[str, Any]:
+    """What the canvas stored last time. The core keeps it and looks inside none of it."""
+    return layout_get(_project_of(params))
+
+
+def layout_write(params: dict[str, Any]) -> dict[str, Any]:
+    """Store the whole layout.
+
+    An object is all that is checked, and it is checked here rather than in `layout.py` for
+    the reason the module exists: the store must not learn what an entry means, but the
+    protocol still has to know it was handed an object rather than a number.
+    """
+    layout = params.get("layout")
+    if not isinstance(layout, dict):
+        raise ProtocolError("invalid_params", "'layout' must be an object")
+
+    return layout_put(_project_of(params), layout)
+
+
 def mcp_inspect_method(params: dict[str, Any]) -> dict[str, Any]:
     """Connect to a consumed server and list what it offers.
 
@@ -398,6 +470,14 @@ HANDLERS: dict[str, Handler] = {
     "work.stop": work_stop_method,
     "work.status": work_status_method,
     "work.logs": work_logs_method,
+    "agent.session": agent_session_method,
+    "agent.start": agent_start_method,
+    "agent.say": agent_say_method,
+    "agent.poll": agent_poll_method,
+    "agent.stop": agent_stop_method,
+    "project.create": project_create,
+    "layout.read": layout_read,
+    "layout.write": layout_write,
     "mcp.inspect": mcp_inspect_method,
     "mcp.call": mcp_call_method,
 }
