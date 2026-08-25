@@ -55,9 +55,12 @@ __all__ = [
     "CallResult",
     "RunState",
     "artifact_nodes",
+    "ServerResult",
     "build_image",
     "call_endpoint",
+    "call_server_tool",
     "check_artifacts",
+    "inspect_server",
     "read_logs",
     "read_worker_logs",
     "run_status",
@@ -763,6 +766,129 @@ def stop_worker(project: Path | str) -> RunResult:
 def read_worker_logs(project: Path | str, offset: int = 0) -> RunResult:
     """What the worker has printed since `offset`. Polled, exactly like the application's."""
     return read_logs(project, offset, WORKER_LOG_PATH)
+
+
+# -- the MCP verbs (P15) ----------------------------------------------------------
+#
+# Connecting is an **action**, never a side effect of reading (P11). These two exist so
+# that the observable checks never have to connect to anything: a stdio server is a third
+# party's process and a URL is somebody else's machine, and a graph being drawn must reach
+# neither. Both go through the project's own object, in the project's own interpreter --
+# the core never speaks MCP, and no coroutine ever reaches the process the UI is talking to.
+
+
+@dataclass(frozen=True)
+class ServerResult:
+    """What a consumed server said. `status` is this node's verdict for this connection.
+
+    Never stored. Nothing writes down "the mail server was reachable", so a colleague who
+    has not connected sees `unproven` rather than somebody else's yesterday -- which falls
+    out of I-1 rather than being a feature of this type.
+    """
+
+    ok: bool
+    status: str
+    detail: str
+    tools: tuple[dict[str, str], ...] = ()
+    allowed: tuple[str, ...] = ()
+    missing: tuple[str, ...] = ()
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "ok": self.ok,
+            "status": self.status,
+            "detail": self.detail,
+            "tools": [dict(tool) for tool in self.tools],
+            "allowed": list(self.allowed),
+            "missing": list(self.missing),
+        }
+
+
+def _server_carrier(root: Path, node: str) -> tuple[str | None, str]:
+    """The declaration a node id names, or why this verb has nothing to act on.
+
+    The kind is checked rather than assumed: `mcp.inspect` on a route would otherwise
+    import the project and try to call `connect()` on something that has none, and the
+    reason would be about a missing method instead of about the wrong node.
+    """
+    from aibuilder_core.project import read_project
+
+    for candidate in read_project(root).nodes:
+        if candidate.id == node:
+            if candidate.kind != "mcp.server":
+                return None, f"{node} is a {candidate.kind}, not a server this project consumes"
+            return candidate.carrier, ""
+    return None, f"this project has no node called {node}"
+
+
+def inspect_server(project: Path | str, node: str, python: str | None = None) -> dict[str, Any]:
+    """Connect, initialize, and list what the server offers."""
+    root = Path(project).resolve()
+    carrier, why = _server_carrier(root, node)
+    if carrier is None:
+        return ServerResult(False, "broken", why).as_dict()
+
+    environment = describe_environment(root, python)
+    answer = _ask_project(
+        root,
+        environment.interpreter,
+        _project_modules(root),
+        "mcp_inspect",
+        carrier=carrier,
+    )
+    return _server_result(answer).as_dict()
+
+
+def call_server_tool(
+    project: Path | str,
+    node: str,
+    tool: str,
+    arguments: dict[str, Any] | None = None,
+    python: str | None = None,
+) -> dict[str, Any]:
+    """Call one tool on a consumed server with input a person typed (Q7).
+
+    The arguments come from the caller and are passed through untouched. Nothing here
+    invents one, defaults one, or retries with a different one: evidence comes from a real
+    call with real input, or it is not evidence.
+    """
+    root = Path(project).resolve()
+    carrier, why = _server_carrier(root, node)
+    if carrier is None:
+        return {"ok": False, "status": "broken", "detail": why, "result": ""}
+
+    environment = describe_environment(root, python)
+    answer = _ask_project(
+        root,
+        environment.interpreter,
+        _project_modules(root),
+        "mcp_call",
+        carrier=carrier,
+        tool=tool,
+        arguments=dict(arguments or {}),
+    )
+    return {
+        "ok": bool(answer.get("ok", False)),
+        "status": str(answer.get("status", "unproven")),
+        "detail": str(answer.get("detail") or "the project gave no readable answer"),
+        "result": str(answer.get("result", "")),
+    }
+
+
+def _server_result(answer: dict[str, Any]) -> ServerResult:
+    tools = answer.get("tools") or []
+    return ServerResult(
+        ok=bool(answer.get("ok", False)),
+        status=str(answer.get("status", "unproven")),
+        detail=str(answer.get("detail") or "the project gave no readable answer"),
+        tools=tuple(
+            {"name": str(tool.get("name", "")), "description": str(tool.get("description", ""))}
+            for tool in tools
+            if isinstance(tool, dict)
+        ),
+        allowed=tuple(str(name) for name in answer.get("allowed") or []),
+        missing=tuple(str(name) for name in answer.get("missing") or []),
+    )
 
 
 def stop_everything_started_here() -> None:

@@ -50,6 +50,7 @@ class Code(str, Enum):
     UNRESOLVED_MEMBER = "node.unresolved_member"
     UNCLASSIFIED_FUNCTION = "function.unclassified"
     UNADDRESSABLE_KNOB = "knob.unaddressable"
+    UNDECLARED_CARRIER = "graph.undeclared_carrier"
 
 
 @dataclass(frozen=True)
@@ -119,6 +120,14 @@ CATALOGUE: dict[Code, Entry] = {
         "Mark the function `@editable(signature_locked=True)` if the user may change its "
         "body, `@generated()` otherwise. An unmarked function reads as a forgotten "
         "classification, because in the syntax tree that is exactly what it looks like.",
+    ),
+    Code.UNDECLARED_CARRIER: Entry(
+        Severity.ERROR,
+        "I-3 (Q12)",
+        "Put this carrier on the graph: `@node` with a `kind` from the registry, claimed "
+        "in its subsystem's `members`. I-3 says every node has a carrier; this is the "
+        "other half of it -- a carrier with no node is invisible, and a graph that omits "
+        "what the code holds is lying by silence rather than merely incomplete.",
     ),
     Code.UNADDRESSABLE_KNOB: Entry(
         Severity.WARNING,

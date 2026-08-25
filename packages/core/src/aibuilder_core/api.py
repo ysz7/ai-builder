@@ -17,8 +17,10 @@ from typing import Any
 
 from aibuilder_core.agent import build_brief, failure_modes, record_outcome
 from aibuilder_core.catalog import find_catalog, list_blueprints
+from aibuilder_core.diagnostics import Code, describe
 from aibuilder_core.environment import describe_environment, start_services, stop_services
 from aibuilder_core.gate import GateMode, check_graph
+from aibuilder_core.ir import Location
 from aibuilder_core.kinds import REGISTRY
 from aibuilder_core.observe import run_observations
 from aibuilder_core.project import read_project
@@ -27,6 +29,8 @@ from aibuilder_core.repair import apply_repair, list_repairs
 from aibuilder_core.runner import (
     build_image,
     call_endpoint,
+    call_server_tool,
+    inspect_server,
     read_logs,
     read_worker_logs,
     run_status,
@@ -52,6 +56,8 @@ __all__ = [
     "SERVICE_SCHEMA",
     "GRAPH_KINDS_SCHEMA",
     "GRAPH_READ_SCHEMA",
+    "MCP_CALL_SCHEMA",
+    "MCP_INSPECT_SCHEMA",
     "SNAPSHOT_STATUS_SCHEMA",
     "SNAPSHOT_TAKE_SCHEMA",
     "REPAIR_APPLY_SCHEMA",
@@ -71,6 +77,8 @@ __all__ = [
     "agent_failures",
     "agent_record",
     "describe_kinds",
+    "mcp_call",
+    "mcp_inspect",
     "read_graph",
     "snapshot_status",
     "take_project_snapshot",
@@ -243,8 +251,36 @@ GRAPH_READ_SCHEMA = {
     # a type crossing a boundary, a flow is one node running and then another. Empty until
     # something has actually run.
     "flow": [{"source": "str", "target": "str", "origin": "str"}],
+    # Whether the graph is complete about what is in the code (Q12), and what it left out.
+    # `state` is `unproven` until a run has actually asked the libraries -- a completeness
+    # claim from a static read would be the I-5 failure one level up. The undeclared
+    # carriers also appear in `diagnostics`, addressed like everything else.
+    "completeness": {"state": "str", "detail": "str", "undeclared": [_LOCATION]},
     "mode": "str",
     "accepted": "bool",
+}
+
+#: The `mcp.inspect` payload: what a consumed server answered when somebody connected to
+#: it. `status` is the node's verdict for this connection and nothing is written down --
+#: a colleague who has not connected sees `unproven`, never somebody else's yesterday
+#: (I-1). `tools` is the server's own listing: contents of the node, never nodes (Q12).
+MCP_INSPECT_SCHEMA = {
+    "api_version": "int",
+    "ok": "bool",
+    "status": "str",
+    "detail": "str",
+    "tools": [{"name": "str", "description": "str"}],
+    "allowed": ["str"],
+    "missing": ["str"],
+}
+
+#: The `mcp.call` payload: what one tool said when it was called with input a person typed.
+MCP_CALL_SCHEMA = {
+    "api_version": "int",
+    "ok": "bool",
+    "status": "str",
+    "detail": "str",
+    "result": "str",
 }
 
 _DIVERGENCE = {
@@ -419,19 +455,31 @@ def read_graph(
     skipped: dict[str, str] = {}
     environment: dict[str, Any] | None = None
     flow: list[dict[str, str]] = []
+    completeness: dict[str, Any] = {
+        "state": "unproven",
+        "detail": "nothing was run, so nothing was asked",
+        "undeclared": [],
+    }
     if observe and observations is None:
         run = run_observations(graph, root, python=python)
         observations, skipped = run.observations, run.skipped
         environment = None if run.environment is None else run.environment.as_dict()
         flow = [dict(edge) for edge in run.flow]
+        completeness = dict(run.completeness)
 
     result = check_graph(graph, mode=mode, observations=observations)
+
+    # The undeclared carriers join the gate's findings as ordinary addressed diagnostics --
+    # but they are not gate findings and they do not touch `accepted`: the gate is a static
+    # judgement and this one needed a run. Mixing them would make a hard gate depend on
+    # whether anybody had pressed observe.
+    incomplete = [_undeclared(entry) for entry in completeness.get("undeclared", [])]
 
     return {
         "api_version": GRAPH_API_VERSION,
         "root": graph.root,
         "graph": graph.to_dict(),
-        "diagnostics": [asdict(diagnostic) for diagnostic in result.diagnostics],
+        "diagnostics": [asdict(diagnostic) for diagnostic in [*result.diagnostics, *incomplete]],
         "verdicts": result.verdicts,
         "observations": {
             node: {"passed": o.passed, "check": o.check, "detail": o.detail}
@@ -440,9 +488,28 @@ def read_graph(
         "skipped": skipped,
         "environment": environment,
         "flow": flow,
+        "completeness": {
+            "state": str(completeness.get("state", "unproven")),
+            "detail": str(completeness.get("detail", "")),
+            "undeclared": [asdict(diagnostic.location) for diagnostic in incomplete],
+        },
         "mode": result.mode,
         "accepted": result.accepted,
     }
+
+
+def _undeclared(entry: dict[str, Any]) -> Any:
+    """One carrier the libraries hold that no node declares, as an addressed diagnostic."""
+    return describe(
+        Code.UNDECLARED_CARRIER,
+        f"{entry.get('what', 'something')} is in the code but not on the graph",
+        Location(
+            file=str(entry.get("file", "?")),
+            object=str(entry.get("object", "?")),
+            start_line=int(entry.get("line", 1) or 1),
+            end_line=int(entry.get("line", 1) or 1),
+        ),
+    )
 
 
 def environment_status(project: Path | str, python: str | None = None) -> dict[str, Any]:
@@ -508,6 +575,25 @@ def work_state(project: Path | str, python: str | None = None) -> dict[str, Any]
 def work_logs(project: Path | str, offset: int = 0) -> dict[str, Any]:
     """What the worker has printed since `offset`. Polled, like the application's."""
     return {"api_version": GRAPH_API_VERSION, **read_worker_logs(project, offset).as_dict()}
+
+
+def mcp_inspect(project: Path | str, node: str, python: str | None = None) -> dict[str, Any]:
+    """Connect to a consumed server and list what it offers -- the button on its node."""
+    return {"api_version": GRAPH_API_VERSION, **inspect_server(project, node, python)}
+
+
+def mcp_call(
+    project: Path | str,
+    node: str,
+    tool: str,
+    arguments: dict[str, Any] | None = None,
+    python: str | None = None,
+) -> dict[str, Any]:
+    """Call one of that server's tools with input a person typed. Never invented (Q7)."""
+    return {
+        "api_version": GRAPH_API_VERSION,
+        **call_server_tool(project, node, tool, arguments, python),
+    }
 
 
 def run_build(project: Path | str) -> dict[str, Any]:

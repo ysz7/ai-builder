@@ -22,6 +22,8 @@ from aibuilder_core.api import (
     agent_record,
     describe_kinds,
     environment_status,
+    mcp_call,
+    mcp_inspect,
     read_graph,
     repair_divergence,
     repairs_available,
@@ -307,6 +309,33 @@ def work_logs_method(params: dict[str, Any]) -> dict[str, Any]:
     return work_logs(_project_of(params), offset)
 
 
+def mcp_inspect_method(params: dict[str, Any]) -> dict[str, Any]:
+    """Connect to a consumed server and list what it offers.
+
+    A method of its own rather than a flag on `graph.read`, for the same reason `env.up` is:
+    reaching a third party's program is not something a caller should be able to do by
+    accident while asking a question (P11).
+    """
+    return mcp_inspect(
+        _project_of(params), _required_str(params, "node"), _optional_str(params, "python")
+    )
+
+
+def mcp_call_method(params: dict[str, Any]) -> dict[str, Any]:
+    """Call one tool on that server. `arguments` is what a person typed -- never invented."""
+    arguments = params.get("arguments", {})
+    if not isinstance(arguments, dict):
+        raise ProtocolError("invalid_params", "'arguments' must be an object")
+
+    return mcp_call(
+        _project_of(params),
+        _required_str(params, "node"),
+        _required_str(params, "tool"),
+        arguments,
+        _optional_str(params, "python"),
+    )
+
+
 def graph_kinds(params: dict[str, Any]) -> dict[str, Any]:
     """The node-kind registry, so a client can pick shapes without guessing."""
     return describe_kinds()
@@ -339,6 +368,8 @@ HANDLERS: dict[str, Handler] = {
     "work.stop": work_stop_method,
     "work.status": work_status_method,
     "work.logs": work_logs_method,
+    "mcp.inspect": mcp_inspect_method,
+    "mcp.call": mcp_call_method,
 }
 
 

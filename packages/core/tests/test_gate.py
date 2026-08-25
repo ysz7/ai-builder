@@ -198,10 +198,16 @@ def test_a_file_that_will_not_parse_is_reported(tmp_path: Path) -> None:
 
 
 def test_every_check_has_an_instance_in_the_fixture() -> None:
-    """The fixture is the gate's coverage test: a check with no instance is untested."""
+    """The fixture is the gate's coverage test: a check with no instance is untested.
+
+    All but one. Completeness (Q12) is not a static finding and cannot be: "the library
+    holds something the graph does not declare" is answered by importing the project and
+    asking, so no fixture on disk can produce it here. It is covered where it is decided,
+    in the observation run.
+    """
     reported = {d.code for d in check_graph(parse_project(FIXTURE)).diagnostics}
 
-    assert reported == {code.value for code in Code}
+    assert reported == {code.value for code in Code} - {Code.UNDECLARED_CARRIER.value}
 
 
 def test_the_good_example_passes_the_static_gate() -> None:

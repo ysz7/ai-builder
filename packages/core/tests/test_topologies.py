@@ -1,4 +1,5 @@
-"""The other two topologies: a LangGraph agent and a RAG pipeline (P10).
+"""The topologies that are not a web service: a LangGraph agent, a RAG pipeline (P10), and
+an agent with tools and MCP servers (P15).
 
 P9 proved the loop on a service whose nodes are routes. These two exist to prove that what
 closed the loop there was the mechanism and not the shape of FastAPI:
@@ -10,6 +11,11 @@ closed the loop there was the mechanism and not the shape of FastAPI:
   construct in the first place (§5.3): four equal stages, no one of which owns the others,
   **each carrying its own knobs**. That last part is what §5.4 promises the user — expand
   the pipeline, tune the stage you are looking at — and this is where it is first true.
+
+* **MCP** puts two subsystems side by side: an agent that consumes a server, and the
+  server this project exposes. What each of those is proven by differs on purpose, and
+  what the phase is really about lives in `test_tools.py` -- this file only holds it to
+  the same loop as the rest.
 
 Each project goes through the same loop as the slice, driven from one parametrised test:
 graph, reference, knob written back, deliberate breakage in the generated zone,
@@ -75,6 +81,20 @@ TOPOLOGIES = [
         before="Retriever().find(build_index(), question)",
         after="Retriever().find(build_index(), question.lower())",
         target="answer",
+    ),
+    Topology(
+        name="mcp-agent",
+        group="agent",
+        # A knob on the consumed server's declaration: the timeout is ours to set, which is
+        # exactly the line Q12 draws -- a knob is a syntax node in *this* project's source,
+        # and no write of ours reaches into a third party's process.
+        knob_node="agent.notes",
+        knob="timeout_s",
+        value=30,
+        file="agent/graph.py",
+        before='builder.add_edge("tools", "consult")',
+        after='builder.add_edge("tools", END)',
+        target="build_graph",
     ),
 ]
 
@@ -270,7 +290,9 @@ def test_a_technology_is_recorded_only_where_a_check_reads_its_internals() -> No
     """RAG has no entry on purpose: its checks are plain Python and touch no library.
 
     The queue does have one: its checks ask celery for a task registry and a beat schedule,
-    which is reading someone else's surface however public it is.
+    which is reading someone else's surface however public it is. MCP has one for the same
+    reason: the tool *listing* is protocol, but "is this exact function the one exposed?"
+    goes through the SDK's own tool manager.
 
     Recording a version there would be a claim about a dependency our code never looks at
     -- knowledge we do not have, which is precisely what this table is not for.
@@ -279,7 +301,7 @@ def test_a_technology_is_recorded_only_where_a_check_reads_its_internals() -> No
 
     prefixes = {kind.partition(".")[0] for kind in REGISTRY}
 
-    assert set(TECHNOLOGIES) == {"fastapi", "langgraph", "queue"}
+    assert set(TECHNOLOGIES) == {"fastapi", "langgraph", "queue", "mcp"}
     assert set(TECHNOLOGIES) <= prefixes  # no entry for a technology that does not exist
 
 

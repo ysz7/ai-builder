@@ -56,6 +56,13 @@ class NodeKind:
     #: the discovery rule: a file becomes a node because a registry entry named it, never
     #: because its name looked familiar.
     artifact: tuple[str, ...]
+    #: The completeness probe this kind opts in to (Q12), or "" for the kinds that do
+    #: not. "If it is not on the graph, it is not in the code" is the missing half of I-3,
+    #: and it is answered by **asking the library what it holds** after a run -- so a kind
+    #: joins the rule by naming a probe here, and the mechanism learns nothing new when the
+    #: next kind does. A kind with no probe makes no completeness claim at all, which is
+    #: honest rather than lenient: nothing has been asked, so nothing is being asserted.
+    completeness: str
     #: The observable check this kind dispatches to (`observe.py`, `probe.py`).
     #:
     #: A check proves a node by running it with real input -- a call that needs nothing
@@ -73,12 +80,14 @@ def _kind(
     check: str,
     description: str,
     artifact: tuple[str, ...] = (),
+    completeness: str = "",
 ) -> NodeKind:
     return NodeKind(
         name=name,
         carriers=frozenset(carriers),
         top_level=top_level,
         artifact=artifact,
+        completeness=completeness,
         check=check,
         description=description,
     )
@@ -242,6 +251,43 @@ REGISTRY: dict[str, NodeKind] = {
             check="queue.schedule_entries",
             description="What runs on a timer, and the tasks those entries name.",
         ),
+        # -- MCP and tools (P15). Three roles wear the same word and none of them is the
+        # others: a server this project *consumes* is a declaration of how to reach a
+        # foreign program, a tool this project *exposes* is its own code, and a tool bound
+        # to an agent is a function the agent may call. What a consumed server offers is
+        # read from the server and shown as the node's contents -- never as nodes, because
+        # a remote tool has no carrier to hang one on (Q12).
+        _kind(
+            "mcp.service",
+            CarrierType.GROUP,
+            top_level=True,
+            check="mcp.service_serves",
+            description="The MCP server this project exposes: a group over the tools on it.",
+        ),
+        _kind(
+            "mcp.tool",
+            CarrierType.FUNCTION,
+            check="mcp.tool_exposed",
+            completeness="mcp.tools",
+            description="A function of ours, offered to whoever connects to our server.",
+        ),
+        _kind(
+            "mcp.server",
+            CarrierType.CLASS,
+            CarrierType.MODULE,
+            check="mcp.server_reachable",
+            completeness="mcp.clients",
+            description="A server this project talks to: how to reach it, and what it may call.",
+        ),
+        # The prefix names the technology whose surface the check reads, and this one reads
+        # LangGraph's: "bound to the agent" is a fact held by the compiled graph.
+        _kind(
+            "langgraph.tool",
+            CarrierType.FUNCTION,
+            check="graph.tool_bound",
+            completeness="graph.tools",
+            description="A tool bound to an agent, callable from its steps.",
+        ),
         # -- Docker (P12). The first nodes carried by a file rather than by a Python
         # object (Q10, architecture §5.7). Neither of them parses anything: what the
         # compose file says is asked of `docker compose config`, and whether a service is
@@ -320,6 +366,11 @@ TECHNOLOGIES: dict[str, Technology] = {
         # workers. Public surface, and still a surface: a release that moves any of it
         # turns a proven node into an unproven one, and this is what lets the reason say so.
         Technology(name="queue", distribution="celery", verified="5.6.3"),
+        # The MCP checks ask a server for the tools it is holding and ask a client for what
+        # a connection returned. The listing is protocol, but the *identity* question --
+        # "is this exact function the one exposed?" -- goes through the SDK's own tool
+        # manager, which is a surface like any other.
+        Technology(name="mcp", distribution="mcp", verified="2.1.0"),
     )
 }
 

@@ -48,6 +48,8 @@ from aibuilder_core.api import (
     agent_failures,
     agent_record,
     environment_status,
+    mcp_call,
+    mcp_inspect,
     repair_divergence,
     repairs_available,
     run_call,
@@ -429,6 +431,37 @@ def run_work_stop_cmd(project: Path) -> int:
     return 0 if result["ok"] else 1
 
 
+def run_inspect_cmd(project: Path, node: str) -> int:
+    """Connect to a consumed server and print what it offers. Never a side effect (P11)."""
+    result = mcp_inspect(project, node)
+    print(f"{result['status']}: {result['detail']}")
+    allowed = set(result["allowed"])
+    for tool in result["tools"]:
+        mark = "allowed" if not allowed or tool["name"] in allowed else "      "
+        print(f"  {mark} {tool['name']} -- {tool['description']}")
+    for name in result["missing"]:
+        print(f"  MISSING {name} -- this project may call it and the server does not offer it")
+    return 0 if result["ok"] else 1
+
+
+def run_mcp_call_cmd(project: Path, node: str, tool: str, raw: str) -> int:
+    """Call one tool with arguments a person typed. Read as JSON, never invented."""
+    try:
+        arguments = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        print(f"the arguments are not JSON: {exc}")
+        return 2
+    if not isinstance(arguments, dict):
+        print("the arguments must be a JSON object")
+        return 2
+
+    result = mcp_call(project, node, tool, arguments)
+    print(f"{result['status']}: {result['detail']}")
+    if result["result"]:
+        print(result["result"])
+    return 0 if result["ok"] else 1
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="aibuilder-core", description=__doc__)
     sub = parser.add_subparsers(dest="command")
@@ -537,6 +570,16 @@ def build_parser() -> argparse.ArgumentParser:
     work_stop_cmd = sub.add_parser("work-stop", help="stop the worker")
     work_stop_cmd.add_argument("project", type=Path)
 
+    inspect_cmd = sub.add_parser("inspect", help="connect to a consumed MCP server")
+    inspect_cmd.add_argument("project", type=Path)
+    inspect_cmd.add_argument("node", help="the id of the mcp.server node to connect to")
+
+    tool_cmd = sub.add_parser("tool", help="call one tool on a consumed MCP server")
+    tool_cmd.add_argument("project", type=Path)
+    tool_cmd.add_argument("node")
+    tool_cmd.add_argument("tool")
+    tool_cmd.add_argument("arguments", nargs="?", default="{}", help="a JSON object")
+
     return parser
 
 
@@ -598,6 +641,10 @@ def main(argv: list[str] | None = None) -> int:
         return run_work_logs_cmd(parsed.project)
     if parsed.command == "work-stop":
         return run_work_stop_cmd(parsed.project)
+    if parsed.command == "inspect":
+        return run_inspect_cmd(parsed.project, parsed.node)
+    if parsed.command == "tool":
+        return run_mcp_call_cmd(parsed.project, parsed.node, parsed.tool, parsed.arguments)
 
     build_parser().print_help()
     return 2

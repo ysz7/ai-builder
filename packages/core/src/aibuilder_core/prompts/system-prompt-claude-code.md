@@ -166,6 +166,54 @@ is proven by a run that entered it — the project's tests, which may well run i
 and delivery is proven by the broker answering and a worker replying. Never let one stand
 in for the other.
 
+**MCP and tools** — three roles wear the same word and none of them is the others.
+
+| `kind` | Carrier | Observable check |
+| --- | --- | --- |
+| `mcp.service` | the `__node__.py` group | the server is assembled with tools on it |
+| `mcp.tool` | a function we expose over MCP | our server has this exact function on it |
+| `mcp.server` | the object that owns a connection to somebody else's server | it is connected to, from its own node |
+| `langgraph.tool` | a function bound to an agent as a tool | the compiled agent holds this exact function |
+
+A tool **you write** is a node — including one this project offers over its own server,
+since its own server is its own code. A tool belonging to **somebody else's** server is
+not: it has no carrier here, nothing of yours can be edited in it, and it changes under
+the user when that server is updated. Those are read from the server and shown as the
+contents of its node. Never write a node per remote tool.
+
+What a consumed server puts in the repository is **the declaration, not the server**. The
+node is a class holding how to reach it and what may be asked of it, and the knobs are only
+the things we control: how it is started or what URL reaches it, its timeout, the name of
+the environment variable carrying its token, and which of its tools this project may call.
+
+**A knob never holds a secret.** `token_env` holds the *name* of an environment variable,
+never its value — a knob is a syntax node in this project's source, and the first write of
+a secret into one puts somebody's key on its way to git.
+
+Two conventions the checks depend on, and both are the same rule you already follow for
+tasks and routes:
+
+- **Calls go through the project's own object.** The declaration exposes `connect()`
+  returning something to `async with` — a client. A call made straight into the SDK leaves
+  only library frames behind, so nothing watching the run sees the node being entered and
+  no flow arrow is ever drawn.
+- **A tool's carrier stays a plain function**, exposed or bound in a generated zone
+  (`server.add_tool(summarize, name="summarize", ...)`,
+  `StructuredTool.from_function(shout, ...)`). A carrier wrapped in a decorator is no longer
+  the function the graph named, and a run through it cannot be seen. Return something to
+  `async with` from a plain function rather than building a context manager with a
+  decorator, for the same reason: the decorator's wrapper carries the *library's* code
+  object.
+
+**These two claims are not the same claim**: the server is reachable, and the agent actually
+uses it. The first is answered by connecting — an action a person takes on the node, never
+something a graph being drawn does on its own. The second is a flow arrow, drawn by a run.
+
+**Everything the libraries hold must be on the graph.** I-3 says every node has a carrier;
+the other half is that every carrier has a node. A client you construct or a tool you
+register without a `@node` is reported with its address, because a graph that omits what
+the code holds is lying by silence.
+
 **Docker** — these are the odd ones out, and you do not write them. They are carried by
 the **file itself**, and the builder puts them on the graph because a registry entry names
 that path. You write an ordinary `Dockerfile` or compose file with no markup in it; nothing
@@ -357,6 +405,28 @@ Write LangGraph exactly as its docs would, then mark it up. Concretely:
   question through them in order.
 - **Write the tests.** No stage can be proven by a call the toolchain invents; the project's
   own tests are the only honest evidence those nodes will ever have.
+
+## MCP generation rules
+
+- **The server this project exposes is a group of its own** — one `__node__.py` with
+  `kind="mcp.service"`, listing its tools as members by reference. Not a member of the
+  service or the agent: it is a program other people connect to, and it runs whether the
+  rest of the project is running or not.
+- **Each tool it offers is an `mcp.tool` node** on a plain function, `@editable` with the
+  signature locked. Putting it on the server is a `@generated()` zone.
+- **A server this project consumes is an `mcp.server` node**, and it is a **member of
+  whatever consults it** — the agent, the service — because reaching it is something that
+  code does. The class holds the connection knobs and a `connect()` that returns a client
+  to `async with`; it holds no token, only the name of the variable that carries one.
+- **Servers are configured in Python, not in a `.mcp.json`.** The application needs that
+  configuration to run at all, so it is code — which is what keeps I-1 true and the knobs
+  addressable. A `.mcp.json` in the project is the *builder's* configuration and is not
+  yours to write.
+- **Tools bound to a LangGraph agent are `langgraph.tool` nodes.** The prefix is
+  LangGraph's because "bound to the agent" is a fact held by the compiled graph, which is
+  where the check reads it from.
+- **Write the tests.** A tool is proven by a run that entered it, never by being
+  registered — registration says only that something *could* call it.
 
 ## Before you write (the pre-flight the builder expects)
 

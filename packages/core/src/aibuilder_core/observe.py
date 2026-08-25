@@ -30,12 +30,19 @@ from pathlib import Path
 
 from aibuilder_core.environment import Environment, describe_environment
 from aibuilder_core.ir import Graph
-from aibuilder_core.kinds import CarrierType, lookup, technology_of
+from aibuilder_core.kinds import REGISTRY, CarrierType, lookup, technology_of
 from aibuilder_core.markup import GROUP_MANIFEST
+from aibuilder_core.paths import iter_python_files, module_name
 from aibuilder_core.runner import check_artifacts
 from aibuilder_core.verdict import Observation
 
-__all__ = ["ObservationRun", "probe_script", "run_observations", "tests_path"]
+__all__ = [
+    "ObservationRun",
+    "probe_script",
+    "project_modules",
+    "run_observations",
+    "tests_path",
+]
 
 #: How long the whole probe may take -- the project's own test suite included, since P9.
 #: A project that hangs is a failing project, and the runner has to come back to say so.
@@ -57,6 +64,12 @@ class ObservationRun:
     #: The environment the run happened in. Travels with the evidence, because evidence
     #: from an environment nobody described is evidence about nothing in particular.
     environment: Environment | None = None
+    #: What the graph left out (Q12): `state` is `proven` only when every completeness
+    #: probe could actually ask its library, and `undeclared` names each carrier the
+    #: libraries hold that no node declares -- with an address, like every diagnostic.
+    completeness: dict[str, object] = field(
+        default_factory=lambda: {"state": "unproven", "detail": "nothing was run", "undeclared": []}
+    )
     #: The flow this run revealed (Q9): `observed` where a passing test went from one node
     #: to the next, `wiring` where the framework itself holds the edge. Empty before a run,
     #: which is the honest state -- a path nothing took is dark, as it is in Unreal.
@@ -64,6 +77,7 @@ class ObservationRun:
 
     def as_dict(self) -> dict[str, object]:
         return {
+            "completeness": dict(self.completeness),
             "environment": None if self.environment is None else self.environment.as_dict(),
             "flow": [dict(edge) for edge in self.flow],
             "observations": {
@@ -148,6 +162,16 @@ def build_plan(
     return {
         "project": str(project.resolve()),
         "modules": sorted(name for name in modules if name),
+        # Every module, annotated or not (Q12). The completeness rule exists for the file
+        # with no markup in it, so a plan that named only the annotated ones could never
+        # find one -- and these are imported leniently, after everything else, so a corner
+        # of the project the graph knows nothing about cannot redden a node.
+        "all_modules": project_modules(project),
+        # The kinds that opted in to being asked "is everything here on the graph?". A list
+        # rather than a flag, so a kind joins the rule by naming a probe in the registry.
+        "completeness": sorted(
+            {kind.completeness for kind in REGISTRY.values() if kind.completeness}
+        ),
         "nodes": nodes,
         "tests": tests_path(project),
         # What the run is happening in. The probe needs it to know when a failing test
@@ -165,6 +189,27 @@ def build_plan(
             if (technology := technology_of(node.kind)) is not None
         },
     }
+
+
+def project_modules(project: Path) -> list[str]:
+    """Every importable module of the **application**, for the completeness claim (Q12).
+
+    Three exclusions, and each is a rule rather than a convenience. A group manifest is
+    markup and nothing else -- the strip deletes it -- so importing one would make the
+    annotated copy behave differently from the stripped one, which is what I-2 forbids. The
+    test suite is not the application, and it is run separately anyway. And `__main__` is
+    the module whose whole purpose is to *start* something: importing it to ask a question
+    would start a server on the way past, which is precisely what P11 exists to prevent.
+    """
+    root = project.resolve()
+    skip = {GROUP_MANIFEST, "conftest.py", "__main__.py"}
+    return sorted(
+        name
+        for path in iter_python_files(root)
+        if path.name not in skip
+        and TESTS_DIRECTORY not in path.relative_to(root).parts
+        and (name := module_name(path, root))
+    )
 
 
 def tests_path(project: Path) -> str:
@@ -205,6 +250,8 @@ def run_observations(
     plan = build_plan(graph, project, environment)
     artifacts = check_artifacts(graph, project, environment)
     if not plan["nodes"]:
+        # No Python node means nothing to import, so nothing was asked and completeness
+        # keeps its honest default: unproven, with the reason.
         return ObservationRun(
             observations=dict(artifacts.observations),
             skipped=dict(artifacts.skipped),
@@ -258,8 +305,22 @@ def run_observations(
     # and no node is ever looked at by both.
     observations.update(artifacts.observations)
     skipped.update(artifacts.skipped)
+
+    completeness = payload.get("completeness")
     return ObservationRun(
-        observations=observations, skipped=skipped, environment=environment, flow=flow
+        observations=observations,
+        skipped=skipped,
+        environment=environment,
+        flow=flow,
+        completeness=(
+            dict(completeness)
+            if isinstance(completeness, dict)
+            else {
+                "state": "unproven",
+                "detail": "the checker said nothing about it",
+                "undeclared": [],
+            }
+        ),
     )
 
 

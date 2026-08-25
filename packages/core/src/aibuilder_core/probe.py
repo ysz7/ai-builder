@@ -49,6 +49,8 @@ __all__ = [
     "TestRun",
     "environment_note",
     "locate_application",
+    "call_server_tool",
+    "inspect_server",
     "locate_queue",
     "main",
     "ping_queue",
@@ -566,6 +568,185 @@ def queue_assembles(context: Context, node: dict[str, Any]) -> tuple[str, str]:
     return PASSED, f"{len(own)} task(s) registered on the {app.main!r} queue"
 
 
+# -- MCP and tools (P15) ---------------------------------------------------------
+#
+# Three roles, three questions, and they are not interchangeable. What this project
+# *exposes* is its own code, so the identity question -- "is this exact function the one on
+# the server?" -- is answered by code object, the way a task's registration is. What this
+# project *consumes* is a foreign program, so nothing here connects to it: a connection is
+# an action a person takes (P11), never a side effect of drawing a graph, and the check
+# says which button would prove the node instead.
+
+
+def _mcp_server(context: Context) -> Any:
+    """The one MCP server this project exposes, found the way the app is found."""
+    try:
+        # The SDK ships types, but nothing here needs them: what comes back is asked
+        # defensively, and a release that moves an attribute must cost a skip, not a crash.
+        from mcp.server.mcpserver import MCPServer
+    except ImportError:
+        return None
+
+    found = [
+        value
+        for module in context.modules.values()
+        for value in vars(module).values()
+        if isinstance(value, MCPServer)
+    ]
+    unique = {id(server): server for server in found}
+    return next(iter(unique.values())) if len(unique) == 1 else None
+
+
+def _exposed_tools(server: Any) -> list[Any]:
+    """The tools the server is holding, with the function behind each one still attached.
+
+    `list_tools()` is the protocol answer and it has no functions in it -- it is what a
+    client sees. Identity needs the object the server kept, which is why this goes through
+    the SDK's tool manager and why `mcp` has an entry in `kinds.TECHNOLOGIES`.
+    """
+    manager = getattr(server, "_tool_manager", None)
+    lister = getattr(manager, "list_tools", None)
+    if lister is None:
+        return []
+    try:
+        return list(lister())
+    except Exception:
+        return []
+
+
+def _exposed_as(server: Any, carrier: Any) -> list[str]:
+    """The names this exact function is exposed under. Identity, never a name match."""
+    code = getattr(carrier, "__code__", None)
+    if code is None:
+        return []
+    return sorted(
+        str(getattr(tool, "name", ""))
+        for tool in _exposed_tools(server)
+        if getattr(getattr(tool, "fn", None), "__code__", None) is code
+    )
+
+
+def mcp_service_serves(context: Context, node: dict[str, Any]) -> tuple[str, str]:
+    """The server this project exposes, with tools actually on it.
+
+    The wiring question for the whole subsystem, and the same one `queue.assembles` asks:
+    an empty server is a program a client can connect to and get nothing from.
+    """
+    server = _mcp_server(context)
+    if server is None:
+        return FAILED, "no single MCP server was found among the project's modules"
+
+    tools = _exposed_tools(server)
+    if not tools:
+        return FAILED, "the server exposes no tools, so a client would connect to nothing"
+    return PASSED, f"the {getattr(server, 'name', '?')!r} server offers {len(tools)} tool(s)"
+
+
+def mcp_tool_exposed(context: Context, node: dict[str, Any]) -> tuple[str, str]:
+    """Is this function on our server -- and therefore something a client could call?
+
+    The wiring question again, and not the question of whether the tool *works*: that one
+    is answered by a run that entered it, and that evidence outranks this check.
+    """
+    carrier = context.resolve(node["carrier"])
+    if carrier is None:
+        return FAILED, f"{node['carrier']} does not exist at runtime"
+
+    server = _mcp_server(context)
+    if server is None:
+        return FAILED, "no single MCP server was found among the project's modules"
+
+    names = _exposed_as(server, carrier)
+    if not names:
+        return FAILED, "this function is declared a tool but nothing exposes it on the server"
+    return PASSED, f"exposed as {names[0]}"
+
+
+def _declaration(context: Context, node: dict[str, Any]) -> tuple[Any, str | None]:
+    """The consumed server's declaration, ready to be asked something.
+
+    A class is constructed, a module is itself. Constructing is not connecting: the
+    declaration holds a command, a URL and an environment variable's *name*, and building
+    it reaches nobody.
+    """
+    carrier = context.resolve(node["carrier"])
+    if carrier is None:
+        return None, f"{node['carrier']} does not exist at runtime"
+    if isinstance(carrier, type):
+        try:
+            return carrier(), None
+        except Exception as exc:
+            return None, f"the declaration does not construct: {type(exc).__name__}: {exc}"
+    return carrier, None
+
+
+def mcp_server_reachable(context: Context, node: dict[str, Any]) -> tuple[str, str]:
+    """Never connects, on purpose (P11).
+
+    A stdio server is a third party's process and a URL is somebody else's machine.
+    Starting or reaching either while a graph is being drawn is the side effect P11 exists
+    to forbid -- so this check stops at what can be known without a connection, and names
+    the button that would answer the rest. `mcp.inspect` is that button, and it is where
+    the three verdicts of this node actually get decided.
+
+    Structural rather than conditional: there is no flag that makes this connect. A read
+    cannot reach a foreign program by any path through here.
+    """
+    declaration, problem = _declaration(context, node)
+    if problem is not None:
+        return FAILED, problem
+
+    if not callable(getattr(declaration, "connect", None)):
+        return FAILED, "the declaration exposes no connect(), so nothing can reach the server"
+
+    # The knob holds the *name* of the variable, never the token -- a knob is a syntax node
+    # in this project's source, and a write of a secret into one lands in git.
+    variable = str(getattr(declaration, "token_env", "") or "")
+    if variable and not os.environ.get(variable):
+        return SKIPPED, f"{variable} is not set, so this server could not be reached anyway"
+    return SKIPPED, "not connected -- connect from this node (mcp.inspect)"
+
+
+def graph_tool_bound(context: Context, node: dict[str, Any]) -> tuple[str, str]:
+    """Is this function bound to the agent as a tool it may call?
+
+    Asked of the compiled graph, the way every other LangGraph fact is (§5.8). Identity by
+    code object, because the tool object the agent holds is a wrapper the framework built
+    around the carrier, and matching by name would call a different `search` this one.
+    """
+    carrier = context.resolve(node["carrier"])
+    if carrier is None:
+        return FAILED, f"{node['carrier']} does not exist at runtime"
+    graph = _compiled_graph(context)
+    if graph is None:
+        return FAILED, "no single compiled LangGraph was found among the project's modules"
+
+    bound = _bound_tools(graph)
+    if not bound:
+        return SKIPPED, "this agent binds no tools in a way the graph exposes"
+
+    code = getattr(carrier, "__code__", None)
+    for name, function in bound.items():
+        same = code is not None and getattr(function, "__code__", None) is code
+        if function is carrier or same:
+            return PASSED, f"bound to the agent as the tool {name!r}"
+    return FAILED, "the function is declared a tool but the agent never bound it"
+
+
+def _bound_tools(graph: Any) -> dict[str, Any]:
+    """name -> the function behind each tool the compiled graph holds."""
+    bound: dict[str, Any] = {}
+    specs = getattr(getattr(graph, "builder", None), "nodes", None) or {}
+    for spec in specs.values():
+        runnable = getattr(spec, "runnable", None)
+        for holder in (runnable, _underlying(runnable)):
+            for name, tool in dict(getattr(holder, "tools_by_name", {}) or {}).items():
+                function = getattr(tool, "func", None) or getattr(tool, "coroutine", None)
+                if function is not None:
+                    bound[str(name)] = function
+    return bound
+
+
 # -- RAG -------------------------------------------------------------------------
 #
 # A stage takes a document, a query or a set of chunks. None of those can be invented --
@@ -641,6 +822,10 @@ CHECKS = {
     "queue.broker_answers": queue_broker_answers,
     "queue.task_registered": queue_task_registered,
     "queue.schedule_entries": queue_schedule_entries,
+    "mcp.service_serves": mcp_service_serves,
+    "mcp.tool_exposed": mcp_tool_exposed,
+    "mcp.server_reachable": mcp_server_reachable,
+    "graph.tool_bound": graph_tool_bound,
 }
 
 
@@ -818,6 +1003,197 @@ def observe_tests(plan: dict[str, Any], codes: dict[CodeType, str]) -> TestRun:
     )
 
 
+# -- completeness: if it is not on the graph, it is not in the code (Q12) --------
+#
+# I-3 says every node has a carrier. Nothing said every carrier has a node, so an
+# undeclared client or an unmarked tool was simply invisible -- a graph lying by silence,
+# which looks exactly like a clean graph. This is the other half of the rule, and it is
+# **asked, never parsed** (§5.8): the project is imported and the library is asked what it
+# is holding. Anything the library holds that the graph does not declare is reported with
+# an address.
+#
+# Two costs, both deliberate. The claim needs a run, so it carries `proven` / `unproven`
+# rather than being assumed -- claiming a complete graph from a static read would be the
+# I-5 failure one level up. And **every** module is imported, not only the annotated ones:
+# the file with no markup in it is exactly the file this rule exists for.
+
+
+def _address(project: str, function: Any) -> dict[str, Any] | None:
+    """Where a function lives, project-relative. `None` when it has no source at all."""
+    code = getattr(function, "__code__", None)
+    if code is None:
+        return None
+    file = getattr(code, "co_filename", "")
+    return {
+        "file": _relative(project, file),
+        "line": int(getattr(code, "co_firstlineno", 1) or 1),
+        "object": str(getattr(function, "__qualname__", getattr(function, "__name__", "?"))),
+    }
+
+
+def _relative(project: str, file: str) -> str:
+    if not file:
+        return "?"
+    prefix = project.rstrip(os.sep) + os.sep
+    return file[len(prefix) :] if file.startswith(prefix) else file
+
+
+def _values_in(context: Context) -> list[tuple[str, str, Any]]:
+    """Every module-level name in the project, as (module, attribute, value)."""
+    return [
+        (name, attribute, value)
+        for name, module in context.modules.items()
+        for attribute, value in vars(module).items()
+        if not attribute.startswith("__")
+    ]
+
+
+def complete_mcp_tools(
+    context: Context, declared: set[CodeType], project: str
+) -> list[dict[str, Any]]:
+    """Every tool on our own server has a node -- asked of the server, not of the source."""
+    server = _mcp_server(context)
+    if server is None:
+        return []
+
+    surplus = []
+    for tool in _exposed_tools(server):
+        function = getattr(tool, "fn", None)
+        code = getattr(function, "__code__", None)
+        if code is None or code in declared:
+            continue
+        address = _address(project, function)
+        if address is not None:
+            surplus.append({"what": f"the tool {getattr(tool, 'name', '?')!r}", **address})
+    return surplus
+
+
+def complete_mcp_clients(
+    context: Context, declared: set[CodeType], project: str, objects: set[int]
+) -> list[dict[str, Any]]:
+    """Every connection to somebody else's server has a node.
+
+    The library's own types are what identifies one: a `Client` or the parameters that
+    start a server is a connection whatever the project called the variable. A declaration
+    the graph *does* carry is skipped by identity -- the node's carrier, or its type.
+    """
+    try:
+        from mcp import Client, StdioServerParameters
+    except ImportError:
+        return []
+
+    surplus = []
+    for module, attribute, value in _values_in(context):
+        if not isinstance(value, Client | StdioServerParameters):
+            continue
+        if id(value) in objects or id(type(value)) in objects:
+            continue
+        file = getattr(context.modules[module], "__file__", "") or ""
+        surplus.append(
+            {
+                "what": f"a connection to an MCP server held in {attribute}",
+                "file": _relative(project, file),
+                "line": 1,
+                "object": f"{module}.{attribute}",
+            }
+        )
+    return surplus
+
+
+def complete_graph_tools(
+    context: Context, declared: set[CodeType], project: str
+) -> list[dict[str, Any]]:
+    """Every tool the agent is bound to has a node -- asked of the compiled graph."""
+    graph = _compiled_graph(context)
+    if graph is None:
+        return []
+
+    surplus = []
+    for name, function in _bound_tools(graph).items():
+        code = getattr(function, "__code__", None)
+        if code is None or code in declared:
+            continue
+        address = _address(project, function)
+        if address is not None:
+            surplus.append({"what": f"the tool {name!r} bound to the agent", **address})
+    return surplus
+
+
+def check_completeness(
+    plan: dict[str, Any], context: Context, nodes: list[dict[str, Any]]
+) -> dict[str, Any]:
+    """What the libraries hold that the graph does not declare, and whether we could ask.
+
+    The probes named in the plan are the kinds that opted in through the registry, so a kind
+    joins this rule by naming one and nothing here changes when the next one does.
+    """
+    probes = list(plan.get("completeness", []))
+    if not probes:
+        return {"state": "unproven", "detail": "no kind claims completeness", "undeclared": []}
+
+    unimported = _import_the_rest(plan, context)
+
+    declared: set[CodeType] = set()
+    objects: set[int] = set()
+    for node in nodes:
+        carrier = context.resolve(node["carrier"])
+        if carrier is None:
+            continue
+        objects.add(id(carrier))
+        declared.update(_codes_of(carrier))
+
+    project = plan["project"]
+    undeclared: list[dict[str, Any]] = []
+    for probe in probes:
+        try:
+            if probe == "mcp.tools":
+                undeclared += complete_mcp_tools(context, declared, project)
+            elif probe == "mcp.clients":
+                undeclared += complete_mcp_clients(context, declared, project, objects)
+            elif probe == "graph.tools":
+                undeclared += complete_graph_tools(context, declared, project)
+        except Exception as exc:
+            # A probe that blew up asked nothing, so the claim is unproven rather than
+            # clean. Reporting "complete" here would be the whole point of the rule lost.
+            return {
+                "state": "unproven",
+                "detail": f"{probe} could not ask: {type(exc).__name__}: {exc}",
+                "undeclared": undeclared,
+            }
+
+    if unimported:
+        # A module that did not import is a module nothing was asked about, and the file
+        # with no markup in it is exactly the one this rule is for. Unproven, with names.
+        return {
+            "state": "unproven",
+            "detail": f"these modules did not import: {'; '.join(unimported)}",
+            "undeclared": undeclared,
+        }
+    return {
+        "state": "proven",
+        "detail": f"{len(probes)} kind(s) asked their library what it holds",
+        "undeclared": undeclared,
+    }
+
+
+def _import_the_rest(plan: dict[str, Any], context: Context) -> list[str]:
+    """Import the project's unannotated modules too, and say which would not.
+
+    Leniently, unlike the annotated ones: a module the graph knows nothing about must not
+    be able to redden every node in the project. It costs the completeness claim instead,
+    which is the thing it actually has a bearing on.
+    """
+    failures = []
+    for name in plan.get("all_modules", []):
+        if name in context.modules:
+            continue
+        try:
+            context.modules[name] = importlib.import_module(name)
+        except Exception as exc:
+            failures.append(f"{name} ({type(exc).__name__})")
+    return sorted(failures)
+
+
 # -- the runner ------------------------------------------------------------------
 
 
@@ -826,11 +1202,14 @@ def run_plan(plan: dict[str, Any]) -> list[dict[str, str]]:
     return run_plan_with_flow(plan)[0]
 
 
-def run_plan_with_flow(plan: dict[str, Any]) -> tuple[list[dict[str, str]], list[dict[str, str]]]:
-    """The same run, plus the flow it revealed (Q9).
+def run_plan_with_flow(
+    plan: dict[str, Any],
+) -> tuple[list[dict[str, str]], list[dict[str, str]], dict[str, Any]]:
+    """The same run, plus the flow it revealed (Q9) and what the graph left out (Q12).
 
     Flow and evidence come out of one execution because they are one execution: the order a
-    test went in is a fact about the same run that proved the nodes.
+    test went in is a fact about the same run that proved the nodes. Completeness joins them
+    for the same reason -- it is a question about the same imported project.
     """
     sys.path.insert(0, plan["project"])
 
@@ -849,7 +1228,11 @@ def run_plan_with_flow(plan: dict[str, Any]) -> tuple[list[dict[str, str]], list
         # cause, and send a repair after the wrong thing.
         failed = "; ".join(f"{name} ({error})" for name, error in context.import_errors.items())
         detail = f"the project did not import: {failed}"
-        return [Result(node["id"], node["check"], FAILED, detail).as_dict() for node in nodes], []
+        return (
+            [Result(node["id"], node["check"], FAILED, detail).as_dict() for node in nodes],
+            [],
+            {"state": "unproven", "detail": detail, "undeclared": []},
+        )
 
     # The suite runs after the imports, deliberately: "exercised" means a test entered
     # the carrier, and a carrier that merely ran at import time was not tested.
@@ -874,7 +1257,10 @@ def run_plan_with_flow(plan: dict[str, Any]) -> tuple[list[dict[str, str]], list
         results.append(_direct(context, node, run, plan))
 
     flow = observed_flow(run) + wired_flow(context, nodes)
-    return [result.as_dict() for result in results], flow
+    # Last, and after everything else has been asked: it widens the imports to the
+    # project's unannotated code, and nothing above it should be affected by that.
+    completeness = check_completeness(plan, context, nodes)
+    return [result.as_dict() for result in results], flow, completeness
 
 
 def environment_note(plan: dict[str, Any]) -> str:
@@ -1078,6 +1464,208 @@ def ping_queue(plan: dict[str, Any]) -> dict[str, Any]:
             return {"ready": False, "detail": failure or "no worker answered the queue"}
 
 
+# -- the two MCP verbs: connect, and call one tool --------------------------------
+#
+# Both are **actions**, and they live here rather than in the core for the reason every
+# other question about the project does: the connection belongs to the project's own
+# object, and that object exists only in the project's interpreter. The asynchrony that
+# made this look hard is handled the way `queue_ready` is -- one short-lived question,
+# `asyncio.run` around it, JSON back. No coroutine and no held-open connection ever
+# reaches the process the UI is talking to.
+
+
+def _connect_and(declaration: Any, work: Any) -> Any:
+    """Open the project's own connection, do one thing through it, and close it.
+
+    Through `connect()`, never straight into the SDK: that is the convention the prompt
+    fixes, and it is what makes "the agent actually uses this server" observable at all --
+    a call that goes directly to the library leaves only library frames, so the tracer sees
+    nothing and no flow arrow is ever drawn.
+    """
+    import asyncio
+
+    async def once() -> Any:
+        async with declaration.connect() as client:
+            return await work(client)
+
+    return asyncio.run(once())
+
+
+def _tool_names(listing: Any) -> list[dict[str, str]]:
+    """What came back from `tools/list`, in the one shape the wire carries."""
+    tools = getattr(listing, "tools", listing)
+    return [
+        {
+            "name": str(getattr(tool, "name", tool)),
+            "description": str(getattr(tool, "description", "") or ""),
+        }
+        for tool in tools
+    ]
+
+
+def _allowed(declaration: Any) -> list[str]:
+    """The subset of the server's tools this project may call -- a knob, comma-separated."""
+    raw = getattr(declaration, "allowed_tools", "")
+    if isinstance(raw, str):
+        return [name.strip() for name in raw.split(",") if name.strip()]
+    return [str(name) for name in raw or []]
+
+
+def _rejected(exc: BaseException) -> bool:
+    """Did the server answer and refuse us, rather than fail to answer at all?
+
+    The one judgement call in the phase's verdicts, and it is decided the same way as the
+    rest: credentials are not in the code, so a rejection is not the code's fault.
+    """
+    text = f"{type(exc).__name__}: {exc}".lower()
+    return any(
+        signal in text
+        for signal in ("unauthor", "forbidden", "401", "403", "invalid_token", "invalid token")
+    )
+
+
+def _declared_server(plan: dict[str, Any]) -> tuple[Any, dict[str, Any] | None]:
+    """The project's declaration for the server a verb names, or the answer to give back."""
+    context, failure = _import_all(plan)
+    if failure is not None:
+        return None, {"ok": False, "status": "unproven", "detail": failure}
+
+    declaration, problem = _declaration(context, {"carrier": plan["carrier"]})
+    if problem is not None:
+        return None, {"ok": False, "status": "broken", "detail": problem}
+    if not callable(getattr(declaration, "connect", None)):
+        return None, {
+            "ok": False,
+            "status": "broken",
+            "detail": "the declaration exposes no connect(), so nothing can reach the server",
+        }
+
+    variable = str(getattr(declaration, "token_env", "") or "")
+    if variable and not os.environ.get(variable):
+        return None, {
+            "ok": False,
+            "status": "unproven",
+            "detail": f"{variable} is not set; the server's token has to be in the environment",
+        }
+    return declaration, None
+
+
+def inspect_server(plan: dict[str, Any]) -> dict[str, Any]:
+    """Connect, initialize, and list what the server offers (P15).
+
+    Three verdicts, and the line between them is the one the whole system already draws:
+    the absence of an environment is never red, a contradiction inside the project always
+    is. Not connected or no token -> `unproven`. Answered, but our code names a tool it
+    does not offer -> `broken`, exactly as a schedule entry naming an unknown task is: that
+    is not an environment, it is code referring to something that does not exist, and the
+    alternative to saying so here is finding out in production.
+
+    Nothing is written down. A colleague who has not connected sees `unproven` rather than
+    somebody else's yesterday, and that falls out of I-1 rather than being a feature.
+    """
+    declaration, answer = _declared_server(plan)
+    if answer is not None:
+        return {**answer, "tools": [], "allowed": [], "missing": []}
+
+    allowed = _allowed(declaration)
+    try:
+        offered = _connect_and(declaration, lambda client: client.list_tools())
+    except Exception as exc:
+        detail = (
+            "the server rejected our credentials"
+            if _rejected(exc)
+            else f"the server could not be reached ({type(exc).__name__}: {exc})"
+        )
+        return {
+            "ok": False,
+            "status": "unproven",
+            "detail": detail,
+            "tools": [],
+            "allowed": allowed,
+            "missing": [],
+        }
+
+    tools = _tool_names(offered)
+    names = {tool["name"] for tool in tools}
+    missing = sorted(name for name in allowed if name not in names)
+    if missing:
+        return {
+            "ok": False,
+            "status": "broken",
+            "detail": (
+                f"this project may call tools the server does not offer: {', '.join(missing)}"
+            ),
+            "tools": tools,
+            "allowed": allowed,
+            "missing": missing,
+        }
+    return {
+        "ok": True,
+        "status": "green",
+        "detail": f"the server answered and offers {len(tools)} tool(s)",
+        "tools": tools,
+        "allowed": allowed,
+        "missing": [],
+    }
+
+
+def call_server_tool(plan: dict[str, Any]) -> dict[str, Any]:
+    """Call one tool with input a person typed (Q7).
+
+    Never invented, and never defaulted into existence: a pass manufactured from a made-up
+    argument is the same lie as a decorator moved to satisfy the parser. The allow-list is
+    enforced here as well as shown, because it is the project's own statement about what it
+    may call and a verb that ignored it would be lying about the node it is attached to.
+    """
+    declaration, answer = _declared_server(plan)
+    if answer is not None:
+        return {**answer, "result": ""}
+
+    tool = str(plan.get("tool") or "")
+    if not tool:
+        return {"ok": False, "status": "broken", "detail": "no tool was named", "result": ""}
+
+    allowed = _allowed(declaration)
+    if allowed and tool not in allowed:
+        return {
+            "ok": False,
+            "status": "broken",
+            "detail": f"{tool} is not in this server's allow-list ({', '.join(allowed)})",
+            "result": "",
+        }
+
+    arguments = plan.get("arguments") or {}
+    try:
+        answered = _connect_and(declaration, lambda client: client.call_tool(tool, arguments))
+    except Exception as exc:
+        detail = (
+            "the server rejected our credentials"
+            if _rejected(exc)
+            else f"the call did not complete ({type(exc).__name__}: {exc})"
+        )
+        return {"ok": False, "status": "unproven", "detail": detail, "result": ""}
+
+    return {
+        "ok": not getattr(answered, "is_error", False),
+        "status": "green" if not getattr(answered, "is_error", False) else "broken",
+        "detail": f"{tool} answered",
+        "result": _rendered(answered),
+    }
+
+
+def _rendered(answered: Any) -> str:
+    """What a tool said, as text a person can read on a node."""
+    structured = getattr(answered, "structured_content", None)
+    if structured is not None:
+        return json.dumps(structured)
+    parts = [
+        str(getattr(block, "text", ""))
+        for block in getattr(answered, "content", []) or []
+        if getattr(block, "text", None)
+    ]
+    return "\n".join(parts) if parts else str(answered)
+
+
 def _import_all(plan: dict[str, Any]) -> tuple[Context, str | None]:
     """The project's modules, imported once. The first failure is the whole answer."""
     sys.path.insert(0, plan["project"])
@@ -1102,8 +1690,14 @@ def main() -> int:
     if plan.get("ask") == "queue_ready":
         print(json.dumps(ping_queue(plan)))
         return 0
-    results, flow = run_plan_with_flow(plan)
-    print(json.dumps({"results": results, "flow": flow}))
+    if plan.get("ask") == "mcp_inspect":
+        print(json.dumps(inspect_server(plan)))
+        return 0
+    if plan.get("ask") == "mcp_call":
+        print(json.dumps(call_server_tool(plan)))
+        return 0
+    results, flow, completeness = run_plan_with_flow(plan)
+    print(json.dumps({"results": results, "flow": flow, "completeness": completeness}))
     return 0
 
 

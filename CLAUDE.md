@@ -10,8 +10,8 @@ AST-addressable markup layer (`bp`); a parser projects that into a graph; edits 
 written back through the syntax tree with `libcst`. Assembled applications deploy as plain Python
 projects with no runtime dependency on the builder.
 
-Current state: **P0–P14 done.** MCP remains inside P12's vocabulary; the UI is delivered separately. Window opens, React Flow renders a scaffold canvas, Rust
-reaches the Python core over NDJSON, the five `bp` primitives exist and are proven inert, and
+Current state: **P0–P15 done.** The UI is delivered separately. Window opens, React Flow renders a
+scaffold canvas, Rust reaches the Python core over NDJSON, the five `bp` primitives exist and are proven inert, and
 `strip` removes the markup with the example service answering identically before and after. The parser
 turns an annotated project into a graph IR, the static gate judges it into addressed diagnostics, and
 the observable checks run the project to prove nodes actually work, and reconciliation reports what
@@ -20,9 +20,10 @@ code through the syntax tree, and the repair system acts on divergences — or r
 who must decide, the agent integration assembles one brief for both inputs and logs what the agent
 gets wrong, and the FastAPI slice runs end to end — brief, graph, knob write, breakage, repair, green
 again, stripped copy proving the same things — and the same loop closes on a LangGraph agent and a
-RAG pipeline, which is what makes the mechanism general rather than FastAPI-shaped. What is missing
-is everything around the application: the environment it runs in (P11), the vocabulary for a database
-or a vector store (P12), and the ability to run anything at all (P13).
+RAG pipeline, which is what makes the mechanism general rather than FastAPI-shaped. Everything around
+the application is there too: the environment it runs in (P11), the vocabulary for a database, a vector
+store and docker (P12), the ability to run and stop things (P13), background work (P14), and MCP with
+the three roles that wear the word "tool" (P15). What is left is the UI.
 
 **"Python only" bounds the application's source language, not the project's contents.** Docker files,
 compose, migrations and environment configuration are part of a production project and in scope. Such
@@ -48,6 +49,30 @@ in a task decorator is no longer the function the graph named, and a run through
 The worker refuses to start while the broker is down instead of bringing it up, and its readiness is a
 reply through the queue, never a line in a log.
 
+**MCP is three roles, and none of them is the others** (P15). A server this project *consumes* is a
+declaration of how to reach a foreign program — the node is the declaration, never the server, exactly
+as `compose.yaml` declares `redis:7-alpine` without redis's source being in the repository. A tool this
+project *exposes* is its own code and is a node. A tool *bound to an agent* is `langgraph.tool`,
+because "bound" is a fact the compiled graph holds. **A remote tool is contents, never a node** (Q12):
+it has no carrier, so it is read from `tools/list` and shown on the server's node, and what the agent
+may call is a knob. Servers are configured in the project's Python, never in a `.mcp.json` — that file
+is the *builder's* configuration and is out of scope.
+
+**Connecting is an action, and the check has no path to one.** `mcp.server_reachable` never connects
+and no flag makes it; `mcp.inspect` / `mcp.call` are the buttons, and they run in the project's
+interpreter through the project's own `connect()`. Straight into the SDK and the tracer sees only
+library frames — no flow arrow, so no evidence the agent uses the server at all. **A knob never holds
+a secret**: it holds the *name* of the environment variable, or the first write puts somebody's key on
+its way to git. **Nothing about a connection is written down**, which is what makes a stale graph
+impossible rather than merely unlikely.
+
+**If it is not on the graph, it is not in the code** (Q12, P15). I-3's missing half: every carrier has
+a node, checked by **asking the library what it holds** after a run — never by parsing. A surplus is a
+diagnostic with an address (`graph.undeclared_carrier`) and it does not touch `accepted`, because the
+gate is a static judgement and this one needed a run. The claim carries its own `proven` / `unproven`
+state, the probe imports **every** module rather than only the annotated ones, and a module that will
+not import costs the claim rather than the nodes. Kinds opt in through `NodeKind.completeness`.
+
 **A contract edge and a flow are different relations** (Q9). Edges are types crossing a boundary, read
 from signatures. Flow — a pipeline's order, an agent's wiring — is never parsed out of assembly code
 and never declared in markup; it comes from a run: the compiled graph the framework exposes, or the
@@ -56,7 +81,9 @@ order instrumented carriers were entered in. No run, no flow arrows.
 [examples/fastapi-service/](examples/fastapi-service/) is the annotated reference project: it is what
 the parser is written against, and the shape every generation rule in the system prompt has an
 instance of. Change it only deliberately — the graph snapshot test compares against it byte for byte.
-[examples/langgraph-agent/](examples/langgraph-agent/) and
+[examples/mcp-agent/](examples/mcp-agent/) is the one that holds all three MCP roles at once — it
+consumes the server it exposes, which is what keeps that path exercised on a machine with no accounts
+and no network. [examples/langgraph-agent/](examples/langgraph-agent/) and
 [examples/rag-pipeline/](examples/rag-pipeline/) are the other two topologies: a group over state
 nodes, and a group over pipeline stages whose **knobs live on the stages themselves**. Each example
 carries its own test suite, and that suite is the run its graph is observed by — a stage with no test
@@ -99,6 +126,8 @@ uv run python -m aibuilder_core blueprints
 uv run python -m aibuilder_core brief examples/fastapi-service --request "add a users router"
 uv run python -m aibuilder_core failures examples/fastapi-service
 uv run python -m aibuilder_core work examples/service-with-worker
+uv run python -m aibuilder_core inspect examples/mcp-agent agent.notes
+uv run python -m aibuilder_core tool examples/mcp-agent agent.notes summarize '{"text": "One. Two."}'
 ```
 
 The brief is the agent's whole input: the system prompt verbatim, the request (a sentence, a
@@ -155,7 +184,9 @@ diagnostic record and the closed catalogue of codes; `verdict.py` is the single 
 checks and `probe.py` contains them; `snapshot.py` records the outline of the last valid state and
 `reconcile.py` diffs against it; `writer.py` writes back through `libcst`; `repair.py` acts on
 divergences; `environment.py` is the project's interpreter and the services it declares; `artifacts.py` finds the
-nodes carried by a file and `project.py` composes them with the parser's; `runner.py` checks them and runs the application; `agent.py` assembles the agent's brief and records its failure modes and `catalog.py`
+nodes carried by a file and `project.py` composes them with the parser's; `runner.py` checks them, runs
+the application and holds the verbs that act on it — including the two that reach a consumed MCP
+server; `agent.py` assembles the agent's brief and records its failure modes and `catalog.py`
 reads the blueprint catalog; `strip.py` removes the markup.
 
 `apply_repair` takes `resolution` as a required keyword with no default. That is not style: §9 case 2
@@ -273,8 +304,8 @@ agent's system prompt used to and was moved into the package for exactly that re
 
 - [architecture.md](docs/architecture.md) — the v0 spec. Sections 2 (invariants) and 7 (the parser as
   a gate) carry everything load-bearing.
-- [roadmap.md](docs/roadmap.md) — phases P0–P10 with per-phase acceptance criteria and the invariant
-  each protects. Current position: MCP, then the UI.
+- [roadmap.md](docs/roadmap.md) — phases P0–P15 with per-phase acceptance criteria and the invariant
+  each protects. Current position: P15 done; the UI is next.
 - [open-questions.md](docs/open-questions.md) — nothing open; Q1–Q5 are settled, with the reasoning
   kept in the log. **Read before starting any phase**, and add an entry the moment two documents
   disagree — an unrecorded conflict is worse than an open one.
