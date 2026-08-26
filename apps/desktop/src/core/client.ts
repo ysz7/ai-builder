@@ -176,7 +176,18 @@ export type AgentSession = {
    * which keeps the conversation and not the process it was being had in. The interface has
    * to say that rather than let a person believe the switch is free mid-answer.
    */
-  settings: { model: string; effort: string; mode: string } | null;
+  settings: {
+    model: string;
+    effort: string;
+    mode: string;
+    /**
+     * Whether the agent may run commands — `""` (no) or `"bash"`.
+     *
+     * **Not the permission mode**, which was measured and does not grant it: `acceptEdits`
+     * asks for an approval this transport cannot carry, and `dontAsk` refuses outright.
+     */
+    commands: string;
+  } | null;
 };
 
 /** Is there an agent on this machine, and is a session open? Starts nothing. */
@@ -521,6 +532,7 @@ export type AgentChoices = {
   models: string[];
   efforts: string[];
   modes: string[];
+  commands: string[];
 };
 
 export function agentChoices(): Promise<AgentChoices> {
@@ -536,7 +548,12 @@ export function agentChoices(): Promise<AgentChoices> {
  */
 export function agentConfigure(
   project: string,
-  change: { model?: string; effort?: string; mode?: string },
+  change: {
+    model?: string;
+    effort?: string;
+    mode?: string;
+    commands?: string;
+  },
 ): Promise<AgentSession> {
   return coreRequest<AgentSession>("agent.configure", { project, ...change });
 }

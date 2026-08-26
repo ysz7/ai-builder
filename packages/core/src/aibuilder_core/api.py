@@ -55,6 +55,7 @@ from aibuilder_core.runner import (
     worker_status,
 )
 from aibuilder_core.session import (
+    COMMANDS,
     EFFORTS,
     MODELS,
     MODES,
@@ -621,7 +622,16 @@ AGENT_SESSION_SCHEMA = {
     # way to change one in a running conversation -- so setting one restarts the process under
     # `--resume`, which keeps the conversation and not the process it was being had in.
     # Null where the verb was not asked -- absent is not the same as "no model, no effort".
-    "settings": {"<nullable>": {"model": "str", "effort": "str", "mode": "str"}},
+    "settings": {
+        "<nullable>": {
+            "model": "str",
+            "effort": "str",
+            "mode": "str",
+            # Whether the agent may run commands. Not the mode: no permission mode grants
+            # Bash, and a person saying "yes" once is what makes the project's tests runnable.
+            "commands": "str",
+        }
+    },
 }
 
 #: The `agent.record` payload: what the gates said about one generation, as it was logged.
@@ -1134,6 +1144,7 @@ AGENT_CHOICES_SCHEMA = {
     "models": ["str"],
     "efforts": ["str"],
     "modes": ["str"],
+    "commands": ["str"],
 }
 
 
@@ -1144,6 +1155,9 @@ def agent_choices() -> dict[str, Any]:
         "models": list(MODELS),
         "efforts": list(EFFORTS),
         "modes": list(MODES),
+        # Whether the agent may run commands. A separate choice from the mode because it is
+        # a separate mechanism: no permission mode grants Bash, and this is what does.
+        "commands": list(COMMANDS),
     }
 
 
@@ -1152,11 +1166,14 @@ def agent_configure(
     model: str | None = None,
     effort: str | None = None,
     mode: str | None = None,
+    commands: str | None = None,
 ) -> dict[str, Any]:
     """Set what sessions here are started with, restarting the open one onto it."""
     return {
         "api_version": GRAPH_API_VERSION,
-        **configure_session(project, model=model, effort=effort, mode=mode).as_dict(),
+        **configure_session(
+            project, model=model, effort=effort, mode=mode, commands=commands
+        ).as_dict(),
     }
 
 

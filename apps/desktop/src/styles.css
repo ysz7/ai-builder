@@ -1593,8 +1593,13 @@ body.is-resizing {
 .bp-notice.is-failed {
   border-left-color: var(--bad);
 }
+/* The one notice that floats. Everywhere else a notice sits inside a panel and borrows its
+   ground; this one hangs in `.bp-chat`, which is a fixed column with no background of its
+   own, so without a ground of its own the canvas showed straight through the words. */
 .bp-notice.is-blocked {
   border: 1px solid var(--bad);
+  border-radius: 6px;
+  background: var(--surface);
   color: var(--bad);
   padding: 8px 4px 8px 11px;
 }
@@ -2011,4 +2016,78 @@ textarea {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* The copy button on a node's reason. Floated into the text rather than given a row of its
+   own: the reason is what the reader came for, and a button above it would push it down the
+   panel for the sake of an action taken once. */
+.bp-why-copy {
+  float: right;
+  margin: 0 0 4px 8px;
+  padding: 2px 7px;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  background: transparent;
+  color: var(--muted-2);
+  font-family: var(--mono);
+  font-size: 9.5px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+.bp-why-copy:hover {
+  color: var(--fg);
+  border-color: var(--line-strong);
+}
+
+/* The permission card: the design's blocked card, asked rather than alarmed.
+   The design drew this in the refusal's red, and red is right for "something went wrong".
+   This is not that — nothing is broken, the agent is waiting on an answer only a person can
+   give — so it carries the ordinary surface and keeps the red for actual failures. */
+.bp-ask {
+  border: 1px solid var(--line-strong);
+  border-radius: 6px;
+  background: var(--surface-2);
+  padding: 10px 11px;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  line-height: 1.6;
+  color: var(--fg);
+}
+.bp-ask-h {
+  font-size: 9.5px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--muted-2);
+  margin-bottom: 5px;
+}
+.bp-ask-what code {
+  font-family: var(--mono);
+  color: var(--accent);
+  word-break: break-all;
+}
+.bp-ask-why {
+  margin-top: 6px;
+  color: var(--muted);
+}
+.bp-ask-acts {
+  display: flex;
+  gap: 7px;
+  margin-top: 9px;
+}
+
+/* The second hand on the working line. Quiet — it is proof that something is happening, not
+   a thing to watch — and it holds its width so the line does not jitter as digits change. */
+.bp-elapsed {
+  /* Right of the words and left of the estimate, without claiming the whole gap: the token
+     count already sits at the end, and two things fighting for `auto` split the line. */
+  margin-left: auto;
+  flex: 0 0 auto;
+  font-variant-numeric: tabular-nums;
+  font-size: 9.5px;
+  color: var(--muted-2);
+}
+/* When both are on the line, the seconds are the one that moved the cursor to the right. */
+.bp-elapsed + .bp-spent {
+  margin-left: 0;
 }

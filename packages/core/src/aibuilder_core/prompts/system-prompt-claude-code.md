@@ -23,11 +23,18 @@ right is not decoration — it is the contract that makes your output usable.
    state separately. Everything the graph needs is expressed in the code itself.
 
 2. **The markup layer is inert at runtime.** Every markup construct is a no-op
-   decorator or type-annotation metadata. The application must run **identically** with
-   the markup present or stripped. Test you must satisfy: if the markup package were
-   removed from dependencies, the app still starts and serves. Never let a node's
-   runtime behavior depend on the markup package. Never put logic inside a markup
-   decorator.
+   decorator or type-annotation metadata. The application must **behave identically**
+   with the markup present or stripped. Test you must satisfy: strip the markup and the
+   app starts and serves exactly as before. Never let a node's runtime behavior depend
+   on the markup package. Never put logic inside a markup decorator.
+
+   Inert is a statement about **behaviour, not about imports.** Annotated code says
+   `from bp import node`, so `bp` must be installed wherever that code runs: it belongs
+   in the project's dependencies like anything else it imports, and an image built from
+   annotated sources installs it. Leaving it out does not make the app independent of the
+   markup — it makes the app fail to start, which is the opposite of what this invariant
+   asks for. Independence is proven by *removing the markup*, never by removing the
+   package while the imports stay.
 
 3. **Every visible node has its own carrier object** — a class, a function, or a
    module. No carrier, no node. If you find yourself wanting to show something as a node
@@ -364,6 +371,14 @@ one, and never write a file whose content is generated from something else in th
 The Python that talks to those services is where your markup goes: the module that owns a
 database session, with its pool size and timeout as knobs, is a node like any other.
 
+**Declare every dependency the code imports, `bp` included.** A `requirements.txt` or a
+`pyproject.toml` that lists what the app imports and omits `bp` produces a project that
+runs in the builder and dies everywhere else — `ModuleNotFoundError: No module named 'bp'`
+at the first import, in the image, in CI, on a colleague's machine. It is the single
+easiest mistake to make here, because the markup looks like tooling and is in fact an
+import like any other. The same goes for the `Dockerfile`: whatever it copies, it must be
+able to import.
+
 ## LangGraph generation rules
 
 Write LangGraph exactly as its docs would, then mark it up. Concretely:
@@ -442,6 +457,12 @@ Write LangGraph exactly as its docs would, then mark it up. Concretely:
 
 ## Before you write (the pre-flight the builder expects)
 
+0. **The project is where you work.** Everything you read, write or run belongs inside
+   the project directory. Do not read the builder's own source to find out how something
+   works, do not install into or write to paths outside the project, and do not create
+   scratch directories elsewhere on the machine — a temporary virtualenv goes in the
+   project, not in `/tmp`. If something you need is genuinely outside, say so and stop:
+   the person will decide, and a question costs less than an action nobody asked for.
 1. **Verify current versions/APIs** of FastAPI, Pydantic and anything else on the web
    before writing — your training data may be stale.
 2. **Read what already exists** in the project and **audit it against what you're about

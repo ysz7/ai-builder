@@ -16,8 +16,9 @@
  * A graph with no run has no flow arrows at all. That emptiness is a measurement.
  */
 
-import { useCallback, useMemo } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
+  applyNodeChanges,
   Background,
   BackgroundVariant,
   Controls,
@@ -169,11 +170,31 @@ export function Canvas({
     return edges;
   }, [graph, hidden, placed, nodes]);
 
+  /**
+   * Where the nodes are **while they are being moved.**
+   *
+   * The drawn list comes from the graph and the stored layout, and for everything except a
+   * drag that is the whole truth. A drag is the exception: the pointer moves every frame and
+   * the position it produces is not a fact about the project yet -- so it lives here, in the
+   * canvas, until the person lets go.
+   *
+   * Without this the node did not follow the pointer at all. Every frame's change was
+   * discarded as "not finished yet", the node sat where the layout said, and it appeared at
+   * the new place only when the drag ended: a teleport instead of a drag.
+   */
+  const [drawn, setDrawn] = useState<Node[]>(flowNodes);
+
+  // The graph is the source of truth, so whenever it or the stored layout changes, what is
+  // drawn is replaced rather than merged: a drag's leftovers must never outlive the drag.
+  useEffect(() => setDrawn(flowNodes), [flowNodes]);
+
   const onNodesChange = useCallback(
     (changes: NodeChange[]) => {
-      // Only positions are kept, and only when a drag has finished. Writing on every frame
-      // would put a file write behind the mouse; writing anything else would make this a
-      // second store of state.
+      // Applied on every frame -- this is what makes the node follow the pointer -- but
+      // **kept** only when the drag has finished. A file write behind the mouse would be a
+      // write per frame, and a position mid-drag is not yet something the person chose.
+      setDrawn((now) => applyNodeChanges(changes, now));
+
       const moved: Record<string, Placement> = {};
       for (const change of changes) {
         if (change.type !== "position" || change.dragging || !change.position) continue;
@@ -188,7 +209,7 @@ export function Canvas({
   return (
     <div className="bp-canvas">
       <ReactFlow
-        nodes={flowNodes}
+        nodes={drawn}
         edges={flowEdges}
         nodeTypes={nodeTypes}
         onNodesChange={onNodesChange}

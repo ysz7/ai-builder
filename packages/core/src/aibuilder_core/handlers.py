@@ -507,7 +507,7 @@ def agent_configure_method(params: dict[str, Any]) -> dict[str, Any]:
     agent's own default. So a missing key is `None` and an empty string is a value.
     """
     given: dict[str, str | None] = {}
-    for name in ("model", "effort", "mode"):
+    for name in ("model", "effort", "mode", "commands"):
         if name not in params:
             given[name] = None
             continue
@@ -520,6 +520,7 @@ def agent_configure_method(params: dict[str, Any]) -> dict[str, Any]:
         model=given["model"],
         effort=given["effort"],
         mode=given["mode"],
+        commands=given["commands"],
     )
 
 

@@ -110,6 +110,43 @@ function KnobControl({
   );
 }
 
+/**
+ * Why the node is what it is, and a way to take that text somewhere else.
+ *
+ * The reason is often the only thing that explains a red node -- an import that failed, a
+ * check that could not run -- and the next thing anybody does with it is paste it: to the
+ * agent in the panel below, into a search, into a message to a colleague. Retyping a
+ * `ModuleNotFoundError` out of a panel is not work a person should be doing.
+ *
+ * It copies **what is shown and nothing more**. No node id, no kind, no timestamp bolted on:
+ * what the reader saw is what lands on their clipboard, and anything else would be this
+ * panel deciding what their message should say.
+ */
+function Why({ reason }: { reason: string }) {
+  const [copied, setCopied] = useState(false);
+
+  return (
+    <div className="bp-node-why">
+      <button
+        className="bp-why-copy"
+        title="Copy this reason"
+        onClick={() => {
+          // A clipboard that refuses is a fact worth showing: silence here reads as a copy
+          // that worked, and the person finds out it did not when they paste nothing.
+          navigator.clipboard
+            .writeText(reason)
+            .then(() => setCopied(true))
+            .catch(() => setCopied(false));
+          window.setTimeout(() => setCopied(false), 1500);
+        }}
+      >
+        {copied ? "copied" : "copy"}
+      </button>
+      {reason}
+    </div>
+  );
+}
+
 export function Details({
   node,
   reason,
@@ -128,7 +165,7 @@ export function Details({
         <div className="bp-detail-title">{node.title ?? node.id}</div>
         <div className="bp-detail-kind">{node.kind}</div>
       </div>
-      {reason ? <div className="bp-node-why">{reason}</div> : null}
+      {reason ? <Why reason={reason} /> : null}
 
       {node.knobs.length > 0 ? (
         <>

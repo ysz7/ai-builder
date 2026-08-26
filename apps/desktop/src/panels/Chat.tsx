@@ -195,6 +195,34 @@ export function Chat({
   const [draft, setDraft] = useState("");
   const [status, setStatus] = useState("");
   const [blocked, setBlocked] = useState<string | null>(null);
+  /**
+   * Whether the standing refusal is one a permission setting would have prevented.
+   *
+   * **Marked by the core, never recognised here.** The transport carries no "may I?" to
+   * answer (Q17) and this CLI has no permission-prompt channel at all, so a dialogue above
+   * the field would be a button wired to nothing. What can honestly be offered is the
+   * setting that stops the asking — one press instead of a trip through the menu.
+   */
+  const [allowing, setAllowing] = useState(false);
+  /**
+   * "Keep denied" — the answer that leaves things exactly as they are.
+   *
+   * Kept for the panel's lifetime rather than written anywhere: it is an answer to *this*
+   * question, not a policy. The next session asks again, because refusing once is not a
+   * decision about every command a person will ever be asked about.
+   */
+  const [refusedToAllow, setRefusedToAllow] = useState(false);
+  /**
+   * How long the turn in flight has been going, in seconds.
+   *
+   * **The one thing on this line that is guaranteed to move.** The status says what the
+   * agent is doing, and a single long step -- creating a virtualenv, installing packages,
+   * running a suite -- says the same words for a minute at a time. A person watching a line
+   * that has not changed cannot tell working from hung, and starts pressing things. A second
+   * hand answers that question without pretending to know more than we do: it is not
+   * progress, it is proof of life.
+   */
+  const [elapsed, setElapsed] = useState(0);
   const [transcript, setTranscript] = useState<AgentEvent[]>([]);
   const [context, setContext] = useState(0);
   const [model, setModel] = useState("");
@@ -242,6 +270,8 @@ export function Chat({
     model: "",
     effort: "",
     mode: "acceptEdits",
+    // Off until a person says otherwise: shell access is theirs to grant, not ours to ship.
+    commands: "",
   });
   /**
    * Questions asked while an answer was still being written.
@@ -285,6 +315,16 @@ export function Chat({
   const [busy, setBusy] = useState(false);
 
   const offset = useRef(0);
+  /**
+   * Whether a read of the stream is already in flight.
+   *
+   * **Two readers share this offset** -- the poll loop and the one that waits for a session
+   * to announce itself -- and a turn sent into a session that is still opening starts both.
+   * Both then ask from the same offset, both are handed the same events, and the person sees
+   * their own question twice. The stream is read once at a time; the second caller is not
+   * queued, because what it wanted is exactly what the first one is already fetching.
+   */
+  const reading = useRef(false);
   const timer = useRef<number | null>(null);
   const field = useRef<HTMLTextAreaElement | null>(null);
   const shell = useRef<HTMLDivElement | null>(null);
@@ -314,10 +354,44 @@ export function Chat({
     return () => document.removeEventListener("pointerdown", away);
   }, [open]);
 
-  // The newest line is the one being waited for, so the view follows it.
+  /**
+   * Follow the newest line — **unless the person is reading something else.**
+   *
+   * The newest line is usually the one being waited for, so the view follows it. But an
+   * agent writing while somebody scrolls back is the one case where following is wrong:
+   * every new line yanked them to the bottom, mid-sentence, and there was no way to read
+   * what happened two minutes ago without stopping the agent first.
+   *
+   * "At the bottom" is a few pixels of tolerance rather than an exact match, because a log
+   * that grows while it is measured is never exactly at its end.
+   */
+  const following = useRef(true);
+
   useEffect(() => {
-    if (tail.current) tail.current.scrollTop = tail.current.scrollHeight;
-  }, [transcript, status]);
+    const log = tail.current;
+    if (log && following.current) log.scrollTop = log.scrollHeight;
+  }, [transcript, status, writing, musing]);
+
+  /**
+   * Opening lands at the newest line.
+   *
+   * A panel that comes back is a person returning to a conversation, and what they left off
+   * at is the end of it -- an unfolded log that starts at the top shows them a greeting from
+   * an hour ago. The log is mounted fresh at scroll position zero, which is also why this is
+   * its own effect: nothing in the transcript changed, so the effect that follows it does
+   * not run, and the first `onScroll` at position zero would otherwise read as "reading
+   * something else" and switch following off for good.
+   */
+  useEffect(() => {
+    if (!open) return;
+    following.current = true;
+    const log = tail.current;
+    if (log) log.scrollTop = log.scrollHeight;
+    // **Opening only**, not every new line: including the transcript here would switch
+    // following back on with each arriving message, which is exactly the yanking that
+    // scrolling up is supposed to stop. What arrives after this is handled by the effect
+    // above, which is still following because this one said so.
+  }, [open]);
 
   // A request handed over from the repair dialog lands in the field, focused and unsent.
   useEffect(() => {
@@ -361,6 +435,21 @@ export function Chat({
     [],
   );
 
+  // Reset on every turn rather than accumulated: what a person wants to know is how long
+  // *this* has been going, not how long the conversation has lasted.
+  useEffect(() => {
+    if (!busy) {
+      setElapsed(0);
+      return;
+    }
+    const started = Date.now();
+    const ticking = window.setInterval(
+      () => setElapsed(Math.round((Date.now() - started) / 1000)),
+      1000,
+    );
+    return () => window.clearInterval(ticking);
+  }, [busy]);
+
   const stopPolling = useCallback(() => {
     if (timer.current !== null) window.clearTimeout(timer.current);
     timer.current = null;
@@ -388,7 +477,12 @@ export function Chat({
   }, [project, absorb, attempt]);
 
   const poll = useCallback(async () => {
-    const answer = await attempt(() => agentPoll(project, offset.current));
+    if (reading.current) return;
+    reading.current = true;
+    const from = offset.current;
+    const answer = await attempt(() => agentPoll(project, from)).finally(() => {
+      reading.current = false;
+    });
     if (answer === null) return;
     offset.current = answer.offset;
     if (answer.context > 0) setContext(answer.context);
@@ -405,8 +499,12 @@ export function Chat({
       // The working line says what the agent is *doing*, so only a tool call writes to it.
       // Letting `says` through put a whole answer on one line, and letting `ready` through
       // left the session's own startup sitting there for the rest of it.
-      if (event.kind === "blocked") setBlocked(event.text);
-      else if (event.kind === "doing") setStatus(event.text);
+      // A refusal that is waiting on a permission is **not an alarm**: it is a question, and
+      // it is answered where it was asked -- as a card in the conversation, next to the
+      // command it is about. The red bar stays for what it was for: things that went wrong.
+      if (event.kind === "blocked") {
+        if (event.detail !== "approval") setBlocked(event.text);
+      } else if (event.kind === "doing") setStatus(event.text);
       else if (event.kind === "delta") {
         if (event.detail === "thinking")
           setMusing((previous) => previous + event.text);
@@ -417,7 +515,11 @@ export function Chat({
         setMusing("");
       }
     }
-    setTranscript((previous) => [...absorbTurns(previous, answer.events)]);
+    // From the top means the whole conversation again, not more of it: appending a re-read
+    // to what it re-read is how one question becomes two.
+    setTranscript((previous) =>
+      from === 0 ? answer.events.filter(worthShowing) : absorbTurns(previous, answer.events),
+    );
 
     if (answer.events.some((event) => event.kind === "done")) {
       // The turn is over: stop asking, and read the graph again -- the agent has been
@@ -461,14 +563,27 @@ export function Chat({
       // Named `tried`, not `attempt`: the loop variable would shadow the helper that wraps
       // every call to the core, and the shadowing is silent until the call is made.
       for (let tried = 0; tried < tries; tried += 1) {
-        const answer = await attempt(() => agentPoll(project, offset.current));
+        if (reading.current) {
+          await new Promise((resolve) => window.setTimeout(resolve, 200));
+          continue;
+        }
+        reading.current = true;
+        const from = offset.current;
+        const answer = await attempt(() => agentPoll(project, from)).finally(() => {
+          reading.current = false;
+        });
         if (answer === null) return;
         offset.current = answer.offset;
         if (answer.model) setModel(answer.model);
         absorb(answer);
-        setTranscript((previous) => [...absorbTurns(previous, answer.events)]);
+        setTranscript((previous) =>
+          from === 0
+            ? answer.events.filter(worthShowing)
+            : absorbTurns(previous, answer.events),
+        );
         for (const event of answer.events) {
-          if (event.kind === "blocked") setBlocked(event.text);
+          if (event.kind !== "blocked") continue;
+          if (event.detail !== "approval") setBlocked(event.text);
         }
         if (
           answer.events.some(
@@ -592,6 +707,9 @@ export function Chat({
       // What the person typed is true the moment they press send, so it is drawn without
       // waiting for a round trip. The core records it and replays it later; `PENDING` is
       // what keeps the two from becoming two lines.
+      // Sending is the person choosing the bottom again: their own line is the one they
+      // want to see, whatever they were reading a moment ago.
+      following.current = true;
       setTranscript((previous) => [...previous, yours(said)]);
 
       const answer = await attempt(() => agentSay(project, said, images));
@@ -739,7 +857,12 @@ export function Chat({
    * a switch mid-answer was free.
    */
   const configure = useCallback(
-    async (change: { model?: string; effort?: string; mode?: string }) => {
+    async (change: {
+      model?: string;
+      effort?: string;
+      mode?: string;
+      commands?: string;
+    }) => {
       const answer = await attempt(() => agentConfigure(project, change));
       if (answer === null) return;
       if (!answer.ok) {
@@ -765,23 +888,71 @@ export function Chat({
   };
   const OWN_CHOICE = "The agent's own";
 
+  /*
+   * Whether the agent may run commands, spelled as what it means rather than as its value.
+   *
+   * A setting of its own because it is a different mechanism from the mode -- measured, not
+   * assumed: no permission mode grants Bash. And it is the setting that makes I-5 reachable,
+   * because a node cannot be proven by tests nobody may run.
+   */
+  const COMMAND_NAMES: Record<string, string> = {
+    "": "Nothing — no commands",
+    bash: "Run commands (tests, installs)",
+  };
+
   function settingItems(
     section: string,
-    field: "model" | "effort" | "mode",
+    field: "model" | "effort" | "mode" | "commands",
     offered: string[],
   ): Item[] {
     return offered.map((value) => ({
       section,
       label:
-        value === ""
-          ? OWN_CHOICE
-          : field === "mode"
-            ? (MODE_NAMES[value] ?? value)
-            : value,
+        field === "mode"
+          ? value === ""
+            ? OWN_CHOICE
+            : (MODE_NAMES[value] ?? value)
+          : field === "commands"
+            ? (COMMAND_NAMES[value] ?? value)
+            : value === ""
+              ? OWN_CHOICE
+              : value,
       checked: settings[field] === value,
       run: () => void configure({ [field]: value }),
     }));
   }
+
+  /**
+   * Grant the agent commands, and hand it back the turn.
+   *
+   * **There is no permission round-trip in this transport** — measured against the running
+   * CLI, not assumed: with `Bash` on the ask list the agent is handed a failed tool result
+   * ("you haven't granted it yet") and no request ever reaches us. So the agent cannot be
+   * left hanging mid-tool; what it does instead is stop and wait for the next turn, which is
+   * the same thing from where the person sits.
+   *
+   * Granting is a flag at spawn, so the session restarts onto it and keeps its thread. The
+   * turn that follows is **shown in the transcript like any other**: this application asked
+   * the agent to carry on, and hiding that would be it speaking without leaving a trace.
+   */
+  const allowCommands = useCallback(async () => {
+    setAllowing(true);
+    try {
+      const answer = await attempt(() => agentConfigure(project, { commands: "bash" }));
+      if (answer === null || !answer.ok) return;
+      if (answer.settings) setSettings(answer.settings);
+      deliverRef.current?.("Commands are allowed now — go ahead.", []);
+    } finally {
+      setAllowing(false);
+    }
+  }, [attempt, project]);
+
+  /** Where the standing request is, or -1. Computed, never stored: the transcript is it. */
+  const lastAsk = transcript.reduce(
+    (found, event, index) =>
+      event.kind === "blocked" && event.detail === "approval" ? index : found,
+    -1,
+  );
 
   function openMenu(target: HTMLElement, items: Item[]) {
     const box = target.getBoundingClientRect();
@@ -895,8 +1066,28 @@ export function Chat({
             </div>
           </div>
 
-          <div className="bp-chat-log" ref={tail}>
+          <div
+            className="bp-chat-log"
+            ref={tail}
+            // Reading is the signal, and it is read from the scroll itself rather than from
+            // a button: scrolling up means "I am reading", coming back to the bottom means
+            // "carry on". Nothing to notice, nothing to switch off.
+            onScroll={(event) => {
+              const log = event.currentTarget;
+              const left = log.scrollHeight - log.scrollTop - log.clientHeight;
+              following.current = left < 40;
+            }}
+          >
             {transcript.map((event, index) => {
+              // Only the **last** standing request gets a card. The agent retries a refused
+              // command two or three times inside one turn, and three cards asking the same
+              // question would make the person answer it three times.
+              const asking =
+                event.kind === "blocked" &&
+                event.detail === "approval" &&
+                settings.commands !== "bash" &&
+                !refusedToAllow &&
+                index === lastAsk;
               // A `did` is not a line of its own: it is the answer to the call above it,
               // and it is drawn there. Pairing is by the agent's `tool_use_id`, because
               // "the next one" stops being true as soon as two tools are in flight.
@@ -921,6 +1112,40 @@ export function Chat({
                     </div>
                   ) : event.kind === "you" ? (
                     <div className="bp-turn-text">{event.text}</div>
+                  ) : asking ? (
+                    <div className="bp-ask">
+                      <div className="bp-ask-h">Permission</div>
+                      <div className="bp-ask-what">
+                        The agent asked to run a command and was refused —{" "}
+                        {/* Named, so the person is answering about *this* command rather
+                            than about the idea of commands in general. */}
+                        <code>
+                          {transcript.find(
+                            (call) => call.kind === "doing" && call.id === event.id,
+                          )?.detail || "a shell command"}
+                        </code>
+                      </div>
+                      <div className="bp-ask-why">
+                        Nothing was run. Allowing this lets it run the project&apos;s tests
+                        and installs — which is what a node needs to turn green.
+                      </div>
+                      <div className="bp-ask-acts">
+                        <button
+                          className="bp-btn"
+                          disabled={allowing}
+                          onClick={() => void allowCommands()}
+                        >
+                          {allowing ? "…" : "Allow"}
+                        </button>
+                        <button
+                          className="bp-btn"
+                          disabled={allowing}
+                          onClick={() => setRefusedToAllow(true)}
+                        >
+                          Keep denied
+                        </button>
+                      </div>
+                    </div>
                   ) : event.kind === "blocked" && event.id ? null : (
                     <Step event={event} answer={answer} />
                   )}
@@ -949,6 +1174,15 @@ export function Chat({
                     whole: the finished thought is folded into the chain afterwards. */}
                 {musing && !status ? (
                   <span className="bp-musing">{musing.slice(-90)}</span>
+                ) : null}
+                {/* Seconds, and only once there are some: a "0s" that appears with every
+                    turn is furniture, and furniture is what people stop reading. */}
+                {elapsed > 1 ? (
+                  <span className="bp-elapsed">
+                    {elapsed < 60
+                      ? `${elapsed}s`
+                      : `${Math.floor(elapsed / 60)}m ${elapsed % 60}s`}
+                  </span>
                 ) : null}
                 {/* What this turn has cost so far, counting up from nothing. **The agent's
                     own estimate**, and shown with a tilde because of it: real usage is
@@ -1202,6 +1436,7 @@ export function Chat({
                   onClick={(event) =>
                     openMenu(event.currentTarget, [
                       ...settingItems("The agent may", "mode", choices.modes),
+                      ...settingItems("And it may run", "commands", choices.commands),
                       ...settingItems("Effort", "effort", choices.efforts),
                     ])
                   }

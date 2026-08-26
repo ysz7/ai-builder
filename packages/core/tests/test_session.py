@@ -582,7 +582,12 @@ def test_configuring_starts_nothing(monkeypatch, tmp_path: Path) -> None:
 
     assert answer.ok
     assert seen == []
-    assert answer.settings == {"model": "sonnet", "effort": "", "mode": "acceptEdits"}
+    assert answer.settings == {
+        "model": "sonnet",
+        "effort": "",
+        "mode": "acceptEdits",
+        "commands": "",
+    }
 
 
 def test_a_setting_left_alone_is_not_the_same_as_one_set_to_nothing(tmp_path: Path) -> None:
@@ -592,7 +597,12 @@ def test_a_setting_left_alone_is_not_the_same_as_one_set_to_nothing(tmp_path: Pa
     configure_session(tmp_path, model="opus", effort="max")
     configure_session(tmp_path, effort="")
 
-    assert read_settings(tmp_path) == {"model": "opus", "effort": "", "mode": "acceptEdits"}
+    assert read_settings(tmp_path) == {
+        "model": "opus",
+        "effort": "",
+        "mode": "acceptEdits",
+        "commands": "",
+    }
 
 
 def test_changing_a_setting_restarts_the_open_conversation_and_keeps_it(
@@ -626,9 +636,16 @@ def test_a_setting_written_by_hand_that_the_agent_would_reject_is_not_passed_on(
 
     path = tmp_path / SETTINGS_PATH
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text('{"model": "gpt-4", "effort": "colossal", "mode": "manual"}')
+    path.write_text(
+        '{"model": "gpt-4", "effort": "colossal", "mode": "manual", "commands": "everything"}'
+    )
 
-    assert read_settings(tmp_path) == {"model": "", "effort": "", "mode": "acceptEdits"}
+    assert read_settings(tmp_path) == {
+        "model": "",
+        "effort": "",
+        "mode": "acceptEdits",
+        "commands": "",
+    }
 
 
 # -- what the agent says it can be asked to do ------------------------------------
@@ -1280,3 +1297,185 @@ def test_the_agents_own_estimate_is_passed_on_as_an_estimate(tmp_path: Path) -> 
 
     assert answer.spending == 107
     assert answer.events[0]["kind"] == "spending"
+
+
+# -- what one request carried, and what a whole turn cost -------------------------
+
+
+def test_the_context_is_one_request_and_never_a_turn_added_up(tmp_path: Path) -> None:
+    """Measured against the shape that produced a wrong number in the window.
+
+    A turn is many API calls, and each one re-reads the same cached prompt. `result` reports
+    them added up -- 19 calls carrying 28k came back as 542k -- and it arrives last, so the
+    honest per-request figure was overwritten by one seventeen times too large. A ring drawn
+    from that says half the window is full and invites a compaction there is no reason for.
+    """
+    log(
+        tmp_path,
+        {
+            "type": "assistant",
+            "message": {
+                "content": [],
+                "usage": {"input_tokens": 36, "cache_read_input_tokens": 31_000},
+            },
+        },
+        {
+            "type": "result",
+            "usage": {"input_tokens": 36, "cache_read_input_tokens": 529_676},
+        },
+    )
+
+    assert poll_session(tmp_path).context == 31_036
+
+
+def test_a_summary_sent_as_plain_text_does_not_break_the_stream(tmp_path: Path) -> None:
+    """`/compact` replaces the conversation with a summary and sends it as a **string**.
+
+    Iterating a string yields its characters, and asking a character for its `type` raised --
+    which surfaced as a blocked turn on a compaction that had actually succeeded. A message
+    with no blocks contributes no events, and the poll goes on.
+    """
+    log(
+        tmp_path,
+        {"type": "user", "message": {"content": "This session is being continued…"}},
+        {"type": "user", "message": {"content": "<local-command-stdout>Compacted</…>"}},
+        {
+            "type": "assistant",
+            "message": {"content": [{"type": "text", "text": "carrying on"}]},
+        },
+    )
+
+    assert kinds(tmp_path) == [("says", "carrying on")]
+
+
+def test_a_refusal_waiting_for_approval_says_what_would_end_the_wait(tmp_path: Path) -> None:
+    """Q17 made visible rather than merely honest.
+
+    The agent asks for permission the only way the transport allows -- by refusing and saying
+    so -- and there is no message shape to answer with. "requires approval" therefore read as
+    a prompt that never arrived, and the person waited for a dialogue this application cannot
+    show. The tool's own words are kept; what is added is the one thing it does not know.
+    """
+    log(
+        tmp_path,
+        {
+            "type": "user",
+            "message": {
+                "content": [
+                    {
+                        "type": "tool_result",
+                        "is_error": True,
+                        "content": "This command requires approval",
+                    }
+                ]
+            },
+        },
+    )
+
+    kind, text = kinds(tmp_path)[0]
+
+    assert kind == "blocked"
+    assert text.startswith("This command requires approval")
+    assert "Don't ask" in text
+
+
+def test_an_ordinary_refusal_is_not_dressed_up(tmp_path: Path) -> None:
+    """Only a refusal that is waiting for an answer gets one: everything else is the tool's
+    own words, and adding to them would be this application talking over the agent."""
+    log(
+        tmp_path,
+        {
+            "type": "user",
+            "message": {
+                "content": [
+                    {
+                        "type": "tool_result",
+                        "is_error": True,
+                        "content": "File is in a directory denied by your permissions.",
+                    }
+                ]
+            },
+        },
+    )
+
+    assert kinds(tmp_path) == [("blocked", "File is in a directory denied by your permissions.")]
+
+
+def test_a_refusal_a_setting_would_have_prevented_is_marked_as_such(tmp_path: Path) -> None:
+    """Marked, so an interface never has to recognise it by its wording.
+
+    A panel that matched on "requires approval" would be reading the agent's prose to decide
+    what to offer, and prose is not an interface. The mark is the contract; the words stay
+    the tool's.
+    """
+    log(
+        tmp_path,
+        {
+            "type": "user",
+            "message": {
+                "content": [
+                    {
+                        "type": "tool_result",
+                        "is_error": True,
+                        "content": "This command requires approval",
+                    },
+                    {
+                        "type": "tool_result",
+                        "is_error": True,
+                        "content": "File is in a directory denied by your permissions.",
+                    },
+                ]
+            },
+        },
+    )
+
+    waiting, denied = poll_session(tmp_path).events
+
+    assert waiting["detail"] == "approval"
+    assert denied["detail"] == ""
+
+
+# -- whether the agent may run commands (measured, not assumed) --------------------
+
+
+def test_running_commands_is_a_setting_of_its_own_and_not_the_mode(
+    monkeypatch, tmp_path: Path
+) -> None:
+    """Measured against the agent rather than read out of its documentation.
+
+    Neither permission mode lets a command through: `acceptEdits` asks for an approval this
+    transport cannot carry (Q17), and `dontAsk` refuses outright -- "permission to use Bash
+    has been denied because Claude Code is running in don't ask mode". What decides is the
+    tool policy, the same mechanism that already keeps the agent out of `.aibuilder/`.
+
+    Off unless somebody says otherwise: a builder that shipped shell access turned on would
+    be deciding for everyone that an agent may run anything in their project.
+    """
+    from aibuilder_core.session import configure_session, start_session
+
+    seen = spawn(monkeypatch, tmp_path)
+
+    start_session(tmp_path)
+    assert "--allowed-tools" not in seen[0]
+
+    configure_session(tmp_path, commands="bash")
+    start_session(tmp_path)
+
+    granted = seen[-1]
+    assert "--allowed-tools" in granted
+    # A list of what a project is checked with, not a bare `Bash`. A bare `Bash` is a shell,
+    # and a shell reaches the whole disk: `cat` and `find` on absolute paths outside the
+    # project went through the first version of this, which is how the list came to exist.
+    allowed = granted[granted.index("--allowed-tools") + 1 :]
+    assert "Bash" not in allowed
+    assert "Bash(pytest*)" in allowed
+    assert all(rule.startswith("Bash(") for rule in allowed if rule.startswith("Bash"))
+
+
+def test_a_command_policy_the_agent_would_not_understand_is_refused(tmp_path: Path) -> None:
+    from aibuilder_core.session import configure_session
+
+    refused = configure_session(tmp_path, commands="everything")
+
+    assert refused.ok is False
+    assert "commands cannot be" in refused.detail

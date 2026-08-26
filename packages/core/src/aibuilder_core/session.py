@@ -124,6 +124,44 @@ EFFORTS = ("", "low", "medium", "high", "xhigh", "max")
 #: that. A person who wants it has the agent's own terminal.
 MODES = ("acceptEdits", "plan", "dontAsk", "auto")
 
+#: Whether the agent may run commands, and this is **not** the permission mode (measured).
+#:
+#: Neither mode lets it: under `acceptEdits` a command asks for approval, and there is no
+#: message shape to approve it with (Q17); under `dontAsk` the agent is told outright that
+#: "permission to use Bash has been denied because Claude Code is running in don't ask mode".
+#: So the mode was never the switch -- what decides is the tool policy, the same mechanism
+#: `--disallowed-tools` already uses to keep the agent out of `.aibuilder/`.
+#:
+#: `""` leaves that policy alone and is the default: a builder that shipped shell access
+#: turned on would be deciding, on everybody's behalf, that an agent may run anything in
+#: their project. `"bash"` is a person saying otherwise, once, for this project -- and it is
+#: what makes I-5 reachable at all, because a node cannot be proven by tests nobody may run.
+COMMANDS = ("", "bash")
+
+#: What "may run commands" actually grants: the commands a project is checked with.
+#:
+#: A list rather than a bare `Bash`, because a bare `Bash` is not a permission to run this
+#: project's tests -- it is a shell, and a shell reaches the whole disk. `cat` and `find` on
+#: an absolute path outside the project went through on the first version of this, which is
+#: how the list came to exist.
+#:
+#: **It narrows the surface; it is not a boundary.** `python3 -c` can open any file on the
+#: machine, and no arrangement of these patterns changes that. A real boundary is an OS
+#: sandbox, which this transport does not offer -- so reading and writing outside the project
+#: are denied by the *tools* (below), the prompt tells the agent the project is where it
+#: works, and this list keeps the ordinary case from needing a shell at all.
+PROJECT_COMMANDS = (
+    "Bash(python3*)",
+    "Bash(python*)",
+    "Bash(pytest*)",
+    "Bash(pip*)",
+    "Bash(pip3*)",
+    "Bash(uv*)",
+    "Bash(npm*)",
+    "Bash(node*)",
+    "Bash(docker*)",
+)
+
 #: What a project gets when nobody has asked for anything.
 DEFAULT_MODE = "acceptEdits"
 
@@ -524,10 +562,12 @@ def read_settings(project: Path | str) -> dict[str, str]:
     model = str(stored.get("model", "") or "")
     effort = str(stored.get("effort", "") or "")
     mode = str(stored.get("mode", "") or "")
+    commands = str(stored.get("commands", "") or "")
     return {
         "model": model if model in MODELS else "",
         "effort": effort if effort in EFFORTS else "",
         "mode": mode if mode in MODES else DEFAULT_MODE,
+        "commands": commands if commands in COMMANDS else "",
     }
 
 
@@ -536,6 +576,7 @@ def configure_session(
     model: str | None = None,
     effort: str | None = None,
     mode: str | None = None,
+    commands: str | None = None,
 ) -> SessionResult:
     """Set what the next session is started with, and restart the open one onto it.
 
@@ -554,6 +595,7 @@ def configure_session(
         ("model", model, MODELS),
         ("effort", effort, EFFORTS),
         ("mode", mode, MODES),
+        ("commands", commands, COMMANDS),
     ):
         if given is None:
             continue
@@ -770,6 +812,11 @@ def start_session(
         "--append-system-prompt-file",
         str(prompt_path()),
     ]
+    # What the agent may run, and only because a person said so. The mode is not this switch
+    # -- neither `acceptEdits` nor `dontAsk` lets a command through -- so a project where the
+    # tests are meant to be run says so here, once, and the flag is simply absent otherwise.
+    if settings.get("commands") == "bash":
+        command += ["--allowed-tools", *PROJECT_COMMANDS]
     # Asked for by alias and by name, never with a default of ours put in the agent's mouth:
     # an empty setting means the agent picks, and the flag is simply not passed.
     if settings["model"]:
@@ -1089,18 +1136,23 @@ def _model_of(raw: dict[str, Any]) -> str:
 
 
 def _usage_in(raw: dict[str, Any]) -> dict[str, Any] | None:
-    """Where this line reports what the turn has cost so far, if it does.
+    """Where this line reports **what one request carried**, if it does.
 
-    Three places, and the third is why a counter used to sit still through a whole answer:
-    a turn's cost is reported *as it is written*, in `message_start` and `message_delta`, and
-    reading only the finished message meant reading it once, at the end.
+    Two places, and reading them as they stream is why the counter moves while an answer is
+    being written: a request's size is reported in `message_start` and again at its end, and
+    reading only the finished message meant reading it once, too late to be useful.
+
+    One request, never a sum of them. The difference is the whole of this function.
     """
     if raw.get("type") == "assistant":
         usage = raw.get("message", {}).get("usage")
         return usage if isinstance(usage, dict) else None
-    if raw.get("type") == "result":
-        usage = raw.get("usage")
-        return usage if isinstance(usage, dict) else None
+    # **Never `result`.** Its `usage` is the whole turn added up -- every API call the agent
+    # made inside it, each one re-reading the same cached prompt -- so a turn of 19 calls
+    # carrying 28k reported 542k. Summed like that it is not a context size at all, and it
+    # arrived last, overwriting the honest per-request number with one 17 times too large:
+    # a ring that says half the window is full is a reason to compact where there is none.
+    # What `result` measures is what the turn cost, which is a different question.
     if raw.get("type") == "stream_event":
         event = raw.get("event") or {}
         usage = event.get("usage") or (event.get("message") or {}).get("usage")
@@ -1217,7 +1269,7 @@ def _read_event(raw: dict[str, Any]) -> list[dict[str, Any]]:
 
     if kind == "assistant":
         events: list[dict[str, Any]] = []
-        for block in raw.get("message", {}).get("content", []) or []:
+        for block in _blocks_of(raw):
             block_type = block.get("type")
             if block_type == "text" and block.get("text", "").strip():
                 events.append(_event("says", block["text"].strip()))
@@ -1238,16 +1290,25 @@ def _read_event(raw: dict[str, Any]) -> list[dict[str, Any]]:
 
     if kind == "user":
         events = []
-        for block in raw.get("message", {}).get("content", []) or []:
+        for block in _blocks_of(raw):
             if block.get("type") != "tool_result":
                 continue
             # A refusal has to be visible because there is no permission round-trip to
             # intercept (Q17); an ordinary result is shown because a chain without its
             # answers is a list of intentions.
+            said = _cut(_text_of(block))
+            waiting = _is_waiting_for_approval(said)
             events.append(
                 _event(
                     "blocked" if block.get("is_error") else "did",
-                    _cut(_text_of(block)),
+                    # Cut first, then explained: the explanation is the part that must
+                    # survive, and an excerpt that dropped it would be the old silence again.
+                    _unanswerable(said),
+                    # Marked rather than left to be recognised by its wording: an interface
+                    # that matched on "requires approval" would be reading the agent's prose
+                    # to decide what to offer, and prose is not an interface (§5.8, one level
+                    # up). This is the one refusal a person can act on from here.
+                    detail="approval" if waiting else "",
                     identifier=str(block.get("tool_use_id", "")),
                 )
             )
@@ -1294,6 +1355,47 @@ def _event(
     }
 
 
+#: What a refusal says when it is waiting for an answer nobody can give.
+#:
+#: The agent asks for approval the only way the transport allows -- by refusing and saying
+#: so -- and there is **no message shape to say yes with** (Q17). So "requires approval"
+#: read, correctly and uselessly, as a prompt that never arrived: the person waited for a
+#: dialogue this application cannot show them.
+#:
+#: Matched on the agent's own words, and added to rather than replacing them: what a tool
+#: said is the tool's, and this application only says what it knows that the tool does not --
+#: which of *our* settings ends the wait.
+_WAITING_FOR_APPROVAL = (
+    "requires approval",
+    "requires permission",
+    "permission to use",
+    # The agent words this differently depending on what it wanted -- a command, a file
+    # outside the project -- and every wording is the same question. Collected from what the
+    # running CLI actually said, which is why the list grows rather than being predicted.
+    "haven't granted",
+    "have not granted",
+    "requested permissions",
+)
+
+_NO_ONE_TO_ASK = (
+    "\n\n— nothing here can approve this: the panel has no way to answer a request for"
+    " permission. Set the session's mode to \"Don't ask\" to let commands run."
+)
+
+
+def _is_waiting_for_approval(text: str) -> bool:
+    """Is this refusal one that a permission setting would have prevented?"""
+    lowered = text.lower()
+    return any(phrase in lowered for phrase in _WAITING_FOR_APPROVAL)
+
+
+def _unanswerable(text: str) -> str:
+    """A refusal that is waiting for approval, told what would end the wait."""
+    if _is_waiting_for_approval(text):
+        return f"{text}{_NO_ONE_TO_ASK}"
+    return text
+
+
 def _cut(text: str) -> str:
     """An excerpt, and it says so. Trailing off would read as the whole answer."""
     if len(text) <= EXCERPT:
@@ -1329,6 +1431,26 @@ def _given(block: dict[str, Any]) -> str:
         rendered = value if isinstance(value, str) else json.dumps(value, ensure_ascii=False)
         parts.append(f"{name}: {rendered}")
     return _cut("\n".join(parts))
+
+
+def _blocks_of(raw: dict[str, Any]) -> list[dict[str, Any]]:
+    """The content blocks of one message, however this line happens to carry them.
+
+    **A message's content is a list of blocks or a bare string**, and the second shape is not
+    a curiosity: `/compact` replaces the conversation with a summary and sends it as plain
+    text, and a local command's output arrives the same way. Iterating a string yields its
+    characters, and the first `block.get("type")` on a character raised -- which reached the
+    panel as a blocked turn, on a compaction that had in fact succeeded.
+
+    A string has no blocks, so this returns none. What it says is not lost: the summary is
+    the agent's own record of the conversation it is continuing, and the conversation is what
+    the transcript already shows. `_text_of` has always known content comes in two shapes;
+    this is the same knowledge one level up.
+    """
+    content = (raw.get("message") or {}).get("content")
+    if not isinstance(content, list):
+        return []
+    return [block for block in content if isinstance(block, dict)]
 
 
 def _text_of(block: dict[str, Any]) -> str:
