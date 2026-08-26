@@ -406,6 +406,288 @@ def test_a_session_that_never_says_which_model_claims_none(tmp_path: Path) -> No
     assert poll_session(tmp_path).model == ""
 
 
+# -- a picture pasted into a turn -------------------------------------------------
+
+
+def talking(monkeypatch, tmp_path: Path) -> list[bytes]:
+    """Open a session whose stdin is a list, so what was written can be read back."""
+    from aibuilder_core import session
+
+    written: list[bytes] = []
+
+    class Pipe:
+        def write(self, chunk: bytes) -> int:
+            written.append(chunk)
+            return len(chunk)
+
+        def flush(self) -> None:
+            return None
+
+    class Fake:
+        pid = 4321
+        stdin = Pipe()
+
+        def poll(self) -> int | None:
+            return None
+
+    monkeypatch.setattr(session, "_LIVE", {str(tmp_path.resolve()): Fake()})
+    # A record on disk as `start_session` would have left one: what the person said is kept
+    # beside the conversation's log, and finding that log is what the record is for.
+    state = session._state_path(tmp_path)
+    state.parent.mkdir(parents=True, exist_ok=True)
+    state.write_text(json.dumps({"pid": 4321, "session": "a-conversation", "log": "a"}))
+    log = session._log_for(tmp_path, "a")
+    log.parent.mkdir(parents=True, exist_ok=True)
+    log.touch()
+    return written
+
+
+def test_a_picture_goes_before_the_words_it_is_asked_about(monkeypatch, tmp_path: Path) -> None:
+    """ "Here is the thing, and here is what I am asking about it" is the order it is read in."""
+    from aibuilder_core.session import say
+
+    written = talking(monkeypatch, tmp_path)
+    one_pixel = "iVBORw0KGgo="
+
+    answer = say(tmp_path, "what colour?", ({"media_type": "image/png", "data": one_pixel},))
+
+    assert answer.ok
+    content = json.loads(written[0])["message"]["content"]
+    assert [block["type"] for block in content] == ["image", "text"]
+    assert content[0]["source"] == {
+        "type": "base64",
+        "media_type": "image/png",
+        "data": one_pixel,
+    }
+
+
+def test_a_format_the_agent_does_not_read_is_refused_before_it_is_written(
+    monkeypatch, tmp_path: Path
+) -> None:
+    """The pipe cannot be taken back out of. An unknown media type accepted here fails
+    somewhere nobody can see it -- inside the agent, after the turn was sent."""
+    from aibuilder_core.session import say
+
+    written = talking(monkeypatch, tmp_path)
+
+    answer = say(tmp_path, "look", ({"media_type": "image/tiff", "data": "AA=="},))
+
+    assert not answer.ok
+    assert written == []
+
+
+def test_a_picture_that_did_not_arrive_whole_is_refused(monkeypatch, tmp_path: Path) -> None:
+    from aibuilder_core.session import say
+
+    written = talking(monkeypatch, tmp_path)
+
+    answer = say(tmp_path, "look", ({"media_type": "image/png", "data": "not base64!"},))
+
+    assert not answer.ok
+    assert written == []
+
+
+def test_a_turn_that_carried_a_picture_says_so_in_the_transcript(
+    monkeypatch, tmp_path: Path
+) -> None:
+    """Without the note the person's turn reads as a question about nothing; with the picture
+    itself the transcript would be a second copy of a thing the agent already has."""
+    from aibuilder_core.session import say
+
+    talking(monkeypatch, tmp_path)
+    log(tmp_path)
+
+    say(tmp_path, "what colour?", ({"media_type": "image/png", "data": "iVBORw0KGgo="},))
+    spoken = [event["text"] for event in poll_session(tmp_path).events if event["kind"] == "you"]
+
+    assert spoken == ["what colour?\n\n[1 image attached]"]
+
+
+def test_a_turn_with_no_picture_is_the_message_and_nothing_added(
+    monkeypatch, tmp_path: Path
+) -> None:
+    from aibuilder_core.session import say
+
+    written = talking(monkeypatch, tmp_path)
+    log(tmp_path)
+
+    say(tmp_path, "hello")
+    spoken = [event["text"] for event in poll_session(tmp_path).events if event["kind"] == "you"]
+
+    assert spoken == ["hello"]
+    assert json.loads(written[0])["message"]["content"] == [{"type": "text", "text": "hello"}]
+
+
+# -- how a session is set up ------------------------------------------------------
+
+
+def test_a_session_with_nothing_asked_for_names_no_model_and_no_effort(
+    monkeypatch, tmp_path: Path
+) -> None:
+    """An empty setting means **the agent picks**, so the flag is not passed at all. Passing
+    a default of ours would be putting our choice in the agent's mouth and calling it its."""
+    from aibuilder_core.session import start_session
+
+    seen = spawn(monkeypatch, tmp_path)
+    start_session(tmp_path)
+
+    command = seen[0]
+    assert "--model" not in command and "--effort" not in command
+    assert command[command.index("--permission-mode") + 1] == "acceptEdits"
+
+
+def test_what_was_configured_becomes_the_flags_of_the_next_session(
+    monkeypatch, tmp_path: Path
+) -> None:
+    from aibuilder_core.session import configure_session, start_session
+
+    seen = spawn(monkeypatch, tmp_path)
+    configure_session(tmp_path, model="opus", effort="high", mode="plan")
+    start_session(tmp_path)
+
+    command = seen[0]
+    assert command[command.index("--model") + 1] == "opus"
+    assert command[command.index("--effort") + 1] == "high"
+    assert command[command.index("--permission-mode") + 1] == "plan"
+
+
+def test_manual_is_refused_by_name_rather_than_passed_along(tmp_path: Path) -> None:
+    """The CLI lists `manual` as a choice, accepts it, and then reports `default` -- it is
+    taken and ignored. A setting that is accepted and does nothing is worse than one that is
+    refused, and this is the second time that flag has looked available and not been (Q17)."""
+    from aibuilder_core.session import configure_session, read_settings
+
+    answer = configure_session(tmp_path, mode="manual")
+
+    assert not answer.ok
+    assert "manual" in answer.detail
+    assert read_settings(tmp_path)["mode"] == "acceptEdits"
+
+
+def test_skipping_permission_checks_is_not_a_setting_this_offers(tmp_path: Path) -> None:
+    """The agent is denied writes to `.aibuilder/` because its own evidence about itself is
+    in there (Q16). A mode whose purpose is to skip permission checks is not a switch this
+    application puts over that."""
+    from aibuilder_core.session import configure_session
+
+    assert not configure_session(tmp_path, mode="bypassPermissions").ok
+
+
+def test_configuring_starts_nothing(monkeypatch, tmp_path: Path) -> None:
+    """P11: nothing starts implicitly. Saving a setting is not asking for a conversation."""
+    from aibuilder_core.session import configure_session
+
+    seen = spawn(monkeypatch, tmp_path)
+    answer = configure_session(tmp_path, model="sonnet")
+
+    assert answer.ok
+    assert seen == []
+    assert answer.settings == {"model": "sonnet", "effort": "", "mode": "acceptEdits"}
+
+
+def test_a_setting_left_alone_is_not_the_same_as_one_set_to_nothing(tmp_path: Path) -> None:
+    """`None` means "leave it"; `""` is the deliberate choice of the agent's own default."""
+    from aibuilder_core.session import configure_session, read_settings
+
+    configure_session(tmp_path, model="opus", effort="max")
+    configure_session(tmp_path, effort="")
+
+    assert read_settings(tmp_path) == {"model": "opus", "effort": "", "mode": "acceptEdits"}
+
+
+def test_changing_a_setting_restarts_the_open_conversation_and_keeps_it(
+    monkeypatch, tmp_path: Path
+) -> None:
+    """These are flags at spawn: there is no way to change a running session's model. So the
+    conversation is resumed under its own id -- kept -- and the process it was being had in
+    is not."""
+    from aibuilder_core.session import configure_session, start_session
+
+    seen = spawn(monkeypatch, tmp_path)
+    live(monkeypatch)  # after `spawn`, which makes the recorded pid look dead
+    opened = start_session(tmp_path, resume="a-conversation")
+
+    answer = configure_session(tmp_path, effort="low")
+
+    assert answer.ok and "restarted" in answer.detail
+    assert answer.session == opened.session == "a-conversation"
+    restarted = seen[-1]
+    assert restarted[restarted.index("--resume") + 1] == "a-conversation"
+    assert "--fork-session" not in restarted
+    assert restarted[restarted.index("--effort") + 1] == "low"
+
+
+def test_a_setting_written_by_hand_that_the_agent_would_reject_is_not_passed_on(
+    tmp_path: Path,
+) -> None:
+    """The file is on disk and somebody can edit it. What it holds is checked when it is read,
+    because the alternative is handing the agent a flag it will refuse to start with."""
+    from aibuilder_core.session import SETTINGS_PATH, read_settings
+
+    path = tmp_path / SETTINGS_PATH
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text('{"model": "gpt-4", "effort": "colossal", "mode": "manual"}')
+
+    assert read_settings(tmp_path) == {"model": "", "effort": "", "mode": "acceptEdits"}
+
+
+# -- what the agent says it can be asked to do ------------------------------------
+
+
+def test_the_commands_are_read_from_the_agent_never_listed_by_us(tmp_path: Path) -> None:
+    """The list belongs to the agent: it changes with its plugins, its skills and its
+    version. A copy of ours would go stale without ever looking wrong."""
+    log(
+        tmp_path,
+        {
+            "type": "system",
+            "subtype": "init",
+            "session_id": "s",
+            "slash_commands": ["compact", "clear", "review"],
+        },
+    )
+
+    assert poll_session(tmp_path).commands == ("compact", "clear", "review")
+
+
+def test_a_poll_with_no_init_in_it_claims_no_commands(tmp_path: Path) -> None:
+    """Forty-nine names on every poll would be the same answer several times a second to a
+    question nobody asked twice. Empty means "nothing new", and the caller keeps its list."""
+    log(
+        tmp_path,
+        {"type": "system", "subtype": "init", "session_id": "s", "slash_commands": ["compact"]},
+    )
+    first = poll_session(tmp_path)
+
+    log(tmp_path, {"type": "assistant", "message": {"content": []}})
+
+    assert first.commands == ("compact",)
+    assert poll_session(tmp_path, first.offset).commands == ()
+
+
+def test_the_last_list_survives_a_session_that_sends_no_init(tmp_path: Path) -> None:
+    """A **resumed** session sends no `init` until its first turn, so the alternative to
+    remembering is showing nothing at all to exactly the person who has been here before."""
+    from aibuilder_core.session import read_commands, session_status
+
+    log(
+        tmp_path,
+        {"type": "system", "subtype": "init", "session_id": "s", "slash_commands": ["compact"]},
+    )
+    poll_session(tmp_path)
+
+    assert read_commands(tmp_path) == ("compact",)
+    assert session_status(tmp_path).commands == ("compact",)
+
+
+def test_reading_commands_from_a_project_that_has_none_is_empty_not_an_error(
+    tmp_path: Path,
+) -> None:
+    from aibuilder_core.session import read_commands
+
+    assert read_commands(tmp_path) == ()
+
+
 # -- switching conversations, which is not the same as starting one twice ---------
 
 

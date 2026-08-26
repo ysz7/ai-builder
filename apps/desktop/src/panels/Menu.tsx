@@ -11,13 +11,23 @@
  * would have to be rewritten the first time something else needed one.
  */
 
-import { useEffect, useRef, useState } from "react";
+import { Fragment, useEffect, useRef, useState } from "react";
 
 export type Item = {
   label: string;
   run: () => void;
   /** A verb that destroys something is marked, so a slip is a slip and not a surprise. */
   destructive?: boolean;
+  /**
+   * A heading drawn before this item, where it starts a new group.
+   *
+   * The menu still does not know what its items mean -- it compares the heading with the one
+   * before it and draws a line when they differ. Which items belong together is the caller's
+   * statement, not something inferred here.
+   */
+  section?: string;
+  /** Shown as the one in force. A menu of settings has to say what the setting *is*. */
+  checked?: boolean;
 };
 
 export type Placed = { x: number; y: number; items: Item[] } | null;
@@ -58,17 +68,26 @@ export function Menu({ at, onClose }: { at: Placed; onClose: () => void }) {
       // The press that opens it must not immediately be the press that closes it.
       onPointerDown={(event) => event.stopPropagation()}
     >
-      {at.items.map((item) => (
-        <button
-          key={item.label}
-          className={`bp-menu-item${item.destructive ? " is-destructive" : ""}`}
-          onClick={() => {
-            onClose();
-            item.run();
-          }}
-        >
-          {item.label}
-        </button>
+      {at.items.map((item, index) => (
+        <Fragment key={`${item.section ?? ""}/${item.label}`}>
+          {item.section && item.section !== at.items[index - 1]?.section ? (
+            <div className="bp-menu-head">{item.section}</div>
+          ) : null}
+          <button
+            className={`bp-menu-item${item.destructive ? " is-destructive" : ""}${
+              item.checked ? " is-checked" : ""
+            }`}
+            onClick={() => {
+              onClose();
+              item.run();
+            }}
+          >
+            {/* A fixed column either way, so choosing does not shift the list under
+                the pointer that is still over it. */}
+            <span className="bp-menu-tick">{item.checked ? "✓" : ""}</span>
+            {item.label}
+          </button>
+        </Fragment>
       ))}
     </div>
   );

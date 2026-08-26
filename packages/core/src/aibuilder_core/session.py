@@ -28,6 +28,8 @@ the snapshot would be forging evidence about itself.
 
 from __future__ import annotations
 
+import base64
+import binascii
 import contextlib
 import json
 import shutil
@@ -43,11 +45,14 @@ from aibuilder_core.agent import prompt_path
 __all__ = [
     "AGENT_LOG_PATH",
     "AGENT_STATE_PATH",
+    "COMMANDS_PATH",
     "SESSIONS_PATH",
+    "SETTINGS_PATH",
     "SessionResult",
     "agent_available",
     "agent_binary",
     "close_everything_started_here",
+    "configure_session",
     "interrupt",
     "list_sessions",
     "poll_session",
@@ -70,12 +75,70 @@ LOGS_PATH = Path(".aibuilder") / "conversations"
 #: The log of a project with no session on record. Kept for exactly that case -- reading a
 #: stream that no `agent.start` produced -- and never written to by a session.
 AGENT_LOG_PATH = Path(".aibuilder") / "session.log"
+#: What the agent said it can be asked to do, kept from the last `init` line it sent.
+#:
+#: **Read rather than hard-coded.** The list belongs to the agent: it changes with its
+#: plugins, its skills and its version, and a copy of ours would be a claim about somebody
+#: else's installation that goes stale without ever looking wrong. Kept on disk because a
+#: **resumed** session sends no `init` until its first turn -- so the alternative to
+#: remembering is showing nothing at all to exactly the person who has been here before.
+COMMANDS_PATH = Path(".aibuilder") / "commands.json"
+
 #: The conversations this project has had. A list of ids the agent owns, not a transcript --
 #: what was said lives in the agent's own store, and this is only how to ask for it again.
 SESSIONS_PATH = Path(".aibuilder") / "sessions.json"
 
 #: What the agent may not touch. Its own evidence about itself is in there (Q16).
 DENIED = ("Edit(.aibuilder/**)", "Write(.aibuilder/**)")
+
+#: How a session is set up, kept because the flags that set it are **flags at spawn**.
+#:
+#: `--model`, `--effort` and `--permission-mode` are session flags: there is no way to change
+#: one in a conversation that is already running. So changing one is a restart with
+#: `--resume` -- the conversation survives, its process does not -- and the setting has to be
+#: written down somewhere, or the restart would not know what to start with.
+SETTINGS_PATH = Path(".aibuilder") / "agent-settings.json"
+
+#: The models a session may be asked for, as **the agent's own aliases**.
+#:
+#: Aliases and not identifiers: an alias means "the latest of that line" and stays right when
+#: a new one ships, while a pinned id is a claim about somebody else's catalogue that goes
+#: stale without ever looking wrong. Only the three the CLI documents are offered -- inventing
+#: a fourth would be guessing at another program's vocabulary. `""` means the agent's own
+#: choice, which is what a session gets when nobody has asked for anything.
+MODELS = ("", "opus", "sonnet", "fable")
+
+#: How hard the agent may think. `""` is its own default.
+EFFORTS = ("", "low", "medium", "high", "xhigh", "max")
+
+#: What the agent may do without asking.
+#:
+#: **`manual` is not here, and its absence is the point.** The CLI lists it as a choice and
+#: accepts it, and then `init` reports `default` -- it is taken and ignored. This is the
+#: second time that flag has looked available and not been (Q17), so it is refused here by
+#: name rather than passed along to be quietly dropped.
+#:
+#: **`bypassPermissions` is not here either**, and for a different reason: the agent is denied
+#: writes to `.aibuilder/` because its own evidence about itself is in there, and a mode whose
+#: whole purpose is to skip permission checks is not a switch this application offers over
+#: that. A person who wants it has the agent's own terminal.
+MODES = ("acceptEdits", "plan", "dontAsk", "auto")
+
+#: What a project gets when nobody has asked for anything.
+DEFAULT_MODE = "acceptEdits"
+
+#: The picture formats a turn may carry, as the agent spells them.
+#:
+#: A closed list, checked here: what is written to the agent's stdin is a line it has to be
+#: able to parse, and an unknown media type is a turn that fails somewhere we cannot see --
+#: inside the agent, after the message was accepted.
+IMAGE_TYPES = ("image/png", "image/jpeg", "image/gif", "image/webp")
+
+#: How large one pasted picture may be, measured on the base64 it arrives as.
+#:
+#: A limit of ours, refused here rather than sent: a picture too large for the model comes
+#: back as an error about a turn the person can no longer see the cause of.
+IMAGE_LIMIT_BYTES = 4 * 1024 * 1024
 
 #: How long to wait for the agent to answer that it exists.
 PROBE_TIMEOUT_S = 10
@@ -113,6 +176,15 @@ class SessionResult:
     model: str = ""
     #: The agent's own running estimate of what this turn has cost so far. Zero between turns.
     spending: int = 0
+    #: What the agent says it can be asked to do -- names only, because names are all it gives.
+    #: Empty from a poll that carried no `init`; the caller keeps the last list it was handed.
+    commands: tuple[str, ...] = field(default_factory=tuple)
+    #: How this project's sessions are started: model, effort, permission mode.
+    #:
+    #: `None` and not an empty map: absent means the question was not asked of this verb, and
+    #: a map of empty strings would be an answer -- "no model, no effort" -- to a question
+    #: nobody put. Only the verbs that read the setting report it.
+    settings: dict[str, str] | None = None
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -128,6 +200,8 @@ class SessionResult:
             "context": self.context,
             "model": self.model,
             "spending": self.spending,
+            "commands": list(self.commands),
+            "settings": None if self.settings is None else dict(self.settings),
         }
 
 
@@ -400,6 +474,131 @@ def forget_session(project: Path | str, identifier: str) -> SessionResult:
     )
 
 
+def read_commands(project: Path | str) -> tuple[str, ...]:
+    """The commands the agent last said it had. Reads; asks nothing and starts nothing."""
+    path = Path(project).resolve() / COMMANDS_PATH
+    if not path.is_file():
+        return ()
+    try:
+        stored = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return ()
+    if not isinstance(stored, list):
+        return ()
+    return tuple(str(name) for name in stored if isinstance(name, str))
+
+
+def _commands_of(raw: dict[str, Any]) -> tuple[str, ...]:
+    """The command names in an `init` line, if this line is one.
+
+    Names and nothing else, because names and nothing else is what the agent sends. Writing
+    a sentence about what `/compact` does would be this application making claims about
+    somebody else's command, and the sentence would still be there after the command changed.
+    """
+    if raw.get("type") != "system" or raw.get("subtype") != "init":
+        return ()
+    listed = raw.get("slash_commands")
+    if not isinstance(listed, list):
+        return ()
+    return tuple(str(name) for name in listed if isinstance(name, str))
+
+
+def _remember_commands(project: Path, names: tuple[str, ...]) -> None:
+    path = project / COMMANDS_PATH
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with contextlib.suppress(OSError):
+        path.write_text(json.dumps(list(names), indent=2), encoding="utf-8")
+
+
+def read_settings(project: Path | str) -> dict[str, str]:
+    """How this project's sessions are started. Reads; starts nothing."""
+    path = Path(project).resolve() / SETTINGS_PATH
+    stored: dict[str, Any] = {}
+    if path.is_file():
+        try:
+            loaded = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            loaded = {}
+        if isinstance(loaded, dict):
+            stored = loaded
+    model = str(stored.get("model", "") or "")
+    effort = str(stored.get("effort", "") or "")
+    mode = str(stored.get("mode", "") or "")
+    return {
+        "model": model if model in MODELS else "",
+        "effort": effort if effort in EFFORTS else "",
+        "mode": mode if mode in MODES else DEFAULT_MODE,
+    }
+
+
+def configure_session(
+    project: Path | str,
+    model: str | None = None,
+    effort: str | None = None,
+    mode: str | None = None,
+) -> SessionResult:
+    """Set what the next session is started with, and restart the open one onto it.
+
+    **A restart, and it says so.** These are flags at spawn: the agent offers no way to change
+    a running session's model or its permission mode, so pretending the switch is free would
+    be an interface lying about the thing it is a switch for. The conversation is kept --
+    `--resume` under the same id, appending to the same transcript -- and the process is not.
+
+    Only what is passed is changed: `None` means "leave it", which is not the same as `""`,
+    the deliberate choice of the agent's own default.
+    """
+    root = Path(project).resolve()
+    settings = read_settings(root)
+
+    for name, given, allowed in (
+        ("model", model, MODELS),
+        ("effort", effort, EFFORTS),
+        ("mode", mode, MODES),
+    ):
+        if given is None:
+            continue
+        if given not in allowed:
+            # `manual` is the reason this refuses by name instead of passing it along: the
+            # agent takes it and ignores it, and a setting that is accepted and does nothing
+            # is worse than one that is refused.
+            offered = ", ".join(choice or "(the agent's own)" for choice in allowed)
+            return SessionResult(
+                False,
+                f"{name} cannot be {given!r} here -- offered: {offered}",
+                settings=settings,
+            )
+        settings[name] = given
+
+    path = root / SETTINGS_PATH
+    path.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        path.write_text(json.dumps(settings, indent=2), encoding="utf-8")
+    except OSError as exc:
+        return SessionResult(False, f"the setting could not be written: {exc}", settings=settings)
+
+    state = _read_state(root)
+    open_now = str(state.get("session")) if state else None
+    if not (state and _alive(int(state.get("pid", 0))) and str(root) in _LIVE and open_now):
+        return SessionResult(True, "saved -- it applies to the next session", settings=settings)
+
+    label = str(state.get("label", "")) if state else ""
+    stop_session(root)
+    restarted = start_session(root, resume=open_now, label=label)
+    if not restarted.ok:
+        return SessionResult(False, restarted.detail, settings=settings)
+    return SessionResult(
+        True,
+        "saved -- the conversation was restarted onto it",
+        session=restarted.session,
+        running=True,
+        available=True,
+        version=restarted.version,
+        sessions=restarted.sessions,
+        commands=restarted.commands,
+        settings=settings,
+    )
+
+
 def _log_for(project: Path, key: str) -> Path:
     return project / LOGS_PATH / f"{key}.log"
 
@@ -460,7 +659,13 @@ def session_status(project: Path | str) -> SessionResult:
         )
     if not running:
         return SessionResult(
-            True, "no session open", available=True, version=version, sessions=list_sessions(root)
+            True,
+            "no session open",
+            available=True,
+            version=version,
+            sessions=list_sessions(root),
+            commands=read_commands(root),
+            settings=read_settings(root),
         )
     return SessionResult(
         True,
@@ -471,6 +676,8 @@ def session_status(project: Path | str) -> SessionResult:
         version=version,
         offset=int(state.get("offset", 0)) if state else 0,
         sessions=list_sessions(root),
+        commands=read_commands(root),
+        settings=read_settings(root),
     )
 
 
@@ -513,6 +720,8 @@ def start_session(
             available=True,
             version=version,
             sessions=list_sessions(root),
+            commands=read_commands(root),
+            settings=read_settings(root),
         )
 
     if existing:
@@ -531,6 +740,7 @@ def start_session(
     # Appended to, not truncated: continuing a conversation continues its transcript.
     log.touch()
 
+    settings = read_settings(root)
     binary = agent_binary() or "claude"
     command = [
         binary,
@@ -541,9 +751,10 @@ def start_session(
         "--verbose",
         # Edits are accepted because the person asked for a change; everything the policy
         # denies comes back as a refused tool result, which is the whole permission surface
-        # the transport gives us (Q17).
+        # the transport gives us (Q17). A person can widen or narrow it in the session's
+        # settings -- and because this is a flag at spawn, changing it restarts the process.
         "--permission-mode",
-        "acceptEdits",
+        settings["mode"],
         # An answer arrives as deltas as it is written, instead of whole at the end -- which
         # is the difference between silence and a wall of text, and a wall of text.
         #
@@ -559,6 +770,13 @@ def start_session(
         "--append-system-prompt-file",
         str(prompt_path()),
     ]
+    # Asked for by alias and by name, never with a default of ours put in the agent's mouth:
+    # an empty setting means the agent picks, and the flag is simply not passed.
+    if settings["model"]:
+        command += ["--model", settings["model"]]
+    if settings["effort"]:
+        command += ["--effort", settings["effort"]]
+
     if resume:
         command += ["--resume", resume]
         if fork:
@@ -607,6 +825,10 @@ def start_session(
         available=True,
         version=version,
         sessions=list_sessions(root),
+        # The list the last session left behind, so the field can offer something before the
+        # first `init` arrives -- and a resumed session sends none until its first turn.
+        commands=read_commands(root),
+        settings=settings,
     )
 
 
@@ -616,12 +838,19 @@ def _label(resume: str | None, fork: bool) -> str:
     return "continued" if resume else "new"
 
 
-def say(project: Path | str, text: str) -> SessionResult:
-    """Send one turn to the agent.
+def say(
+    project: Path | str,
+    text: str,
+    images: tuple[dict[str, str], ...] = (),
+) -> SessionResult:
+    """Send one turn to the agent, with any pictures that were pasted into it.
 
     A session has to be *written to*, and a pipe cannot be reopened from a pid — so a session
     left by a crashed sidecar can be stopped but not continued, and this says so rather than
     pretending otherwise.
+
+    A picture goes **before** the words, which is the order the message is read in: "here is
+    the thing, and here is what I am asking about it".
     """
     root = Path(project).resolve()
     process = _LIVE.get(str(root))
@@ -629,9 +858,26 @@ def say(project: Path | str, text: str) -> SessionResult:
         _LIVE.pop(str(root), None)
         return SessionResult(False, "no session is open here -- start one first")
 
+    blocks: list[dict[str, Any]] = []
+    for picture in images:
+        media = picture.get("media_type", "")
+        data = picture.get("data", "")
+        if media not in IMAGE_TYPES:
+            return SessionResult(False, f"{media or 'that'} is not a picture the agent reads")
+        if len(data) > IMAGE_LIMIT_BYTES:
+            return SessionResult(False, "that picture is too large to send")
+        try:
+            base64.b64decode(data, validate=True)
+        except (binascii.Error, ValueError):
+            return SessionResult(False, "that picture did not arrive whole")
+        blocks.append(
+            {"type": "image", "source": {"type": "base64", "media_type": media, "data": data}}
+        )
+    blocks.append({"type": "text", "text": text})
+
     message = {
         "type": "user",
-        "message": {"role": "user", "content": [{"type": "text", "text": text}]},
+        "message": {"role": "user", "content": blocks},
     }
     try:
         assert process.stdin is not None
@@ -640,7 +886,12 @@ def say(project: Path | str, text: str) -> SessionResult:
     except (OSError, ValueError) as exc:
         return SessionResult(False, f"the agent stopped listening: {exc}")
 
-    _remember_said(root, text)
+    # What was said is kept beside the stream, because the agent echoes none of it. A picture
+    # is noted rather than stored: without the note the person's turn reads as a question
+    # about nothing, and with the picture itself the transcript would be a second copy of a
+    # thing the agent already has.
+    carried = f"{text}\n\n[{len(images)} image{'' if len(images) == 1 else 's'} attached]"
+    _remember_said(root, carried if images else text)
     return SessionResult(True, "sent", running=True)
 
 
@@ -766,6 +1017,7 @@ def poll_session(project: Path | str, offset: int = 0) -> SessionResult:
     context = 0
     model = ""
     spending = 0
+    commands: tuple[str, ...] = ()
 
     # What the person said, put back where they said it. Their turns are not in the stream
     # -- the agent echoes nothing of what it was asked -- so they are kept beside it with the
@@ -787,12 +1039,19 @@ def poll_session(project: Path | str, offset: int = 0) -> SessionResult:
         events.extend(_read_event(raw))
         context = _context_of(raw) or context
         model = _model_of(raw) or model
+        commands = _commands_of(raw) or commands
         if raw.get("type") == "system" and raw.get("subtype") == "thinking_tokens":
             spending = int(raw.get("estimated_tokens", 0) or 0)
         _correct_identity(root, raw)
 
     for _, text in said:
         events.append(_event("you", text))
+
+    # Written only when this chunk carried an `init`, and returned only then: forty-nine
+    # names on every poll would be the same answer several times a second to a question
+    # nobody asked twice. The caller keeps the last list it was handed.
+    if commands:
+        _remember_commands(root, commands)
 
     process = _LIVE.get(str(root))
     running = process is not None and process.poll() is None
@@ -806,6 +1065,7 @@ def poll_session(project: Path | str, offset: int = 0) -> SessionResult:
         context=context,
         model=model,
         spending=spending,
+        commands=commands,
         sessions=list_sessions(root),
     )
 

@@ -20,6 +20,8 @@ import { open as openDialog } from "@tauri-apps/plugin-dialog";
 
 import {
   agentAccount,
+  agentChoices,
+  agentConfigure,
   agentForget,
   agentPoll,
   agentRename,
@@ -31,10 +33,16 @@ import {
 } from "../core/client";
 import { Markdown } from "../code/markdown";
 import { Menu } from "./Menu";
-import type { Placed } from "./Menu";
+import type { Item, Placed } from "./Menu";
 import { Step } from "./Step";
 import { Notice } from "./Notice";
-import type { Account, AgentEvent, AgentSessionRef } from "../core/client";
+import type {
+  Account,
+  AgentChoices,
+  AgentEvent,
+  AgentSessionRef,
+  Pasted,
+} from "../core/client";
 
 const POLL_MS = 700;
 
@@ -204,16 +212,50 @@ export function Chat({
   /** The agent's own running estimate of what this turn has cost. Zero between turns. */
   const [spending, setSpending] = useState(0);
   /**
+   * What the agent says it can be asked to do.
+   *
+   * Kept rather than replaced on every answer: the list arrives with the session's `init`
+   * and a poll that carried none says so with an empty list, which means "nothing new" and
+   * not "there are none". A resumed session sends no `init` at all until its first turn.
+   */
+  const [commands, setCommands] = useState<string[]>([]);
+  /** Which suggestion the arrow keys are on. Reset whenever the list changes. */
+  const [picked, setPicked] = useState(0);
+  /**
+   * What a session may be set to, and what this one is set to.
+   *
+   * The choices are **asked of the core** rather than listed here: which flags the agent
+   * honours is a fact about the agent, and one it accepts and then ignores (`manual`) is
+   * exactly what a menu written from documentation gets wrong.
+   */
+  /**
+   * Pictures pasted into the turn being written.
+   *
+   * They belong to the *message*, not to the conversation: they go when it is sent, the same
+   * way the words in the field do. Held as base64 because that is what a clipboard hands
+   * over -- there is no file on disk to point the agent at, and writing one to invent a path
+   * would leave it behind on somebody's machine.
+   */
+  const [pasted, setPasted] = useState<Pasted[]>([]);
+  const [choices, setChoices] = useState<AgentChoices | null>(null);
+  const [settings, setSettings] = useState({
+    model: "",
+    effort: "",
+    mode: "acceptEdits",
+  });
+  /**
    * Questions asked while an answer was still being written.
    *
    * A turn is one at a time -- the agent is answering the last one -- so a second question
    * waits rather than being refused or silently dropped. It is shown in the transcript at
    * once, because it *was* said; what is pending is the asking, not the saying.
    */
-  const queue = useRef<string[]>([]);
+  const queue = useRef<{ text: string; images: Pasted[] }[]>([]);
   // The poll loop is defined before the sender and has to reach it when a turn ends. A ref
   // rather than a dependency, so the two do not have to be rebuilt around each other.
-  const deliverRef = useRef<((text: string) => Promise<void>) | null>(null);
+  const deliverRef = useRef<
+    ((text: string, images: Pasted[]) => Promise<void>) | null
+  >(null);
   /**
    * The answer as it is being written.
    *
@@ -326,9 +368,10 @@ export function Chat({
   stopPollingRef.current = stopPolling;
 
   // Who is signed in is a fact about the machine, not about the project, so it is asked once
-  // rather than on every project change.
+  // rather than on every project change. The same is true of what a session may be set to.
   useEffect(() => {
     void attempt(() => agentAccount()).then((told) => told && setWho(told));
+    void attempt(() => agentChoices()).then((told) => told && setChoices(told));
   }, [attempt]);
 
   useEffect(() => {
@@ -336,6 +379,9 @@ export function Chat({
       const state = await agentSession(project);
       setAvailable(state.available);
       setRunning(state.running);
+      // The list the last session here left behind, so `/` answers before the first turn.
+      if (state.commands.length > 0) setCommands(state.commands);
+      if (state.settings) setSettings(state.settings);
       absorb(state);
       return state;
     });
@@ -348,6 +394,8 @@ export function Chat({
     if (answer.context > 0) setContext(answer.context);
     if (answer.spending > 0) setSpending(answer.spending);
     if (answer.model) setModel(answer.model);
+    // Empty means "no `init` in this chunk", not "the agent has no commands".
+    if (answer.commands.length > 0) setCommands(answer.commands);
     absorb(answer);
 
     const touched = answer.events.map((event) => event.file).filter(Boolean);
@@ -384,7 +432,7 @@ export function Chat({
       // The turn is over, so the next question that was waiting can be asked. One at a
       // time, in the order they were typed.
       const next = queue.current.shift();
-      if (next !== undefined) void deliverRef.current?.(next);
+      if (next !== undefined) void deliverRef.current?.(next.text, next.images);
       return;
     }
     timer.current = window.setTimeout(() => void poll(), POLL_MS);
@@ -518,7 +566,7 @@ export function Chat({
   );
 
   const deliver = useCallback(
-    async (said: string) => {
+    async (said: string, images: Pasted[] = []) => {
       setBlocked(null);
       setBusy(true);
       setStatus("thinking…");
@@ -546,7 +594,7 @@ export function Chat({
       // what keeps the two from becoming two lines.
       setTranscript((previous) => [...previous, yours(said)]);
 
-      const answer = await attempt(() => agentSay(project, said));
+      const answer = await attempt(() => agentSay(project, said, images));
       if (answer === null) return;
       if (!answer.ok) {
         setBusy(false);
@@ -571,16 +619,19 @@ export function Chat({
   const send = useCallback(
     (text: string) => {
       const said = text.trim();
-      if (!said) return;
+      // A picture on its own is a question -- "what is this?" -- so it is not nothing.
+      if (!said && pasted.length === 0) return;
+      const images = pasted;
       setDraft("");
+      setPasted([]);
       if (busy) {
-        queue.current.push(said);
+        queue.current.push({ text: said, images });
         setTranscript((previous) => [...previous, yours(said)]);
         return;
       }
-      void deliver(said);
+      void deliver(said, images);
     },
-    [busy, deliver],
+    [busy, deliver, pasted],
   );
 
   /**
@@ -594,6 +645,37 @@ export function Chat({
     queue.current = [];
     await attempt(() => agentInterrupt(project));
   }, [project, attempt]);
+
+  /*
+   * A picture pasted from the clipboard.
+   *
+   * Only pictures are taken -- text keeps the textarea's own behaviour, and intercepting a
+   * paste of words would break the most ordinary thing anyone does in a field. The bytes are
+   * read into base64 here rather than written to a file: a temporary file would outlive the
+   * message, and there is nowhere in the project it would belong.
+   */
+  function absorbPaste(event: React.ClipboardEvent<HTMLTextAreaElement>) {
+    const pictures = Array.from(event.clipboardData.items)
+      .filter((item) => item.kind === "file" && item.type.startsWith("image/"))
+      .map((item) => item.getAsFile())
+      .filter((file): file is File => file !== null);
+    if (pictures.length === 0) return;
+    event.preventDefault();
+
+    for (const picture of pictures) {
+      const reader = new FileReader();
+      reader.onload = () => {
+        const url = String(reader.result);
+        const comma = url.indexOf(",");
+        if (comma < 0) return;
+        setPasted((previous) => [
+          ...previous,
+          { media_type: picture.type, data: url.slice(comma + 1) },
+        ]);
+      };
+      reader.readAsDataURL(picture);
+    }
+  }
 
   /** Attach files by naming them the way the agent already understands: `@path`. */
   async function attach() {
@@ -618,6 +700,99 @@ export function Chat({
   const limit = windowFor(model);
   const filled = limit > 0 ? Math.min(1, context / limit) : 0;
   const circumference = 2 * Math.PI * 8;
+
+  /*
+   * The ring is a warning, so it appears when there is something to warn about. Drawn at
+   * every size it is a decoration shaped like an alarm -- a nearly empty circle beside a
+   * conversation with a million tokens of room reads as a reason to compact when there is
+   * none. Past a quarter it starts meaning something, and below that the raw count beside
+   * it is the whole truth anyway. An unrecognised model has no fraction to draw at all
+   * (`windowFor` returns 0), and a fraction we cannot compute must never be shown as one.
+   */
+  const QUARTER = 0.25;
+  const showRing = limit > 0 && filled > QUARTER;
+
+  /*
+   * The commands a `/` at the start of the field could still become.
+   *
+   * Only at the start, and only while the name is still being typed -- once there is a
+   * space the person is writing the command's argument, and a list of names over the top of
+   * that is in the way. **Names without descriptions**, because names without descriptions
+   * is what the agent sends; a sentence of ours about `/compact` would be this application
+   * making claims about somebody else's command, and it would still be there after the
+   * command changed.
+   */
+  const typing = draft.startsWith("/") && !draft.includes(" ") ? draft.slice(1) : null;
+  const suggestions =
+    typing === null
+      ? []
+      : commands.filter((name) => name.startsWith(typing)).slice(0, 8);
+  const at = Math.min(picked, Math.max(0, suggestions.length - 1));
+
+  /*
+   * Changing one of the three flags a session is started with.
+   *
+   * **It restarts the conversation, and it says so.** These are flags at spawn -- the agent
+   * offers no way to change a running session's model or its permission mode -- so the core
+   * resumes the conversation under its own id in a new process. The conversation is kept; the
+   * process it was being had in is not, and a person is told that rather than left to believe
+   * a switch mid-answer was free.
+   */
+  const configure = useCallback(
+    async (change: { model?: string; effort?: string; mode?: string }) => {
+      const answer = await attempt(() => agentConfigure(project, change));
+      if (answer === null) return;
+      if (!answer.ok) {
+        setBlocked(answer.detail);
+        return;
+      }
+      if (answer.settings) setSettings(answer.settings);
+      setStatus(answer.detail);
+      if (answer.running) setRunning(true);
+    },
+    [attempt, project],
+  );
+
+  /*
+   * How each choice is spelled for a person. Only the spelling: the set itself comes from the
+   * core, so a choice arriving that has no line here is still shown, under its own name.
+   */
+  const MODE_NAMES: Record<string, string> = {
+    acceptEdits: "Edit automatically",
+    plan: "Plan only — no changes",
+    dontAsk: "Don't ask",
+    auto: "Auto",
+  };
+  const OWN_CHOICE = "The agent's own";
+
+  function settingItems(
+    section: string,
+    field: "model" | "effort" | "mode",
+    offered: string[],
+  ): Item[] {
+    return offered.map((value) => ({
+      section,
+      label:
+        value === ""
+          ? OWN_CHOICE
+          : field === "mode"
+            ? (MODE_NAMES[value] ?? value)
+            : value,
+      checked: settings[field] === value,
+      run: () => void configure({ [field]: value }),
+    }));
+  }
+
+  function openMenu(target: HTMLElement, items: Item[]) {
+    const box = target.getBoundingClientRect();
+    setMenu({ x: box.left, y: box.top, items });
+  }
+
+  function complete(name: string) {
+    setDraft(`/${name} `);
+    setPicked(0);
+    field.current?.focus();
+  }
 
   return (
     <div ref={shell} className={`bp-chat${open ? " is-open" : ""}`}>
@@ -845,6 +1020,53 @@ export function Chat({
           </div>
         ) : (
           <>
+            {/* The pictures this message is carrying. Above the field because they belong to
+                the line being written -- and they go when it is sent, the same way the words
+                in the field do. */}
+            {pasted.length > 0 ? (
+              <div className="bp-shots">
+                {pasted.map((picture, index) => (
+                  <div className="bp-shot" key={`${index}-${picture.data.slice(0, 24)}`}>
+                    <img
+                      src={`data:${picture.media_type};base64,${picture.data}`}
+                      alt="pasted"
+                    />
+                    <button
+                      className="bp-shot-drop"
+                      title="Remove from this message"
+                      onClick={() =>
+                        setPasted((previous) =>
+                          previous.filter((_, other) => other !== index),
+                        )
+                      }
+                    >
+                      ✕
+                    </button>
+                  </div>
+                ))}
+              </div>
+            ) : null}
+
+            {suggestions.length > 0 ? (
+              <div className="bp-slash" role="listbox">
+                {suggestions.map((name, index) => (
+                  <button
+                    key={name}
+                    className={`bp-slash-item${index === at ? " is-picked" : ""}`}
+                    role="option"
+                    aria-selected={index === at}
+                    // The field must not lose focus, or the list it belongs to closes
+                    // under the press that was choosing from it.
+                    onMouseDown={(event) => event.preventDefault()}
+                    onMouseEnter={() => setPicked(index)}
+                    onClick={() => complete(name)}
+                  >
+                    /{name}
+                  </button>
+                ))}
+              </div>
+            ) : null}
+
             <textarea
               ref={field}
               className="bp-chat-field"
@@ -860,10 +1082,41 @@ export function Chat({
               }
               spellCheck={false}
               disabled={connecting}
-              onChange={(event) => setDraft(event.target.value)}
+              onPaste={absorbPaste}
+              onChange={(event) => {
+                setDraft(event.target.value);
+                setPicked(0);
+              }}
               onKeyDown={(event) => {
+                // While the list is up the arrows and Enter belong to it. Tab completes
+                // without sending, which is the difference between choosing a command and
+                // asking for it -- a command usually wants an argument typed after it.
+                if (suggestions.length > 0) {
+                  if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+                    event.preventDefault();
+                    const step = event.key === "ArrowDown" ? 1 : -1;
+                    setPicked(
+                      (at + step + suggestions.length) % suggestions.length,
+                    );
+                    return;
+                  }
+                  if (event.key === "Tab") {
+                    event.preventDefault();
+                    complete(suggestions[at]);
+                    return;
+                  }
+                  if (event.key === "Escape") {
+                    event.preventDefault();
+                    setDraft("");
+                    return;
+                  }
+                }
                 if (event.key === "Enter" && !event.shiftKey) {
                   event.preventDefault();
+                  if (suggestions.length > 0 && suggestions[at] !== typing) {
+                    complete(suggestions[at]);
+                    return;
+                  }
                   void send(draft);
                 }
               }}
@@ -878,40 +1131,85 @@ export function Chat({
                 ＋
               </button>
 
-              {/* The ring fills against the window of the model the agent said it is using;
-                  with an unrecognised model there is no fraction to draw, and the count stands
-                  alone. Clicking asks the agent to compact -- its own command, not ours. */}
-              <button
-                className={`bp-ring${filled > 0.7 ? " is-full" : ""}`}
-                title={
-                  limit > 0
-                    ? `${context.toLocaleString()} of ${
-                        limit >= 1_000_000
-                          ? `${limit / 1_000_000}M`
-                          : `${limit / 1000}k`
-                      } tokens · ${model} · compact`
-                    : `${context.toLocaleString()} tokens carried · window unknown${model ? ` for ${model}` : ""} · compact`
-                }
-                onClick={() => void send("/compact")}
-                disabled={context === 0 || busy}
-              >
-                <svg viewBox="0 0 20 20" width="18" height="18">
-                  <circle cx="10" cy="10" r="8" className="bp-ring-track" />
-                  <circle
-                    cx="10"
-                    cy="10"
-                    r="8"
-                    className="bp-ring-fill"
-                    strokeDasharray={`${filled * circumference} ${circumference}`}
-                  />
-                </svg>
-              </button>
+              {/* What this conversation is being had with. Beside the attachments because
+                  both are about the turn being prepared rather than about the answer. */}
+              {choices ? (
+                <button
+                  className="bp-icon"
+                  title={`Model: ${settings.model || "the agent's own"} · effort: ${
+                    settings.effort || "the agent's own"
+                  } — changing either restarts the conversation`}
+                  onClick={(event) =>
+                    openMenu(event.currentTarget, [
+                      ...settingItems("Model", "model", choices.models),
+                      ...settingItems("Effort", "effort", choices.efforts),
+                    ])
+                  }
+                >
+                  <svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true">
+                    <path
+                      d="M2 4h12M2 8h12M2 12h12"
+                      stroke="currentColor"
+                      strokeWidth="1.3"
+                      fill="none"
+                    />
+                    <circle cx="5" cy="4" r="1.9" fill="currentColor" />
+                    <circle cx="10" cy="8" r="1.9" fill="currentColor" />
+                    <circle cx="6" cy="12" r="1.9" fill="currentColor" />
+                  </svg>
+                </button>
+              ) : null}
+
+              {/* The ring fills against the window of the model the agent said it is
+                  using, so it is only ever drawn when that window is known. Clicking asks
+                  the agent to compact -- its own command, not ours. */}
+              {showRing ? (
+                <button
+                  className={`bp-ring${filled > 0.7 ? " is-full" : ""}`}
+                  title={`${context.toLocaleString()} of ${
+                    limit >= 1_000_000 ? `${limit / 1_000_000}M` : `${limit / 1000}k`
+                  } tokens · ${model} · compact`}
+                  onClick={() => void send("/compact")}
+                  disabled={busy}
+                >
+                  <svg viewBox="0 0 20 20" width="18" height="18">
+                    <circle cx="10" cy="10" r="8" className="bp-ring-track" />
+                    <circle
+                      cx="10"
+                      cy="10"
+                      r="8"
+                      className="bp-ring-fill"
+                      strokeDasharray={`${filled * circumference} ${circumference}`}
+                    />
+                  </svg>
+                </button>
+              ) : null}
 
               <span className="bp-chat-count">
                 {context > 0 ? `${Math.round(context / 1000)}k` : ""}
               </span>
 
               <Toggle open={open} onToggle={() => setOpen(!open)} />
+
+              {/* How much the agent may do on its own. The same three flags as the menu
+                  beside the attachments -- two surfaces onto one truth, never two settings
+                  that can disagree -- and it sits by send because it is about what pressing
+                  send is going to allow. */}
+              {choices ? (
+                <button
+                  className="bp-mode"
+                  title="What the agent may do on its own — changing it restarts the conversation"
+                  onClick={(event) =>
+                    openMenu(event.currentTarget, [
+                      ...settingItems("The agent may", "mode", choices.modes),
+                      ...settingItems("Effort", "effort", choices.efforts),
+                    ])
+                  }
+                >
+                  {MODE_NAMES[settings.mode] ?? settings.mode}
+                  <span className="bp-mode-caret">⌃</span>
+                </button>
+              ) : null}
 
               {/* One button, and what it does follows what there is to do. A turn is
                   running and the field is empty: there is nothing to send and something to

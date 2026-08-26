@@ -968,6 +968,71 @@ textarea {
   display: flex;
   flex-direction: column;
 }
+/* Pictures pasted into the message being written. They belong to that message, so they sit
+   with the field rather than in the conversation, and they go when it is sent. */
+.bp-shots {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 8px 10px 2px;
+}
+.bp-shot {
+  position: relative;
+  width: 46px;
+  height: 46px;
+  border: 1px solid var(--line-strong);
+  background: var(--surface-2);
+  overflow: hidden;
+}
+.bp-shot img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+/* Offered on hover: a permanent ✕ on a thumbnail this small is most of the thumbnail. */
+.bp-shot-drop {
+  position: absolute;
+  top: 0;
+  right: 0;
+  border: none;
+  background: rgba(0, 0, 0, 0.6);
+  color: #fff;
+  font-size: 9px;
+  line-height: 1;
+  padding: 3px 4px;
+  cursor: pointer;
+  opacity: 0;
+}
+.bp-shot:hover .bp-shot-drop,
+.bp-shot-drop:focus-visible {
+  opacity: 1;
+}
+
+/* The commands a `/` could still become. Above the field rather than over the
+   conversation: it belongs to the line being written, not to what was said. */
+.bp-slash {
+  display: flex;
+  flex-direction: column;
+  max-height: 176px;
+  overflow-y: auto;
+  border-bottom: 1px solid var(--line);
+}
+.bp-slash-item {
+  border: none;
+  background: none;
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 11.5px;
+  text-align: left;
+  padding: 5px 12px;
+  cursor: pointer;
+}
+.bp-slash-item.is-picked {
+  background: var(--surface-2);
+  color: var(--text);
+}
+
 .bp-chat-field {
   border: none;
   background: none;
@@ -1019,6 +1084,30 @@ textarea {
   color: var(--muted-2);
   margin-right: auto;
 }
+/* What the agent may do on its own, named rather than iconified: this is the one control
+   in the row whose value a person needs to be able to read without hovering. */
+.bp-mode {
+  border: none;
+  background: none;
+  color: var(--muted);
+  font-family: var(--body);
+  font-size: 11px;
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  padding: 3px 6px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.bp-mode:hover {
+  color: var(--fg);
+  background: var(--surface-2);
+}
+.bp-mode-caret {
+  font-size: 8px;
+  opacity: 0.7;
+}
+
 .bp-send {
   background: var(--accent);
   color: var(--on-accent);
@@ -1650,6 +1739,27 @@ body.is-resizing {
 }
 .bp-menu-item.is-destructive:hover {
   color: var(--bad);
+}
+.bp-menu-item.is-checked {
+  color: var(--fg);
+}
+/* A fixed column, so nothing shifts under the pointer when a choice is made. */
+.bp-menu-tick {
+  display: inline-block;
+  width: 12px;
+  color: var(--accent);
+}
+.bp-menu-head {
+  font-family: var(--body);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted-2);
+  padding: 8px 10px 4px;
+}
+.bp-menu-head:not(:first-child) {
+  border-top: 1px solid var(--line);
+  margin-top: 4px;
 }
 
 /* The browser's own behaviours, turned off. This is an application, not a page: text is not

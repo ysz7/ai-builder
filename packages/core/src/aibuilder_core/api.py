@@ -42,7 +42,11 @@ from aibuilder_core.runner import (
     worker_status,
 )
 from aibuilder_core.session import (
+    EFFORTS,
+    MODELS,
+    MODES,
     account,
+    configure_session,
     forget_session,
     interrupt,
     poll_session,
@@ -62,6 +66,7 @@ from aibuilder_core.writer import set_body, set_knob, set_node_title
 __all__ = [
     "AGENT_BLUEPRINTS_SCHEMA",
     "AGENT_BRIEF_SCHEMA",
+    "AGENT_CHOICES_SCHEMA",
     "AGENT_SESSION_SCHEMA",
     "AGENT_FAILURES_SCHEMA",
     "AGENT_RECORD_SCHEMA",
@@ -102,6 +107,8 @@ __all__ = [
     "agent_forget",
     "agent_rename",
     "agent_account",
+    "agent_choices",
+    "agent_configure",
     "agent_sign_in",
     "agent_sign_out",
     "agent_record",
@@ -522,6 +529,14 @@ AGENT_SESSION_SCHEMA = {
     # reported exactly twice in a turn -- at the start of a message and at its end -- so a
     # number that *moves* while it works is the agent's estimate or it is nobody's.
     "spending": "int",
+    # What the agent says it can be asked to do -- **names only**, because names only is what
+    # it sends. Empty from a poll that carried no `init`; the caller keeps the last list.
+    "commands": ["str"],
+    # How this project's sessions are started. All three are **flags at spawn** -- there is no
+    # way to change one in a running conversation -- so setting one restarts the process under
+    # `--resume`, which keeps the conversation and not the process it was being had in.
+    # Null where the verb was not asked -- absent is not the same as "no model, no effort".
+    "settings": {"<nullable>": {"model": "str", "effort": "str", "mode": "str"}},
 }
 
 #: The `agent.record` payload: what the gates said about one generation, as it was logged.
@@ -901,9 +916,13 @@ def agent_open(
     return {"api_version": GRAPH_API_VERSION, **start_session(project, resume, fork).as_dict()}
 
 
-def agent_say(project: Path | str, text: str) -> dict[str, Any]:
+def agent_say(
+    project: Path | str,
+    text: str,
+    images: tuple[dict[str, str], ...] = (),
+) -> dict[str, Any]:
     """Send one turn. What comes back arrives through `agent.poll`, never through here."""
-    return {"api_version": GRAPH_API_VERSION, **say(project, text).as_dict()}
+    return {"api_version": GRAPH_API_VERSION, **say(project, text, images).as_dict()}
 
 
 def agent_poll(project: Path | str, offset: int = 0) -> dict[str, Any]:
@@ -962,6 +981,42 @@ def agent_sign_out() -> dict[str, Any]:
 def agent_rename(project: Path | str, session: str, label: str) -> dict[str, Any]:
     """Name one conversation. The label is the person's; everything else about it is not."""
     return {"api_version": GRAPH_API_VERSION, **rename_session(project, session, label).as_dict()}
+
+
+#: The `agent.choices` payload: what a session may be set to.
+#:
+#: Asked rather than hard-coded on the far side: the offered set is a fact about which flags
+#: this agent honours, and one of them (`manual`) is accepted and ignored, which is exactly
+#: the kind of thing a menu written from documentation gets wrong.
+AGENT_CHOICES_SCHEMA = {
+    "api_version": "int",
+    "models": ["str"],
+    "efforts": ["str"],
+    "modes": ["str"],
+}
+
+
+def agent_choices() -> dict[str, Any]:
+    """What a session may be set to. A statement about the agent, not about the project."""
+    return {
+        "api_version": GRAPH_API_VERSION,
+        "models": list(MODELS),
+        "efforts": list(EFFORTS),
+        "modes": list(MODES),
+    }
+
+
+def agent_configure(
+    project: Path | str,
+    model: str | None = None,
+    effort: str | None = None,
+    mode: str | None = None,
+) -> dict[str, Any]:
+    """Set what sessions here are started with, restarting the open one onto it."""
+    return {
+        "api_version": GRAPH_API_VERSION,
+        **configure_session(project, model=model, effort=effort, mode=mode).as_dict(),
+    }
 
 
 def agent_failures(project: Path | str) -> dict[str, Any]:

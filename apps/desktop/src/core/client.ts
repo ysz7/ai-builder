@@ -155,6 +155,24 @@ export type AgentSession = {
    * This one is the agent's, and it says so by being called an estimate.
    */
   spending: number;
+  /**
+   * What the agent says it can be asked to do — **names only**, because names only is what it
+   * sends. It is read rather than listed here: the set changes with the agent's plugins and
+   * its version, and a copy of ours would go stale without ever looking wrong.
+   *
+   * Empty from a poll that carried no `init`, which is most of them. The panel keeps the last
+   * list it was handed rather than clearing on every quiet answer.
+   */
+  commands: string[];
+  /**
+   * How this project's sessions are started, or `null` where the verb was not asked.
+   *
+   * All three are **flags at spawn** — the agent offers no way to change a running session's
+   * model or its permission mode — so setting one restarts the process under `--resume`,
+   * which keeps the conversation and not the process it was being had in. The interface has
+   * to say that rather than let a person believe the switch is free mid-answer.
+   */
+  settings: { model: string; effort: string; mode: string } | null;
 };
 
 /** Is there an agent on this machine, and is a session open? Starts nothing. */
@@ -180,9 +198,21 @@ export function agentStart(
   });
 }
 
+/**
+ * A picture pasted into a turn.
+ *
+ * Base64 and a media type, because what is on a clipboard is bytes — there is no file on
+ * disk to point the agent at, and writing one to invent a path would leave it there.
+ */
+export type Pasted = { media_type: string; data: string };
+
 /** Send one turn. What comes back arrives through `agentPoll`, never from here. */
-export function agentSay(project: string, text: string): Promise<AgentSession> {
-  return coreRequest<AgentSession>("agent.say", { project, text });
+export function agentSay(
+  project: string,
+  text: string,
+  images: Pasted[] = [],
+): Promise<AgentSession> {
+  return coreRequest<AgentSession>("agent.say", { project, text, images });
 }
 
 /** What the agent has said since `offset`. Polled; nothing is ever pushed (P13). */
@@ -380,4 +410,37 @@ export function agentSignOut(): Promise<Account> {
  */
 export function agentInterrupt(project: string): Promise<AgentSession> {
   return coreRequest<AgentSession>("agent.interrupt", { project });
+}
+
+/**
+ * What a session may be set to.
+ *
+ * **Asked, never listed here.** The offered set is a fact about which flags this agent
+ * honours, and one of them — `manual` — is accepted and then ignored, which is exactly what a
+ * menu written from documentation gets wrong. The core refuses that one by name; this only
+ * draws what it is handed.
+ */
+export type AgentChoices = {
+  api_version: number;
+  models: string[];
+  efforts: string[];
+  modes: string[];
+};
+
+export function agentChoices(): Promise<AgentChoices> {
+  return coreRequest<AgentChoices>("agent.choices", {});
+}
+
+/**
+ * Set the model, the effort or the permission mode.
+ *
+ * A key left out means "leave it", which is not the same as `""` — the deliberate choice of
+ * the agent's own default. When a conversation is open it is restarted onto the new setting
+ * and the answer says so.
+ */
+export function agentConfigure(
+  project: string,
+  change: { model?: string; effort?: string; mode?: string },
+): Promise<AgentSession> {
+  return coreRequest<AgentSession>("agent.configure", { project, ...change });
 }

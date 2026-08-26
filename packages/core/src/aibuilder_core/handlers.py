@@ -19,6 +19,8 @@ from aibuilder_core.api import (
     agent_account,
     agent_blueprints,
     agent_brief,
+    agent_choices,
+    agent_configure,
     agent_failures,
     agent_forget,
     agent_interrupt,
@@ -381,8 +383,27 @@ def agent_start_method(params: dict[str, Any]) -> dict[str, Any]:
 
 
 def agent_say_method(params: dict[str, Any]) -> dict[str, Any]:
-    """Send one turn. The answer arrives through `agent.poll`, not through this call."""
-    return agent_say(_project_of(params), _required_str(params, "text"))
+    """Send one turn, with any pictures pasted into it.
+
+    A picture arrives as base64 with the type it was copied as -- what is on a clipboard is
+    bytes, and there is no file to point at. Whether the agent will read it is checked in
+    `say`, before the line is written to a pipe nobody can take it back out of.
+    """
+    given = params.get("images", [])
+    if not isinstance(given, list):
+        raise ProtocolError("invalid_params", "'images' must be a list")
+    images: list[dict[str, str]] = []
+    for picture in given:
+        if not isinstance(picture, dict):
+            raise ProtocolError("invalid_params", "each image must be an object")
+        media = picture.get("media_type")
+        data = picture.get("data")
+        if not isinstance(media, str) or not isinstance(data, str):
+            raise ProtocolError(
+                "invalid_params", "each image needs a 'media_type' and base64 'data'"
+            )
+        images.append({"media_type": media, "data": data})
+    return agent_say(_project_of(params), _required_str(params, "text"), tuple(images))
 
 
 def agent_poll_method(params: dict[str, Any]) -> dict[str, Any]:
@@ -422,6 +443,34 @@ def agent_rename_method(params: dict[str, Any]) -> dict[str, Any]:
     if not isinstance(label, str):
         raise ProtocolError("invalid_params", "'label' must be a string")
     return agent_rename(_project_of(params), _required_str(params, "session"), label)
+
+
+def agent_choices_method(params: dict[str, Any]) -> dict[str, Any]:
+    """What a session may be set to. A read about the agent; it touches no project."""
+    return agent_choices()
+
+
+def agent_configure_method(params: dict[str, Any]) -> dict[str, Any]:
+    """Set model, effort or permission mode. Restarts the open conversation onto it.
+
+    Absent means "leave it", which is not the same as `""` -- the deliberate choice of the
+    agent's own default. So a missing key is `None` and an empty string is a value.
+    """
+    given: dict[str, str | None] = {}
+    for name in ("model", "effort", "mode"):
+        if name not in params:
+            given[name] = None
+            continue
+        value = params[name]
+        if not isinstance(value, str):
+            raise ProtocolError("invalid_params", f"'{name}' must be a string")
+        given[name] = value
+    return agent_configure(
+        _project_of(params),
+        model=given["model"],
+        effort=given["effort"],
+        mode=given["mode"],
+    )
 
 
 def agent_interrupt_method(params: dict[str, Any]) -> dict[str, Any]:
@@ -524,6 +573,8 @@ HANDLERS: dict[str, Handler] = {
     "agent.poll": agent_poll_method,
     "agent.stop": agent_stop_method,
     "agent.interrupt": agent_interrupt_method,
+    "agent.choices": agent_choices_method,
+    "agent.configure": agent_configure_method,
     "agent.forget": agent_forget_method,
     "agent.rename": agent_rename_method,
     "agent.account": agent_account_method,
