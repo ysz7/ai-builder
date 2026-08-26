@@ -28,11 +28,21 @@ body {
   overflow: hidden;
 }
 
+/* Form controls inherit neither font nor colour on their own -- without this a field gets
+   the browser's own black text, which in the dark theme is invisible against the surface it
+   sits on. `textarea` belongs in this list as much as `input` does: leaving it out is how the
+   chat came to be typed into in black. */
 button,
 input,
-select {
+select,
+textarea {
   font-family: inherit;
   color: inherit;
+}
+
+::placeholder {
+  color: var(--muted-2);
+  opacity: 1;
 }
 
 /* ---------- shell ---------- */
@@ -129,26 +139,31 @@ select {
   }
 }
 
-.bp-failed {
-  padding: 10px 14px;
-  border-bottom: 1px solid var(--bad);
-  color: var(--bad);
-  font-family: var(--mono);
-  font-size: 11.5px;
-}
-
 .bp-grid {
   flex: 1 1 auto;
   display: grid;
   grid-template-columns: 216px 1fr 258px;
-  grid-template-rows: 1fr 152px;
+  /* The dock sizes itself: it is draggable, and a fixed row would fight the drag. */
+  grid-template-rows: 1fr auto;
   min-height: 0;
 }
 
+/* A shell that does not scroll, so the grip stays on the border. An absolutely positioned
+   handle inside a scrolling box scrolls away with the content -- correct-looking until
+   somebody scrolls the pane, which is exactly when they cannot resize it any more. */
 .bp-pane {
+  position: relative;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  background: var(--surface);
+}
+.bp-pane-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
   overflow: auto;
   padding: 14px;
-  background: var(--surface);
 }
 .bp-pane-left {
   border-right: 1px solid var(--line);
@@ -156,12 +171,6 @@ select {
 .bp-pane-right {
   border-left: 1px solid var(--line);
 }
-.bp-pane-bottom {
-  grid-column: 1 / -1;
-  border-top: 1px solid var(--line);
-  padding: 11px 14px;
-}
-
 .bp-cap {
   display: flex;
   align-items: center;
@@ -544,15 +553,6 @@ select {
   cursor: pointer;
 }
 
-.bp-refused {
-  border-left: 2px solid var(--bad);
-  padding-left: 9px;
-  font-family: var(--mono);
-  font-size: 10.5px;
-  line-height: 1.5;
-  color: var(--muted);
-}
-
 /* ---------- problems ---------- */
 .bp-problem {
   display: flex;
@@ -741,6 +741,14 @@ select {
   background: var(--surface-glass);
   backdrop-filter: blur(10px);
 }
+.bp-chat-head {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 9px 8px 9px 12px;
+  border-bottom: 1px solid var(--line);
+}
 .bp-chat-sessions {
   flex: 0 0 auto;
   padding: 11px 12px;
@@ -750,22 +758,19 @@ select {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
-  margin-top: 9px;
 }
+/* The chip is the frame; opening and forgetting are two buttons inside it. */
 .bp-sess-chip {
   display: inline-flex;
-  align-items: baseline;
-  gap: 6px;
+  align-items: stretch;
   border: 1px solid var(--line);
   background: none;
   color: var(--muted-2);
-  padding: 4px 9px;
   font-family: var(--mono);
   font-size: 10px;
   letter-spacing: 0.06em;
-  cursor: pointer;
 }
-.bp-sess-chip:hover:not(:disabled) {
+.bp-sess-chip:hover {
   color: var(--fg);
   border-color: var(--line-strong);
 }
@@ -774,7 +779,51 @@ select {
   border-color: var(--line-strong);
   background: var(--surface-2);
 }
-.bp-sess-chip:disabled {
+/* The two verbs that are not a conversation carry their own padding: the chip gave its
+   away to the buttons nested inside it. */
+.bp-sess-act {
+  align-items: baseline;
+  gap: 6px;
+  padding: 4px 9px;
+  cursor: pointer;
+}
+.bp-sess-act:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.bp-sess-open,
+.bp-sess-shut {
+  border: none;
+  background: none;
+  color: inherit;
+  font: inherit;
+  letter-spacing: inherit;
+  cursor: pointer;
+}
+.bp-sess-open {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  padding: 4px 4px 4px 9px;
+}
+/* Shown on hover only: closing is the rarer intention, and a ✕ on every chip turns a list
+   of conversations into a list of ways to lose one. It still takes space when hidden, so
+   the chips do not jump as the pointer crosses them. */
+.bp-sess-shut {
+  padding: 4px 7px 4px 3px;
+  color: var(--muted-2);
+  opacity: 0;
+  transition: opacity 90ms ease;
+}
+.bp-sess-chip:hover .bp-sess-shut {
+  opacity: 1;
+}
+.bp-sess-shut:hover {
+  color: var(--bad);
+}
+.bp-sess-open:disabled,
+.bp-sess-shut:disabled {
   opacity: 0.4;
   cursor: not-allowed;
 }
@@ -816,26 +865,6 @@ select {
 
 /* one line of status, above the input, while a turn is running */
 .bp-chat-status,
-.bp-chat-blocked {
-  flex: 0 0 auto;
-  display: flex;
-  align-items: center;
-  gap: 9px;
-  border: 1px solid var(--line);
-  background: var(--surface-glass);
-  backdrop-filter: blur(10px);
-  padding: 9px 11px;
-  font-family: var(--mono);
-  font-size: 10.5px;
-  line-height: 1.6;
-  color: var(--muted);
-}
-.bp-chat-blocked {
-  border-color: var(--bad);
-  color: var(--bad);
-  align-items: flex-start;
-}
-
 .bp-chat-box {
   flex: 0 0 auto;
   border: 1px solid var(--line-strong);
@@ -957,4 +986,459 @@ select {
   font-family: var(--mono);
   font-size: 10.5px;
   color: var(--muted-2);
+}
+
+/* ---------- tabs: what the selection is set to, and what it is made of ---------- */
+.bp-tabs {
+  display: flex;
+  gap: 2px;
+  border-bottom: 1px solid var(--line);
+  margin: -4px 0 12px;
+}
+.bp-tab {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  border: none;
+  border-bottom: 1px solid transparent;
+  background: none;
+  color: var(--muted-2);
+  padding: 7px 10px;
+  margin-bottom: -1px;
+  cursor: pointer;
+}
+.bp-tab.is-on {
+  color: var(--fg);
+  border-bottom-color: var(--accent-blue);
+}
+.bp-tab:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+/* ---------- a node's code ---------- */
+.bp-code {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.bp-fn {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+.bp-fn-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.bp-fn-name {
+  font-family: var(--mono);
+  font-size: 12px;
+  font-weight: 600;
+}
+.bp-fn-sig {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--muted-2);
+}
+.bp-zone {
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  padding: 2px 6px;
+  border: 1px solid var(--line);
+  color: var(--muted);
+}
+/* A generated zone is marked, not hidden: it is edited through the graph, and seeing it is
+   how a person understands why the editor will not open here. */
+.bp-zone.is-generated {
+  border-color: var(--accent-blue);
+  color: var(--accent-blue);
+}
+.bp-zone.is-editable {
+  border-color: var(--line-strong);
+  color: var(--fg);
+}
+.bp-lock {
+  font-family: var(--mono);
+  font-size: 9px;
+  color: var(--unknown);
+  letter-spacing: 0.06em;
+}
+.bp-btn-go {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.bp-btn-hand {
+  border-style: dashed;
+}
+
+.bp-src,
+.bp-editor {
+  font-family: var(--mono);
+  font-size: 11px;
+  line-height: 1.65;
+  background: var(--bg-2);
+  border: 1px solid var(--line);
+  padding: 10px 12px;
+  margin: 0;
+  overflow-x: auto;
+  white-space: pre;
+  tab-size: 4;
+}
+.bp-editor {
+  width: 100%;
+  min-height: 180px;
+  color: var(--fg);
+  resize: vertical;
+}
+.bp-editor:focus {
+  outline: none;
+  border-color: var(--accent-blue);
+}
+
+/* VS Code's palette, so a node's code reads the way the file will in an editor. */
+.bp-src .t-key {
+  color: var(--s-key);
+}
+.bp-src .t-ctl {
+  color: var(--s-ctl);
+}
+.bp-src .t-fn {
+  color: var(--s-fn);
+}
+.bp-src .t-type {
+  color: var(--s-type);
+}
+.bp-src .t-var {
+  color: var(--s-var);
+}
+.bp-src .t-str {
+  color: var(--s-str);
+}
+.bp-src .t-num {
+  color: var(--s-num);
+}
+.bp-src .t-cmt {
+  color: var(--s-cmt);
+  font-style: italic;
+}
+.bp-src .t-punct {
+  color: var(--s-punct);
+}
+
+/* ---------- actions on a node ---------- */
+.bp-acts {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-bottom: 9px;
+}
+.bp-field-slim {
+  width: auto;
+  flex: 0 0 auto;
+}
+.bp-offered {
+  margin: 10px 0;
+}
+.bp-offer {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  padding: 3px 0;
+}
+/* Allowed by the knob, or offered but not allowed. The distinction is the whole point. */
+.bp-offer-on {
+  color: var(--fg);
+}
+.bp-offer-off {
+  color: var(--muted-2);
+  text-decoration: line-through;
+}
+.bp-offer-help {
+  color: var(--muted-2);
+  flex: 1;
+}
+
+/* ---------- repair ---------- */
+.bp-modal {
+  position: fixed;
+  inset: 0;
+  background: color-mix(in srgb, var(--bg) 78%, transparent);
+  backdrop-filter: blur(3px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 40;
+}
+.bp-sheet {
+  width: min(680px, 92vw);
+  max-height: 82vh;
+  overflow-y: auto;
+  background: var(--surface);
+  border: 1px solid var(--line-strong);
+  padding: 20px 22px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.bp-sheet-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.bp-repair {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  border-left: 2px solid var(--unknown);
+  padding-left: 12px;
+}
+.bp-repair-head {
+  display: flex;
+  gap: 10px;
+  align-items: baseline;
+}
+.bp-repair-code {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  color: var(--unknown);
+}
+.bp-fault {
+  font-family: var(--mono);
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--muted-2);
+}
+.bp-repair-msg {
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+.bp-repair-rule {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--muted-2);
+}
+
+/* Connecting spawns a process; the button says so, or it gets pressed again. */
+.bp-chat-connect:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+/* ---------- the bottom dock ---------- */
+.bp-dock {
+  grid-column: 1 / -1;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  background: var(--surface);
+  border-top: 1px solid var(--line);
+}
+/* The handle overhangs the border it sits on, because a 1px target is a target missed. */
+.bp-grip {
+  position: absolute;
+  z-index: 3;
+}
+.bp-grip.is-bottom {
+  top: -3px;
+  left: 0;
+  right: 0;
+  height: 7px;
+  cursor: ns-resize;
+}
+.bp-grip.is-left {
+  top: 0;
+  bottom: 0;
+  right: -3px;
+  width: 7px;
+  cursor: ew-resize;
+}
+.bp-grip.is-right {
+  top: 0;
+  bottom: 0;
+  left: -3px;
+  width: 7px;
+  cursor: ew-resize;
+}
+/* The strip is 7px so it can be hit; the hint is 1px so it reads as the border lighting up
+   rather than as a band appearing. Painting the whole hit area is the same mistake as
+   drawing a button's padding. */
+.bp-grip::after {
+  content: "";
+  position: absolute;
+  background: var(--accent-blue);
+  opacity: 0;
+  transition: opacity 90ms ease;
+}
+.bp-grip.is-bottom::after {
+  top: 3px;
+  left: 0;
+  right: 0;
+  height: 1px;
+}
+.bp-grip.is-left::after {
+  top: 0;
+  bottom: 0;
+  right: 3px;
+  width: 1px;
+}
+.bp-grip.is-right::after {
+  top: 0;
+  bottom: 0;
+  left: 3px;
+  width: 1px;
+}
+.bp-grip:hover::after {
+  opacity: 1;
+}
+
+/* A drag crosses panes; without this each one selects its text on the way past. */
+body.is-resizing {
+  user-select: none;
+  cursor: inherit;
+}
+.bp-dock-head {
+  flex: 0 0 auto;
+  height: 34px;
+  display: flex;
+  align-items: stretch;
+  gap: 2px;
+  padding: 0 8px 0 14px;
+  border-bottom: 1px solid var(--line);
+  user-select: none;
+}
+.bp-dock-tab {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  border: none;
+  border-bottom: 1px solid transparent;
+  background: none;
+  color: var(--muted-2);
+  padding: 0 10px;
+  margin-bottom: -1px;
+  cursor: pointer;
+}
+.bp-dock-tab.is-on {
+  color: var(--fg);
+  border-bottom-color: var(--accent-blue);
+}
+.bp-dock-fold {
+  margin-left: auto;
+}
+.bp-dock-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  padding: 11px 14px;
+}
+
+/* ---------- terminal ---------- */
+.bp-term {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  height: 100%;
+  min-height: 0;
+}
+.bp-term-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.bp-term-pick {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  border: 1px solid var(--line);
+  background: none;
+  color: var(--muted-2);
+  padding: 3px 9px;
+  cursor: pointer;
+}
+.bp-term-pick.is-on {
+  color: var(--fg);
+  border-color: var(--line-strong);
+}
+.bp-term-state {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--muted-2);
+  margin-left: auto;
+}
+.bp-term-out {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  margin: 0;
+  font-family: var(--mono);
+  font-size: 11px;
+  line-height: 1.55;
+  color: var(--muted);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* ---------- notices ---------- */
+.bp-notice {
+  display: flex;
+  align-items: baseline;
+  gap: 9px;
+  border-left: 2px solid var(--line-strong);
+  padding: 6px 4px 6px 9px;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  line-height: 1.5;
+  color: var(--muted);
+}
+.bp-notice.is-refused,
+.bp-notice.is-failed {
+  border-left-color: var(--bad);
+}
+.bp-notice.is-blocked {
+  border: 1px solid var(--bad);
+  color: var(--bad);
+  padding: 8px 4px 8px 11px;
+}
+.bp-notice.is-said {
+  border-left-color: var(--accent);
+}
+.bp-notice-label {
+  flex: 0 0 auto;
+  font-size: 9px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--muted-2);
+}
+.bp-notice-text {
+  flex: 1 1 auto;
+  word-break: break-word;
+}
+/* Always present, not revealed on hover: unlike a chip's ✕, this is the only way out of a
+   message that would otherwise sit there until something replaced it. */
+.bp-notice-shut {
+  flex: 0 0 auto;
+  border: none;
+  background: none;
+  color: var(--muted-2);
+  font: inherit;
+  cursor: pointer;
+  padding: 0 6px;
+  align-self: flex-start;
+}
+.bp-notice-shut:hover {
+  color: var(--fg);
 }

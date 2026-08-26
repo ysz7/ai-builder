@@ -18,14 +18,15 @@ export function Problems({ graph, onSelect }: Props) {
 
   return (
     <div className="bp-problems">
-      <div className="bp-cap">
-        Problems <span className="bp-cap-n">{graph.diagnostics.length + unproven.length}</span>
-        {graph.completeness.state !== "proven" ? (
+      {/* The count lives on the dock's tab, so a collapsed dock still says how much is
+          wrong. What stays here is the claim that cannot be drawn as a node (Q12). */}
+      {graph.completeness.state !== "proven" ? (
+        <div className="bp-cap">
           <span className="bp-cap-n" title={graph.completeness.detail}>
             completeness unproven
           </span>
-        ) : null}
-      </div>
+        </div>
+      ) : null}
 
       {graph.diagnostics.map((diagnostic, index) => (
         <button
@@ -34,7 +35,9 @@ export function Problems({ graph, onSelect }: Props) {
           onClick={() => diagnostic.node && onSelect(diagnostic.node)}
           title={diagnostic.repair}
         >
-          <span className={`bp-sev is-${diagnostic.severity}`}>{diagnostic.code}</span>
+          <span className={`bp-sev is-${diagnostic.severity}`}>
+            {diagnostic.code}
+          </span>
           <span className="bp-problem-msg">{diagnostic.message}</span>
           <span className="bp-problem-addr">
             {diagnostic.location.file}:{diagnostic.location.start_line}
@@ -51,7 +54,9 @@ export function Problems({ graph, onSelect }: Props) {
       ))}
 
       {graph.diagnostics.length + unproven.length === 0 ? (
-        <div className="bp-empty">Nothing is wrong, and everything that ran, passed.</div>
+        <div className="bp-empty">
+          Nothing is wrong, and everything that ran, passed.
+        </div>
       ) : null}
     </div>
   );

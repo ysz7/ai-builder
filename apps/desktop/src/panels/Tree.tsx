@@ -24,7 +24,9 @@ export function Tree({ graph, selected, onSelect }: Props) {
       {topLevel(nodes).map((group) => (
         <div key={group.id} className="bp-tree-group">
           <button className="bp-tree-head" onClick={() => onSelect(group.id)}>
-            <span className={`bp-dot is-${verdictOf(graph.verdicts, group.id)}`} />
+            <span
+              className={`bp-dot is-${verdictOf(graph.verdicts, group.id)}`}
+            />
             {group.title ?? group.id}
             <span className="bp-tree-kind">{group.kind}</span>
           </button>
@@ -37,7 +39,9 @@ export function Tree({ graph, selected, onSelect }: Props) {
                 className={`bp-tree-item${id === selected ? " is-on" : ""}`}
                 onClick={() => onSelect(id)}
               >
-                <span className={`bp-dot is-${verdictOf(graph.verdicts, id)}`} />
+                <span
+                  className={`bp-dot is-${verdictOf(graph.verdicts, id)}`}
+                />
                 {member.title ?? member.id}
               </button>
             );

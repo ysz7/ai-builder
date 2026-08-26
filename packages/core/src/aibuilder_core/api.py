@@ -42,6 +42,7 @@ from aibuilder_core.runner import (
     worker_status,
 )
 from aibuilder_core.session import (
+    forget_session,
     poll_session,
     say,
     session_status,
@@ -49,6 +50,7 @@ from aibuilder_core.session import (
     stop_session,
 )
 from aibuilder_core.snapshot import load_snapshot, save_snapshot, take_snapshot
+from aibuilder_core.source import node_source
 from aibuilder_core.verdict import Observation
 from aibuilder_core.writer import set_body, set_knob, set_node_title
 
@@ -91,6 +93,7 @@ __all__ = [
     "agent_say",
     "agent_session",
     "agent_shut",
+    "agent_forget",
     "agent_record",
     "describe_kinds",
     "create_new_project",
@@ -340,6 +343,30 @@ SNAPSHOT_TAKE_SCHEMA = {
     "refused": "str?",
 }
 
+#: The `node.source` payload: the code a node carries, read from disk.
+#:
+#: A read of its own rather than a field on `graph.read`, because the IR deliberately holds no
+#: editable body (I-1: one copy of the code, and it is the file). So the panel that shows code
+#: asks for it, for one node, at the moment somebody opens the tab.
+NODE_SOURCE_SCHEMA = {
+    "api_version": "int",
+    "node": "str",
+    "file": "str",
+    "source": "str",
+    "functions": [
+        {
+            "path": "str",
+            "zone": "str?",
+            "signature": "str",
+            "signature_locked": "bool",
+            "location": _LOCATION,
+            "source": "str",
+        }
+    ],
+    # A node that is not on the graph is a normal answer, not a fault in the call.
+    "refused": "str?",
+}
+
 #: The payload of every write. `diagnostics` is populated only when a write was undone.
 WRITE_SCHEMA = {
     "api_version": "int",
@@ -461,9 +488,11 @@ AGENT_SESSION_SCHEMA = {
     "offset": "int",
     # The conversations this project has had -- ids and labels, never a transcript.
     "sessions": [{"id": "str", "label": "str", "at": "str"}],
-    # Tokens the last turn carried. A **number, never a percentage**: the stream declares no
-    # context window, so whoever draws a ring has to say what they divided by.
+    # Tokens the last turn carried. A **number, never a percentage**: the window to divide by
+    # belongs to the model, which is reported beside it rather than assumed.
     "context": "int",
+    # Which model is answering, as the agent named it. Empty until it has said.
+    "model": "str",
 }
 
 #: The `agent.record` payload: what the gates said about one generation, as it was logged.
@@ -730,6 +759,11 @@ def write_node_title(project: Path | str, node: str, title: str) -> dict[str, An
     return {"api_version": GRAPH_API_VERSION, **result.as_dict()}
 
 
+def read_source(project: Path | str, node: str) -> dict[str, Any]:
+    """The code one node carries, as it is on disk -- what the node's code tab shows."""
+    return {"api_version": GRAPH_API_VERSION, **node_source(project, node).as_dict()}
+
+
 def write_body(project: Path | str, node: str, function: str, source: str) -> dict[str, Any]:
     """Write a new body for one editable function of a node's carrier (Q15).
 
@@ -851,6 +885,11 @@ def agent_poll(project: Path | str, offset: int = 0) -> dict[str, Any]:
 def agent_shut(project: Path | str) -> dict[str, Any]:
     """Close the session -- this sidecar's, or one a crashed sidecar left behind."""
     return {"api_version": GRAPH_API_VERSION, **stop_session(project).as_dict()}
+
+
+def agent_forget(project: Path | str, session: str) -> dict[str, Any]:
+    """Drop one conversation from this project's list -- our reference, not the transcript."""
+    return {"api_version": GRAPH_API_VERSION, **forget_session(project, session).as_dict()}
 
 
 def agent_failures(project: Path | str) -> dict[str, Any]:

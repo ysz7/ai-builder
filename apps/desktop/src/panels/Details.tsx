@@ -15,6 +15,7 @@
 import { useState } from "react";
 
 import type { GraphNode, Knob } from "../core/types";
+import { Notice } from "./Notice";
 
 type Props = {
   node: GraphNode | null;
@@ -22,6 +23,7 @@ type Props = {
   busy: boolean;
   refused: string | null;
   onKnob: (node: string, knob: string, value: unknown) => void;
+  onDismiss: () => void;
 };
 
 /** The literal default, as the parser read it out of the source. */
@@ -29,7 +31,13 @@ function literal(knob: Knob): string {
   return (knob.default ?? "").replace(/^["']|["']$/g, "");
 }
 
-function KnobControl({ knob, onChange }: { knob: Knob; onChange: (value: unknown) => void }) {
+function KnobControl({
+  knob,
+  onChange,
+}: {
+  knob: Knob;
+  onChange: (value: unknown) => void;
+}) {
   const [draft, setDraft] = useState(literal(knob));
   const declared = knob.type.trim();
 
@@ -73,7 +81,10 @@ function KnobControl({ knob, onChange }: { knob: Knob; onChange: (value: unknown
     const fill = ((value - knob.min) / (knob.max - knob.min)) * 100;
     return (
       <label className="bp-slider">
-        <span className="bp-slider-fill" style={{ width: `${Math.max(0, Math.min(100, fill))}%` }} />
+        <span
+          className="bp-slider-fill"
+          style={{ width: `${Math.max(0, Math.min(100, fill))}%` }}
+        />
         <span className="bp-slider-value">{value}</span>
         <input
           type="range"
@@ -99,7 +110,14 @@ function KnobControl({ knob, onChange }: { knob: Knob; onChange: (value: unknown
   );
 }
 
-export function Details({ node, reason, busy, refused, onKnob }: Props) {
+export function Details({
+  node,
+  reason,
+  busy,
+  refused,
+  onKnob,
+  onDismiss,
+}: Props) {
   if (!node) {
     return <div className="bp-empty">Select a node.</div>;
   }
@@ -114,20 +132,34 @@ export function Details({ node, reason, busy, refused, onKnob }: Props) {
 
       {node.knobs.length > 0 ? (
         <>
-          <div className="bp-cap">Knobs {busy ? <span className="bp-cap-n">writing…</span> : null}</div>
+          <div className="bp-cap">
+            Knobs {busy ? <span className="bp-cap-n">writing…</span> : null}
+          </div>
           {node.knobs.map((knob) => (
             <div className="bp-knob" key={knob.name}>
               <div className="bp-knob-label">
                 {knob.label ?? knob.name}
                 <span className="bp-knob-default">{literal(knob)}</span>
               </div>
-              <KnobControl knob={knob} onChange={(value) => onKnob(node.id, knob.name, value)} />
+              <KnobControl
+                knob={knob}
+                onChange={(value) => onKnob(node.id, knob.name, value)}
+              />
               {knob.location === null ? (
-                <div className="bp-knob-note">no literal default — it can be shown, never written</div>
+                <div className="bp-knob-note">
+                  no literal default — it can be shown, never written
+                </div>
               ) : null}
             </div>
           ))}
-          {refused ? <div className="bp-refused">{refused}</div> : null}
+          {refused ? (
+            <Notice
+              tone="refused"
+              label="refused"
+              text={refused}
+              onClose={onDismiss}
+            />
+          ) : null}
         </>
       ) : null}
 

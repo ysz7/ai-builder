@@ -159,3 +159,107 @@ export type Layout = Record<string, Placement>;
 
 export type LayoutRead = { api_version: number; layout: Layout };
 export type WriteResult = { api_version: number; ok: boolean; detail: string };
+
+/**
+ * A divergence, and what may be done about it.
+ *
+ * `mechanical` is the subset of `resolutions` this toolchain can carry out; anything else
+ * is handed to the agent as `request`. Nothing here has a default resolution -- §9's second
+ * case has two non-equivalent answers, and the dialog is where a person picks one.
+ */
+export type Repair = {
+  code: string;
+  message: string;
+  location: Location;
+  rule: string;
+  fault: string;
+  resolutions: string[];
+  mechanical: string[];
+  repair: string;
+  request: string;
+  node: string | null;
+  reference: string | null;
+};
+
+export type RepairList = { api_version: number; repairs: Repair[] };
+export type RepairApply = {
+  api_version: number;
+  applied: boolean;
+  snapshot_updated: boolean;
+  file: string | null;
+  refused: string | null;
+  diagnostics: Diagnostic[];
+  /** Nodes the repair left without evidence. Never quietly read as "fine" (I-5). */
+  unproven: string[];
+};
+
+/** A process this toolchain started. `port` is 0 for a worker, which publishes nothing. */
+export type RunState = {
+  pid: number;
+  port: number;
+  target: string;
+  command: string[];
+  started_at: string;
+} | null;
+
+export type RunResult = {
+  api_version: number;
+  ok: boolean;
+  detail: string;
+  state: RunState;
+  logs: string;
+  offset: number;
+};
+
+export type CallResult = {
+  api_version: number;
+  ok: boolean;
+  detail: string;
+  status: number | null;
+  body: string;
+};
+
+export type ServiceResult = {
+  api_version: number;
+  ok: boolean;
+  detail: string;
+  services: string[];
+};
+
+/** What a consumed MCP server offered when somebody pressed inspect. Never written down. */
+export type InspectResult = {
+  api_version: number;
+  ok: boolean;
+  status: string;
+  detail: string;
+  tools: { name: string; description: string }[];
+  allowed: string[];
+  missing: string[];
+};
+
+export type BodyWrite = {
+  api_version: number;
+  written: boolean;
+  file: string | null;
+  refused: string | null;
+  diagnostics: Diagnostic[];
+};
+
+/** One function of a node's carrier, as text. Read from disk, never from the graph (I-1). */
+export type FunctionSource = {
+  path: string;
+  zone: string | null;
+  signature: string;
+  signature_locked: boolean;
+  location: Location;
+  source: string;
+};
+
+export type NodeSource = {
+  api_version: number;
+  node: string;
+  file: string;
+  source: string;
+  functions: FunctionSource[];
+  refused: string | null;
+};

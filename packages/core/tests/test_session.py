@@ -238,3 +238,260 @@ def test_no_agent_anywhere_is_an_answer_not_a_crash(monkeypatch) -> None:
 
     assert session.agent_binary() is None
     assert session.agent_available() == (False, "")
+
+
+# -- how the three ways in are spelled --------------------------------------------
+
+
+def spawn(monkeypatch, tmp_path: Path) -> list[list[str]]:
+    """Record the command `start_session` builds without letting an agent run.
+
+    The three ways in differ only in the flags at the end of the line, and getting them wrong
+    is quiet: `--resume` without an id starts a new conversation, and `--resume` *without*
+    `--fork-session` overwrites the branch a person asked to keep.
+    """
+    from aibuilder_core import session
+
+    seen: list[list[str]] = []
+
+    class Fake:
+        pid = 4321
+        stdin = None
+
+        def __init__(self, command: list[str], **_: object) -> None:
+            seen.append(command)
+
+        def poll(self) -> int | None:
+            return None
+
+        def wait(self, timeout: float | None = None) -> int:
+            return 0
+
+    monkeypatch.setattr(session, "agent_available", lambda: (True, "1.0.0"))
+    monkeypatch.setattr(session, "agent_binary", lambda: "claude")
+    # Nothing here may signal: the recorded pid is invented, and a real process could own it.
+    monkeypatch.setattr(session, "_alive", lambda _: False)
+    monkeypatch.setattr(session.subprocess, "Popen", Fake)
+    monkeypatch.setattr(session, "_LIVE", {})
+    return seen
+
+
+def test_a_new_conversation_is_given_an_id_by_us(monkeypatch, tmp_path: Path) -> None:
+    from aibuilder_core.session import start_session
+
+    seen = spawn(monkeypatch, tmp_path)
+    answer = start_session(tmp_path)
+
+    command = seen[0]
+    assert "--session-id" in command
+    assert command[command.index("--session-id") + 1] == answer.session
+    assert "--resume" not in command and "--fork-session" not in command
+
+
+def test_continuing_names_the_conversation_and_does_not_fork(monkeypatch, tmp_path: Path) -> None:
+    from aibuilder_core.session import start_session
+
+    seen = spawn(monkeypatch, tmp_path)
+    start_session(tmp_path, resume="abc-123")
+
+    command = seen[0]
+    assert command[command.index("--resume") + 1] == "abc-123"
+    # A continued conversation must not carry `--session-id` as well: two ways of naming the
+    # same session is how one silently wins over the other.
+    assert "--session-id" not in command
+    assert "--fork-session" not in command
+
+
+def test_a_fork_keeps_the_branch_it_came_from(monkeypatch, tmp_path: Path) -> None:
+    from aibuilder_core.session import start_session
+
+    seen = spawn(monkeypatch, tmp_path)
+    start_session(tmp_path, resume="abc-123", fork=True)
+
+    command = seen[0]
+    assert command[command.index("--resume") + 1] == "abc-123"
+    assert "--fork-session" in command
+
+
+def test_the_prompt_is_appended_on_every_way_in(monkeypatch, tmp_path: Path) -> None:
+    """`--resume` restores a conversation, and what it restores of the system prompt is not
+    ours to assume -- so the file is handed over again every time (§3: one set of rules)."""
+    from aibuilder_core.session import prompt_path, start_session
+
+    seen = spawn(monkeypatch, tmp_path)
+    start_session(tmp_path)
+    start_session(tmp_path, resume="abc-123")
+    start_session(tmp_path, resume="abc-123", fork=True)
+
+    for command in seen:
+        assert command[command.index("--append-system-prompt-file") + 1] == str(prompt_path())
+        assert "Write(.aibuilder/**)" in command
+
+
+def test_a_forks_real_id_is_taken_from_the_agent(monkeypatch, tmp_path: Path) -> None:
+    """We hand `--fork-session` over and the agent picks the new id. Predicting it would put
+    a session in the list that cannot be resumed, which only shows up much later."""
+    from aibuilder_core.session import start_session
+
+    spawn(monkeypatch, tmp_path)
+    start_session(tmp_path, resume="abc-123", fork=True)
+    log(tmp_path, {"type": "system", "subtype": "init", "session_id": "grown-up-id"})
+
+    answer = poll_session(tmp_path)
+
+    assert answer.session == "grown-up-id"
+    ids = [item["id"] for item in answer.sessions]
+    assert "grown-up-id" in ids
+    # The id we started with was never a conversation; leaving it in the list offers a
+    # person something to resume that does not exist.
+    assert "abc-123" not in ids
+
+
+def test_the_model_is_read_from_the_stream_rather_than_assumed(tmp_path: Path) -> None:
+    """A context ring divides by the model's window, and the windows differ by a factor of
+    five. Which model answered is the agent's decision, so it is read, never guessed."""
+    log(
+        tmp_path,
+        {"type": "system", "subtype": "init", "model": "claude-opus-5", "session_id": "s"},
+        {"type": "assistant", "message": {"content": [], "usage": {"input_tokens": 10}}},
+    )
+
+    answer = poll_session(tmp_path)
+
+    assert answer.model == "claude-opus-5"
+    assert answer.context == 10
+
+
+def test_a_session_that_never_says_which_model_claims_none(tmp_path: Path) -> None:
+    log(tmp_path, {"type": "assistant", "message": {"content": [], "usage": {"input_tokens": 7}}})
+
+    assert poll_session(tmp_path).model == ""
+
+
+# -- switching conversations, which is not the same as starting one twice ---------
+
+
+def live(monkeypatch) -> list[int]:
+    """Make the recorded session look alive, without letting a signal reach anything.
+
+    `os.killpg` is patched on the module itself because `stop_session` imports it locally --
+    and a recorded pid is invented, so a real process could own it.
+    """
+    import os
+
+    signalled: list[int] = []
+    from aibuilder_core import session
+
+    monkeypatch.setattr(session, "_alive", lambda _: True)
+    monkeypatch.setattr(os, "getpgid", lambda pid: pid)
+    monkeypatch.setattr(os, "killpg", lambda pid, _: signalled.append(pid))
+    return signalled
+
+
+def test_asking_for_the_conversation_already_open_starts_nothing(monkeypatch, tmp_path) -> None:
+    """The one question "already open" answers. Pressing the same chip twice must not
+    tear down the session it names and build it again."""
+    from aibuilder_core.session import start_session
+
+    seen = spawn(monkeypatch, tmp_path)
+    start_session(tmp_path, resume="abc-123")
+    live(monkeypatch)
+
+    answer = start_session(tmp_path, resume="abc-123")
+
+    assert answer.detail == "a session is already open"
+    assert len(seen) == 1
+
+
+def test_another_conversation_is_switched_to_rather_than_refused(monkeypatch, tmp_path) -> None:
+    """Naming a different conversation is a deliberate switch. Answering it with the session
+    that happens to be running is how the conversation list came to do nothing at all."""
+    from aibuilder_core.session import start_session
+
+    seen = spawn(monkeypatch, tmp_path)
+    start_session(tmp_path, resume="abc-123")
+    live(monkeypatch)
+
+    answer = start_session(tmp_path, resume="def-456")
+
+    assert answer.session == "def-456"
+    assert len(seen) == 2
+    assert seen[1][seen[1].index("--resume") + 1] == "def-456"
+
+
+def test_a_new_conversation_while_one_runs_is_a_new_conversation(monkeypatch, tmp_path) -> None:
+    from aibuilder_core.session import start_session
+
+    seen = spawn(monkeypatch, tmp_path)
+    first = start_session(tmp_path)
+    live(monkeypatch)
+
+    second = start_session(tmp_path)
+
+    assert second.session != first.session
+    assert len(seen) == 2
+
+
+def test_forking_the_open_conversation_is_not_already_open(monkeypatch, tmp_path) -> None:
+    """A fork of the live session names the same id and means something else entirely --
+    keep this branch, start another beside it."""
+    from aibuilder_core.session import start_session
+
+    seen = spawn(monkeypatch, tmp_path)
+    start_session(tmp_path, resume="abc-123")
+    live(monkeypatch)
+
+    start_session(tmp_path, resume="abc-123", fork=True)
+
+    assert len(seen) == 2
+    assert "--fork-session" in seen[1]
+
+
+# -- the list of conversations ----------------------------------------------------
+
+
+def test_resuming_a_known_conversation_leaves_it_where_it_was(monkeypatch, tmp_path) -> None:
+    """Reordering on resume makes a switch look exactly like nothing having happened: the
+    chip a person pressed jumps to the front, which is where the active one already was."""
+    from aibuilder_core.session import list_sessions, start_session
+
+    spawn(monkeypatch, tmp_path)
+    first = start_session(tmp_path).session
+    second = start_session(tmp_path).session
+    assert first is not None and second is not None
+
+    before = [item["id"] for item in list_sessions(tmp_path)]
+    start_session(tmp_path, resume=first)
+
+    assert [item["id"] for item in list_sessions(tmp_path)] == before
+    assert before == [second, first]
+
+
+def test_forgetting_drops_the_reference_and_not_the_transcript(monkeypatch, tmp_path) -> None:
+    from aibuilder_core.session import forget_session, list_sessions, start_session
+
+    spawn(monkeypatch, tmp_path)
+    first = start_session(tmp_path).session
+    second = start_session(tmp_path).session
+    assert first is not None and second is not None
+    live(monkeypatch)
+
+    answer = forget_session(tmp_path, first)
+
+    assert [item["id"] for item in list_sessions(tmp_path)] == [second]
+    assert first not in [item["id"] for item in answer.sessions]
+
+
+def test_forgetting_the_open_conversation_closes_it_first(monkeypatch, tmp_path) -> None:
+    """A list entry is the only way back to a session, so dropping it while it ran would
+    leave a process nothing could name."""
+    from aibuilder_core.session import forget_session, session_status, start_session
+
+    spawn(monkeypatch, tmp_path)
+    opened = start_session(tmp_path).session
+    assert opened is not None
+    live(monkeypatch)
+
+    forget_session(tmp_path, opened)
+
+    assert session_status(tmp_path).running is False

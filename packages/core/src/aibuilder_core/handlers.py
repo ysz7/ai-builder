@@ -19,6 +19,7 @@ from aibuilder_core.api import (
     agent_blueprints,
     agent_brief,
     agent_failures,
+    agent_forget,
     agent_open,
     agent_poll,
     agent_record,
@@ -33,6 +34,7 @@ from aibuilder_core.api import (
     mcp_call,
     mcp_inspect,
     read_graph,
+    read_source,
     repair_divergence,
     repairs_available,
     run_build,
@@ -181,6 +183,11 @@ def node_set_title(params: dict[str, Any]) -> dict[str, Any]:
         _required_str(params, "node"),
         _required_str(params, "title"),
     )
+
+
+def node_source_method(params: dict[str, Any]) -> dict[str, Any]:
+    """The code one node carries. Reads a file; runs nothing, imports nothing."""
+    return read_source(_project_of(params), _required_str(params, "node"))
 
 
 def node_set_body(params: dict[str, Any]) -> dict[str, Any]:
@@ -382,6 +389,11 @@ def agent_poll_method(params: dict[str, Any]) -> dict[str, Any]:
     return agent_poll(_project_of(params), offset)
 
 
+def agent_forget_method(params: dict[str, Any]) -> dict[str, Any]:
+    """Forget one conversation. Closes it first when it is the one running."""
+    return agent_forget(_project_of(params), _required_str(params, "session"))
+
+
 def agent_stop_method(params: dict[str, Any]) -> dict[str, Any]:
     return agent_shut(_project_of(params))
 
@@ -450,6 +462,7 @@ HANDLERS: dict[str, Handler] = {
     "snapshot.status": snapshot_status_method,
     "knob.set": knob_set,
     "node.set_title": node_set_title,
+    "node.source": node_source_method,
     "node.set_body": node_set_body,
     "repair.list": repair_list,
     "repair.apply": repair_apply,
@@ -475,6 +488,7 @@ HANDLERS: dict[str, Handler] = {
     "agent.say": agent_say_method,
     "agent.poll": agent_poll_method,
     "agent.stop": agent_stop_method,
+    "agent.forget": agent_forget_method,
     "project.create": project_create,
     "layout.read": layout_read,
     "layout.write": layout_write,

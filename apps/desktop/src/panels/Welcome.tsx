@@ -11,6 +11,7 @@ import { useState } from "react";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 
 import { projectCreate } from "../core/client";
+import { Notice } from "./Notice";
 
 type Props = {
   onOpen: (path: string) => void;
@@ -81,12 +82,16 @@ export function Welcome({ onOpen, recent }: Props) {
           ) : (
             <button className="bp-cta" onClick={() => setNaming(true)}>
               New project
-              <span className="bp-cta-sub">an empty one; the agent writes the first of it</span>
+              <span className="bp-cta-sub">
+                an empty one; the agent writes the first of it
+              </span>
             </button>
           )}
         </div>
 
-        {refused ? <div className="bp-refused">{refused}</div> : null}
+        {refused ? (
+          <Notice tone="refused" label="refused" text={refused} />
+        ) : null}
 
         {recent ? (
           <button className="bp-recent" onClick={() => onOpen(recent)}>

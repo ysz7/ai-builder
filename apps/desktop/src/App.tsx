@@ -16,6 +16,13 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 
+import { Actions } from "./panels/Actions";
+import { Dock } from "./panels/Dock";
+import { Grip } from "./panels/Grip";
+import { Notice } from "./panels/Notice";
+import { Terminal } from "./panels/Terminal";
+import { Code } from "./panels/Code";
+import { Repairs } from "./panels/Repairs";
 import { Canvas } from "./graph/Canvas";
 import { Chat } from "./panels/Chat";
 import { Welcome } from "./panels/Welcome";
@@ -37,6 +44,24 @@ const SETTLE_MS = 400;
  */
 const LAST_PROJECT = "aibuilder.last-project";
 
+/**
+ * How wide the person made the side panes.
+ *
+ * Browser storage for the same reason as the last project: a pane width is a fact about this
+ * window, not about the code, and writing it into the project would put one person's habit
+ * into everybody's repository. Node positions are the opposite case -- they *are* about the
+ * graph -- which is why those go through `layout.write` instead.
+ */
+const PANES = { left: "aibuilder.pane-left", right: "aibuilder.pane-right" };
+
+/** Whatever the canvas must keep, so a pane cannot be dragged over the whole window. */
+const CANVAS_FLOOR = 320;
+
+function widthOf(key: string, fallback: number): number {
+  const raw = Number(localStorage.getItem(key));
+  return Number.isFinite(raw) && raw > 0 ? raw : fallback;
+}
+
 type Load =
   | { status: "idle" }
   | { status: "loading" }
@@ -53,7 +78,9 @@ function relative(file: string, project: string): string {
 }
 
 export default function App() {
-  const [project, setProject] = useState(() => localStorage.getItem(LAST_PROJECT) ?? "");
+  const [project, setProject] = useState(
+    () => localStorage.getItem(LAST_PROJECT) ?? "",
+  );
   const [load, setLoad] = useState<Load>({ status: "idle" });
   const [layout, setLayout] = useState<Layout>({});
   const [selected, setSelected] = useState<string | null>(null);
@@ -63,6 +90,13 @@ export default function App() {
   const [theme, setTheme] = useState<"dark" | "light">("dark");
   /** Files the agent is touching right now. The canvas lights the nodes in them. */
   const [touched, setTouched] = useState<Set<string>>(new Set());
+  /** Which face of the selection is showing: what it is set to, or what it is made of. */
+  const [tab, setTab] = useState<"details" | "code">("details");
+  const [repairing, setRepairing] = useState(false);
+  const [leftWidth, setLeftWidth] = useState(() => widthOf(PANES.left, 216));
+  const [rightWidth, setRightWidth] = useState(() => widthOf(PANES.right, 258));
+  /** A repair the toolchain cannot carry out, on its way to the chat's field. */
+  const [handOver, setHandOver] = useState<string | null>(null);
 
   const pending = useRef<number | null>(null);
   const opened = useRef(false);
@@ -70,6 +104,11 @@ export default function App() {
   useEffect(() => {
     document.documentElement.setAttribute("data-theme", theme);
   }, [theme]);
+
+  useEffect(() => {
+    localStorage.setItem(PANES.left, String(leftWidth));
+    localStorage.setItem(PANES.right, String(rightWidth));
+  }, [leftWidth, rightWidth]);
 
   const open = useCallback(async (path: string, observe: boolean) => {
     if (!path) return;
@@ -80,12 +119,18 @@ export default function App() {
       // The layout is asked for beside the graph, never derived from it: the graph says
       // what exists, the cache says where it was put, and neither answers the other's
       // question.
-      const [graph, stored] = await Promise.all([graphRead(path, observe), layoutRead(path)]);
+      const [graph, stored] = await Promise.all([
+        graphRead(path, observe),
+        layoutRead(path),
+      ]);
       setLayout(stored.layout);
       setLoad({ status: "ready", graph });
       setObserved(observe);
     } catch (error) {
-      setLoad({ status: "failed", message: error instanceof Error ? error.message : String(error) });
+      setLoad({
+        status: "failed",
+        message: error instanceof Error ? error.message : String(error),
+      });
     }
   }, []);
 
@@ -121,7 +166,10 @@ export default function App() {
       setLayout((previous) => {
         // Collapsed and nothing else. A frame has no position to store, and inventing a
         // 0,0 for one is how a collapsed group ends up in the corner of the canvas.
-        const next = { ...previous, [id]: { collapsed: !previous[id]?.collapsed } };
+        const next = {
+          ...previous,
+          [id]: { collapsed: !previous[id]?.collapsed },
+        };
         void layoutWrite(project, next).catch(() => undefined);
         return next;
       });
@@ -165,7 +213,8 @@ export default function App() {
     );
   }
 
-  const node = graph?.graph.nodes.find((candidate) => candidate.id === selected) ?? null;
+  const node =
+    graph?.graph.nodes.find((candidate) => candidate.id === selected) ?? null;
   const reasonFor = (id: string | null) =>
     id ? (graph?.observations[id]?.detail ?? graph?.skipped[id] ?? "") : "";
 
@@ -181,7 +230,11 @@ export default function App() {
           Read
         </button>
         {/* Running the project is an action, never a side effect of looking at it. */}
-        <button className="bp-btn" onClick={() => void open(project, true)} title="runs the project">
+        <button
+          className="bp-btn"
+          onClick={() => void open(project, true)}
+          title="runs the project"
+        >
           Observe
         </button>
 
@@ -192,7 +245,21 @@ export default function App() {
           </span>
         ) : null}
 
-        <button className="bp-btn" onClick={() => setProject("")} title="close this project">
+        {/* Divergence is detected against the snapshot, never by watching files (I-6), so
+            this is a dialog somebody opens rather than something that interrupts them. */}
+        <button
+          className="bp-btn"
+          onClick={() => setRepairing(true)}
+          title="what diverged"
+        >
+          Repair
+        </button>
+
+        <button
+          className="bp-btn"
+          onClick={() => setProject("")}
+          title="close this project"
+        >
           Close
         </button>
         <button
@@ -204,16 +271,33 @@ export default function App() {
       </header>
 
       {load.status === "failed" ? (
-        <div className="bp-failed">{load.message}</div>
+        <Notice
+          tone="failed"
+          label="failed"
+          text={load.message}
+          onClose={() => setLoad({ status: "idle" })}
+        />
       ) : null}
 
       {graph ? (
-        <div className="bp-grid">
+        <div
+          className="bp-grid"
+          style={{ gridTemplateColumns: `${leftWidth}px 1fr ${rightWidth}px` }}
+        >
           <aside className="bp-pane bp-pane-left">
-            <div className="bp-cap">
-              Project <span className="bp-cap-n">{graph.graph.nodes.length}</span>
+            <Grip
+              side="left"
+              min={150}
+              max={() => window.innerWidth - rightWidth - CANVAS_FLOOR}
+              onSize={setLeftWidth}
+            />
+            <div className="bp-pane-scroll">
+              <div className="bp-cap">
+                Project{" "}
+                <span className="bp-cap-n">{graph.graph.nodes.length}</span>
+              </div>
+              <Tree graph={graph} selected={selected} onSelect={setSelected} />
             </div>
-            <Tree graph={graph} selected={selected} onSelect={setSelected} />
           </aside>
 
           <Canvas
@@ -227,34 +311,96 @@ export default function App() {
           />
 
           <aside className="bp-pane bp-pane-right">
-            <Details
-              node={node}
-              reason={reasonFor(selected)}
-              busy={busy}
-              refused={refused}
-              onKnob={onKnob}
+            <Grip
+              side="right"
+              min={190}
+              max={() => window.innerWidth - leftWidth - CANVAS_FLOOR}
+              onSize={setRightWidth}
             />
+            <div className="bp-pane-scroll">
+              <div className="bp-tabs">
+                <button
+                  className={`bp-tab${tab === "details" ? " is-on" : ""}`}
+                  onClick={() => setTab("details")}
+                >
+                  Details
+                </button>
+                <button
+                  className={`bp-tab${tab === "code" ? " is-on" : ""}`}
+                  onClick={() => setTab("code")}
+                  disabled={!node}
+                >
+                  Code
+                </button>
+              </div>
+
+              {tab === "code" && node ? (
+                <Code
+                  project={project}
+                  node={node.id}
+                  onWritten={() => void open(project, observed)}
+                />
+              ) : (
+                <>
+                  <Details
+                    node={node}
+                    reason={reasonFor(selected)}
+                    busy={busy}
+                    refused={refused}
+                    onKnob={onKnob}
+                    onDismiss={() => setRefused(null)}
+                  />
+                  {node ? (
+                    <Actions
+                      project={project}
+                      node={node}
+                      onActed={() => void open(project, observed)}
+                    />
+                  ) : null}
+                </>
+              )}
+            </div>
           </aside>
 
-          <footer className="bp-pane bp-pane-bottom">
-            <Problems graph={graph} onSelect={setSelected} />
-          </footer>
+          <Dock
+            count={graph.diagnostics.length + Object.keys(graph.skipped).length}
+            problems={<Problems graph={graph} onSelect={setSelected} />}
+            terminal={<Terminal project={project} />}
+          />
         </div>
       ) : (
         <div className="bp-empty bp-empty-full">
-          {load.status === "loading" ? "Reading…" : "This project has nothing on its graph yet."}
+          {load.status === "loading"
+            ? "Reading…"
+            : "This project has nothing on its graph yet."}
         </div>
       )}
 
       {/* Always docked, project or not: it is how a project gets its first line of code. */}
       <Chat
         project={project}
-        onTouch={(files) => setTouched(new Set(files.map((file) => relative(file, project))))}
+        onTouch={(files) =>
+          setTouched(new Set(files.map((file) => relative(file, project))))
+        }
         onSettled={() => {
           setTouched(new Set());
           void open(project, observed);
         }}
+        handOver={handOver}
+        onHandedOver={() => setHandOver(null)}
       />
+
+      {repairing ? (
+        <Repairs
+          project={project}
+          onDone={() => void open(project, observed)}
+          onClose={() => setRepairing(false)}
+          onHandOver={(request) => {
+            setHandOver(request);
+            setRepairing(false);
+          }}
+        />
+      ) : null}
     </div>
   );
 }

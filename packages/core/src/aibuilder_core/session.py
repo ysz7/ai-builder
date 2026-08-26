@@ -92,6 +92,8 @@ class SessionResult:
     sessions: tuple[dict[str, Any], ...] = field(default_factory=tuple)
     #: Tokens the last turn carried. Zero until a turn has been taken.
     context: int = 0
+    #: Which model is answering, as the agent itself named it. Empty until it says.
+    model: str = ""
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -105,6 +107,7 @@ class SessionResult:
             "offset": self.offset,
             "sessions": [dict(item) for item in self.sessions],
             "context": self.context,
+            "model": self.model,
         }
 
 
@@ -177,15 +180,58 @@ def list_sessions(project: Path | str) -> tuple[dict[str, Any], ...]:
     return tuple(item for item in stored if isinstance(item, dict))
 
 
-def _remember(project: Path, identifier: str, label: str) -> None:
-    known = [item for item in list_sessions(project) if item.get("id") != identifier]
-    entry = {"id": identifier, "label": label, "at": _now()}
+def _write_sessions(project: Path, entries: list[dict[str, Any]]) -> None:
     # A list that cannot be written costs a convenience, never a session: the conversation
     # is the agent's and exists whether or not we managed to note its id.
     with contextlib.suppress(OSError):
-        _sessions_path(project).write_text(
-            json.dumps([entry, *known][:40], indent=2), encoding="utf-8"
-        )
+        _sessions_path(project).write_text(json.dumps(entries[:40], indent=2), encoding="utf-8")
+
+
+def _remember(project: Path, identifier: str, label: str) -> None:
+    """Note a conversation, or note that a known one was opened again.
+
+    **Resuming is not creating.** Moving a known conversation to the front would reorder the
+    list under the person's hand every time they switched, and since the chips differ only by
+    id, a switch would look exactly like nothing having happened. So a known id keeps its
+    place and its label -- the label says how the conversation *began*, which does not change
+    by continuing it -- and only the time is refreshed.
+    """
+    known = list(list_sessions(project))
+    for index, item in enumerate(known):
+        if item.get("id") == identifier:
+            known[index] = {**item, "at": _now()}
+            _write_sessions(project, known)
+            return
+    _write_sessions(project, [{"id": identifier, "label": label, "at": _now()}, *known])
+
+
+def forget_session(project: Path | str, identifier: str) -> SessionResult:
+    """Drop one conversation from this project's list.
+
+    **It forgets our reference, and nothing else.** The transcript is the agent's, stored
+    where the agent stores it, and this neither reads nor deletes it -- `--resume` with the
+    id would still work for anyone who kept it. Claiming otherwise would be claiming a reach
+    into somebody else's storage that this toolchain deliberately does not have.
+
+    Forgetting the conversation that is running closes it first, because a list entry is the
+    only way back to a session and dropping it while it ran would leave a process nothing
+    could name.
+    """
+    root = Path(project).resolve()
+    state = _read_state(root)
+    if state and str(state.get("session")) == identifier:
+        stop_session(root)
+
+    known = [item for item in list_sessions(root) if item.get("id") != identifier]
+    _write_sessions(root, known)
+    return SessionResult(
+        True,
+        "conversation forgotten",
+        session=_current(root),
+        running=str(root) in _LIVE,
+        available=agent_available()[0],
+        sessions=tuple(known),
+    )
 
 
 def _state_path(project: Path) -> Path:
@@ -263,15 +309,28 @@ def start_session(
         return SessionResult(False, "no agent found on this machine", available=False)
 
     existing = _read_state(root)
-    if existing and _alive(int(existing.get("pid", 0))) and str(root) in _LIVE:
+    live = bool(existing and _alive(int(existing.get("pid", 0))) and str(root) in _LIVE)
+
+    # "Already open" is an answer to **one** question: was this same conversation asked for
+    # again? Anything else -- another session by id, a fork, a new one -- is a deliberate
+    # switch, and answering it with the session that happens to be running is how the
+    # conversation list came to do nothing at all while one was live. The guard against a
+    # button pressed twice belongs to the caller, which knows whether it has one in flight;
+    # here it would have to be a guess about intent, and it guessed wrong.
+    asked_for_the_open_one = (
+        live and existing is not None and not fork and str(existing.get("session")) == resume
+    )
+    if asked_for_the_open_one and resume is not None:
         return SessionResult(
             True,
             "a session is already open",
-            session=str(existing.get("session")),
+            session=resume,
             running=True,
             available=True,
             version=version,
+            sessions=list_sessions(root),
         )
+
     if existing:
         stop_session(root)
 
@@ -390,6 +449,7 @@ def poll_session(project: Path | str, offset: int = 0) -> SessionResult:
 
     events: list[dict[str, Any]] = []
     context = 0
+    model = ""
     for line in chunk.decode("utf-8", errors="replace").splitlines():
         if not line.strip():
             continue
@@ -399,6 +459,7 @@ def poll_session(project: Path | str, offset: int = 0) -> SessionResult:
             continue  # a half-written line; the next poll gets it whole
         events.extend(_read_event(raw))
         context = _context_of(raw) or context
+        model = _model_of(raw) or model
         _correct_identity(root, raw)
 
     process = _LIVE.get(str(root))
@@ -411,8 +472,27 @@ def poll_session(project: Path | str, offset: int = 0) -> SessionResult:
         events=tuple(events),
         offset=here,
         context=context,
+        model=model,
         sessions=list_sessions(root),
     )
+
+
+def _model_of(raw: dict[str, Any]) -> str:
+    """Which model is answering, as the agent named it.
+
+    Asked rather than assumed, and asked of the agent rather than of a model API: the context
+    window a client would draw a fraction against differs by model by a factor of five, and
+    which model the CLI picked is its decision -- taken from its configuration, its account and
+    its flags, none of which we can see. It announces the choice in `init` and repeats it on
+    every message; both are read, because a session resumed mid-stream has no `init` of its own.
+    """
+    if raw.get("type") == "system" and raw.get("subtype") == "init":
+        return str(raw.get("model") or "")
+    if raw.get("type") == "assistant":
+        message = raw.get("message")
+        if isinstance(message, dict):
+            return str(message.get("model") or "")
+    return ""
 
 
 def _context_of(raw: dict[str, Any]) -> int:
@@ -420,8 +500,9 @@ def _context_of(raw: dict[str, Any]) -> int:
 
     Everything the model was sent: the fresh part, plus what was cached and read back. It is
     the agent's own accounting rather than a count of our own, which is the only version that
-    can be right -- and there is **no context window in the stream**, so what this reports is
-    a number and never a percentage. Whoever draws a ring has to say what they divided by.
+    can be right. It is reported as **a number and never a percentage**: the window it would be
+    divided by is not in this event, it is a property of the model -- which `_model_of` reads
+    from the same stream, so that nobody downstream has to assume one.
     """
     usage = raw.get("message", {}).get("usage") if raw.get("type") == "assistant" else None
     usage = usage or (raw.get("usage") if raw.get("type") == "result" else None)
