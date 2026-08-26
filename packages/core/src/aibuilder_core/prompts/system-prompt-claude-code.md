@@ -384,6 +384,12 @@ Write LangGraph exactly as its docs would, then mark it up. Concretely:
 - **Graph assembly is generated-zone.** Building the `StateGraph`, adding nodes, wiring
   edges, compiling, and the entry point that invokes the compiled graph: all `@generated`,
   minimal and mechanical.
+- **Name the entry point `ask(question: str)`, once in the whole project**, and put the
+  reply the person reads in the state's `answer` field (or return the string itself). This
+  is not decoration: the builder lets somebody talk to the agent straight from its node, and
+  it does that by calling `ask` by name. There is no general way to guess it — the state
+  schema is yours, so a sentence cannot be posted into it from outside. Two functions named
+  `ask` and the builder refuses rather than choosing between them.
 - **Knobs live on a settings node** (`kind="langgraph.settings"`) and are used where they
   belong — a step budget passed to `invoke`, a limit read inside a step body. A knob no
   code reads is a control that does nothing.
@@ -403,6 +409,12 @@ Write LangGraph exactly as its docs would, then mark it up. Concretely:
   function inside a carrier — is explicitly marked, normally `@generated()`.
 - **Assembly is generated-zone**: constructing the stages and running a document or a
   question through them in order.
+- **Name the two ways in `answer(question: str) -> str` and `build_index() -> object`**, in
+  the assembly module, and only once in the whole project. These are not decoration: the
+  builder lets a person ask the pipeline a question and hand it documents straight from its
+  node, and it does that by calling these two by name. A pipeline that answers under some
+  other name cannot be talked to at all, and two functions named `answer` make it refuse
+  rather than choose between them.
 - **Write the tests.** No stage can be proven by a call the toolchain invents; the project's
   own tests are the only honest evidence those nodes will ever have.
 

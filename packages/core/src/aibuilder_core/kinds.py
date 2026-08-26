@@ -63,6 +63,25 @@ class NodeKind:
     #: next kind does. A kind with no probe makes no completeness claim at all, which is
     #: honest rather than lenient: nothing has been asked, so nothing is being asserted.
     completeness: str
+    #: How a person talks to this kind, or "" for the kinds nobody can talk to (P17.2).
+    #:
+    #: A conversation is an action on a node (Q18), and **a kind opts in by naming the way
+    #: in** -- never by the toolchain sniffing what a carrier looks like. A kind that has not
+    #: opted in shows no button at all, rather than a button that constructs a class and
+    #: reports its `repr` as an answer.
+    #:
+    #: The value names a calling convention, and each one is somebody else's convention that
+    #: we are following rather than inventing: `langgraph.ask` is the compiled graph asked
+    #: LangGraph's own way, `rag.ask` is the entry point the system prompt requires a
+    #: generated pipeline to expose. A convention with no such guarantee does not belong here.
+    converses: str
+    #: How documents are handed to this kind, or "" for the kinds that hold none (P17.5).
+    #:
+    #: The same relation as `converses` with a different verb, and it opts in the same way:
+    #: indexing is a **write into somebody's store**, so it happens because a person pressed
+    #: a button on a node whose kind said it had one -- never as a consequence of drawing the
+    #: graph, and never on a kind that was merely callable.
+    indexes: str
     #: The observable check this kind dispatches to (`observe.py`, `probe.py`).
     #:
     #: A check proves a node by running it with real input -- a call that needs nothing
@@ -81,6 +100,8 @@ def _kind(
     description: str,
     artifact: tuple[str, ...] = (),
     completeness: str = "",
+    converses: str = "",
+    indexes: str = "",
 ) -> NodeKind:
     return NodeKind(
         name=name,
@@ -88,6 +109,8 @@ def _kind(
         top_level=top_level,
         artifact=artifact,
         completeness=completeness,
+        converses=converses,
+        indexes=indexes,
         check=check,
         description=description,
     )
@@ -140,6 +163,7 @@ REGISTRY: dict[str, NodeKind] = {
             CarrierType.GROUP,
             top_level=True,
             check="graph.compiles",
+            converses="langgraph.ask",
             description="The agent as a whole: a group over its state, steps and routers.",
         ),
         _kind(
@@ -173,6 +197,8 @@ REGISTRY: dict[str, NodeKind] = {
             CarrierType.GROUP,
             top_level=True,
             check="rag.stages_load",
+            converses="rag.ask",
+            indexes="rag.build_index",
             description="The pipeline as a whole: a group over its stages.",
         ),
         _kind(

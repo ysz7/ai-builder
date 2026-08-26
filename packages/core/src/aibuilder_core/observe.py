@@ -28,6 +28,7 @@ import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from aibuilder_core.converse import conversations_held
 from aibuilder_core.environment import Environment, describe_environment
 from aibuilder_core.ir import Graph
 from aibuilder_core.kinds import REGISTRY, CarrierType, lookup, technology_of
@@ -173,6 +174,10 @@ def build_plan(
             {kind.completeness for kind in REGISTRY.values() if kind.completeness}
         ),
         "nodes": nodes,
+        # What a person already proved by talking to a node (P17.4). Handed over as a fact
+        # about what was said, never as a verdict: which evidence wins is decided in
+        # `probe.run_plan` and nowhere else, so this side reads the transcript and stops.
+        "conversations": conversations_held(project),
         "tests": tests_path(project),
         # What the run is happening in. The probe needs it to know when a failing test
         # cannot be attributed to the node that failed it.

@@ -237,6 +237,72 @@ export type InspectResult = {
   missing: string[];
 };
 
+/**
+ * One conversation with a node, in the project's own interpreter (P17.1).
+ *
+ * A conversation is an action **on a node**, never a node of its own (Q18) — so it is
+ * addressed by one, and nothing new appears on the graph. The events are what the project
+ * said, in the order it said it: no history is assembled on this side, because the project
+ * is the one that remembers (Q19).
+ */
+export type TalkResult = {
+  api_version: number;
+  ok: boolean;
+  detail: string;
+  node: string;
+  running: boolean;
+  events: TalkEvent[];
+  offset: number;
+  open: string[];
+};
+
+/** `type` is the project's own word for what happened: ready, asked, answer, failed. */
+export type TalkEvent = {
+  type: string;
+  text: string;
+  detail: string;
+  trace: string;
+};
+
+/** What the store said after a pipeline was handed its documents (P17.5). Never stored. */
+export type IndexResult = {
+  api_version: number;
+  ok: boolean;
+  status: string;
+  detail: string;
+  /** What the store answered `len` with, or "" — never the documents that went in. */
+  held: string;
+};
+
+/**
+ * The commands the project already has (P17.6).
+ *
+ * Asked of npm, never read out of `package.json` (§5.8), and on the graph nowhere: a front
+ * end is run, not modelled, and a node that cannot be red is decoration (Q20).
+ */
+export type CommandList = {
+  api_version: number;
+  ok: boolean;
+  detail: string;
+  commands: { name: string; command: string }[];
+  directory: string;
+};
+
+/** One entry of the node-kind registry. What a client may show comes from here (§5.6). */
+export type NodeKindInfo = {
+  name: string;
+  carriers: string[];
+  top_level: boolean;
+  check: string;
+  /** How a person talks to this kind, or "" for the ones nobody can talk to (P17.2). */
+  converses: string;
+  /** How documents are handed to it, or "" for the kinds that hold no index (P17.5). */
+  indexes: string;
+  description: string;
+};
+
+export type GraphKinds = { api_version: number; kinds: NodeKindInfo[] };
+
 export type BodyWrite = {
   api_version: number;
   written: boolean;

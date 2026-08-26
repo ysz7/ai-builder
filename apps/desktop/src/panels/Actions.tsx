@@ -14,20 +14,38 @@
  * evidence that came back.
  */
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import {
   envDown,
   envUp,
+  graphKinds,
   mcpInspect,
+  ragIndex,
   runCall,
   runStart,
   runStop,
   workStart,
   workStop,
 } from "../core/client";
-import type { GraphNode, InspectResult } from "../core/types";
+import type { GraphNode, InspectResult, NodeKindInfo } from "../core/types";
 import { Notice } from "./Notice";
+import { Talk } from "./Talk";
+
+/**
+ * The registry, asked once and kept for the window's lifetime.
+ *
+ * Which verbs a node has is the **registry's** answer (§5.6): a kind opts in by naming a way
+ * in, and a kind that has not opted in shows no button at all rather than one that does
+ * nothing. Keeping a list of kind names here instead would be a second opinion about the
+ * registry, and it would go stale the first time somebody added a kind to it.
+ */
+let registry: Promise<NodeKindInfo[]> | null = null;
+
+function kinds(): Promise<NodeKindInfo[]> {
+  registry ??= graphKinds().then((answer) => answer.kinds);
+  return registry;
+}
 
 type Props = { project: string; node: GraphNode; onActed: () => void };
 
@@ -44,6 +62,21 @@ export function Actions({ project, node, onActed }: Props) {
   const [path, setPath] = useState("/");
   const [method, setMethod] = useState("GET");
   const [offered, setOffered] = useState<InspectResult | null>(null);
+  const [kind, setKind] = useState<NodeKindInfo | null>(null);
+
+  useEffect(() => {
+    let current = true;
+    // A registry that cannot be read costs the extra verbs, never the panel: a node with no
+    // entry simply has no way in, which is the same answer as a kind that did not opt in.
+    void kinds()
+      .then((all) => {
+        if (current) setKind(all.find((entry) => entry.name === node.kind) ?? null);
+      })
+      .catch(() => undefined);
+    return () => {
+      current = false;
+    };
+  }, [node.kind]);
 
   async function act(label: string, run: () => Promise<Said>) {
     setBusy(label);
@@ -165,12 +198,36 @@ export function Actions({ project, node, onActed }: Props) {
     );
   }
 
-  if (rows.length === 0) return null;
+  if (kind?.indexes) {
+    rows.push(
+      // A write into somebody's store, so it is a press and never a consequence of drawing
+      // the graph (P11) -- and what it says is what the store said, not what went in.
+      <div className="bp-acts" key="index">
+        {button("Index", async () => {
+          const answer = await ragIndex(project, node.id);
+          return say(
+            answer.ok,
+            answer.held ? `${answer.detail} · holds ${answer.held}` : answer.detail,
+          );
+        })}
+      </div>,
+    );
+  }
+
+  const talking = kind?.converses ? (
+    <Talk project={project} node={node.id} onAnswered={onActed} />
+  ) : null;
+
+  if (rows.length === 0 && talking === null) return null;
 
   return (
     <>
-      <div className="bp-cap">Actions</div>
+      {rows.length > 0 ? <div className="bp-cap">Actions</div> : null}
       {rows}
+
+      {/* A conversation is an action on this node, and it is drawn where its other verbs
+          are -- there is nothing new on the graph, and nothing new to select (Q18). */}
+      {talking}
 
       {offered ? (
         <div className="bp-offered">

@@ -1979,3 +1979,36 @@ textarea {
 .bp-gear:hover {
   color: var(--fg);
 }
+
+/* -- talking to a node (P17.3) ------------------------------------------------
+   The chat's own shapes, in the node's pane: what changes is who is speaking, not what a
+   conversation looks like. Bounded, because the pane is a column and a transcript that grew
+   without limit would push the node's other verbs off the bottom of it. */
+.bp-talk-log {
+  max-height: 320px;
+  overflow: auto;
+  padding: 8px 2px;
+}
+
+/* -- the commands the project already has (P17.6) ----------------------------- */
+.bp-cmds {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px 10px;
+  max-height: 180px;
+  overflow: auto;
+}
+.bp-cmd {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.bp-cmd-line {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

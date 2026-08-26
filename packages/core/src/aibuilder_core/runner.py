@@ -35,6 +35,7 @@ from __future__ import annotations
 import contextlib
 import json
 import os
+import shutil
 import signal
 import socket
 import subprocess
@@ -53,6 +54,12 @@ from aibuilder_core.verdict import Observation
 __all__ = [
     "ArtifactRun",
     "CallResult",
+    "CommandList",
+    "command_status",
+    "project_commands",
+    "read_command_logs",
+    "start_command",
+    "stop_command",
     "RunState",
     "artifact_nodes",
     "ServerResult",
@@ -60,6 +67,7 @@ __all__ = [
     "call_endpoint",
     "call_server_tool",
     "check_artifacts",
+    "index_pipeline",
     "inspect_server",
     "read_logs",
     "read_worker_logs",
@@ -87,6 +95,11 @@ WORKER_LOG_PATH = Path(".aibuilder") / "worker.log"
 
 #: How long to wait for the application to answer on its port before calling it a failure.
 STARTUP_TIMEOUT_S = 30
+
+#: How long indexing may take. Generous, and deliberately so: embedding a corpus is the one
+#: verb here that does real work rather than asking a question, and a store that is slow is
+#: not a store that is broken.
+INDEX_TIMEOUT_S = 600
 
 #: What this session started, so that ending the session ends them. Sessions are the unit:
 #: a process started here is not left behind for someone to find in a month. The `Popen` is
@@ -889,6 +902,261 @@ def _server_result(answer: dict[str, Any]) -> ServerResult:
         allowed=tuple(str(name) for name in answer.get("allowed") or []),
         missing=tuple(str(name) for name in answer.get("missing") or []),
     )
+
+
+# -- handing a pipeline its documents (P17.5) -------------------------------------
+#
+# The same relation as a conversation with a different verb (Q18): an action on the
+# pipeline's node, not a node of its own. It is a **write into somebody's store**, so it is
+# a press and never a consequence of drawing the graph -- and what it reports is what the
+# store said afterwards, never the documents that went in.
+
+
+def index_pipeline(project: Path | str, node: str, python: str | None = None) -> dict[str, Any]:
+    """Rebuild the index behind one pipeline node, in the project's own interpreter.
+
+    Refused by **kind** before anything is imported, the way a conversation is (P17.2): a
+    verb that ran whatever happened to be callable would build something and call it an
+    index. A kind opts in by naming a way in, and a kind that has not shows no button.
+    """
+    from aibuilder_core.kinds import REGISTRY
+    from aibuilder_core.project import read_project
+
+    root = Path(project).resolve()
+    found = next((item for item in read_project(root).nodes if item.id == node), None)
+    if found is None:
+        return {
+            "ok": False,
+            "status": "broken",
+            "detail": f"this project has no node called {node}",
+            "held": "",
+        }
+
+    kind = REGISTRY.get(found.kind)
+    if kind is None or not kind.indexes:
+        return {
+            "ok": False,
+            "status": "unproven",
+            "detail": f"a {found.kind} holds no index to hand documents to",
+            "held": "",
+        }
+
+    environment = describe_environment(root, python)
+    answer = _ask_project(
+        root,
+        environment.interpreter,
+        _project_modules(root),
+        "index",
+        timeout_s=INDEX_TIMEOUT_S,
+        carrier=found.carrier,
+        how=kind.indexes,
+    )
+    return {
+        "ok": bool(answer.get("ok", False)),
+        "status": str(answer.get("status", "unproven")),
+        "detail": str(answer.get("detail") or "the project gave no readable answer"),
+        "held": str(answer.get("held", "")),
+    }
+
+
+# -- the commands the project already has, and running one (P17.6, P17.7) ---------
+#
+# A front end is **run, not modelled** (Q20). It goes on no graph, carries no knob and turns
+# no colour, because there is no claim about it this toolchain could prove -- and a node that
+# cannot be red is decoration. What a person gets instead is the list of commands the project
+# already has, and a choice.
+#
+# **Asked, never read.** `npm pkg get scripts` answers in JSON, which is npm's own account of
+# its own file; parsing `package.json` here would be a second opinion about somebody else's
+# format, and §5.8 forbids it. It is also one level better than `npm run` with no arguments,
+# whose output is prose written for a person to look at.
+#
+# Running one is the same shape as everything else that runs (P13): a record on disk, output
+# polled with an offset the caller keeps, nothing pushed, and nothing started implicitly.
+# **Each process is started on its own** -- there is no button that brings the application up,
+# because the order and the readiness of somebody else's topology is knowledge we do not have,
+# and one fallen link would redden all of it (Q20).
+
+#: The command process's record and log, siblings of `run.json` and `worker.json`.
+COMMAND_STATE_PATH = Path(".aibuilder") / "command.json"
+COMMAND_LOG_PATH = Path(".aibuilder") / "command.log"
+
+#: How long npm may take to answer what scripts a project has.
+NPM_TIMEOUT_S = 30
+
+#: How long a started command is watched before it is called started. Not a readiness check
+#: and deliberately not dressed as one: a dev server publishes a port it chose itself and
+#: announces it in prose, and asking a log what it means is exactly the parsing §5.8 forbids.
+#: What this window proves is the one thing that can be proven without asking anybody -- that
+#: the command did not fall over on the spot.
+COMMAND_SETTLE_S = 1.5
+
+
+@dataclass(frozen=True)
+class CommandList:
+    """The commands a project already has, as the tool that owns them reported them."""
+
+    ok: bool
+    detail: str
+    #: name -> the command line the project gave that name to. Never edited, never inferred.
+    commands: tuple[tuple[str, str], ...] = ()
+    #: Where they were asked for, relative to the project. "" is the project root.
+    directory: str = ""
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "ok": self.ok,
+            "detail": self.detail,
+            "commands": [{"name": name, "command": line} for name, line in self.commands],
+            "directory": self.directory,
+        }
+
+
+def _within(project: Path, directory: str) -> Path | None:
+    """Where to ask, refusing anything outside the project.
+
+    The directory is **passed in, never discovered**: nothing here goes looking for a folder
+    because it is called `web` or `frontend`, for the same reason a blueprint catalog is
+    never discovered -- what the tool offers must not depend on the shape of somebody's disk.
+    """
+    root = project.resolve()
+    here = (root / directory).resolve() if directory else root
+    try:
+        here.relative_to(root)
+    except ValueError:
+        return None
+    return here if here.is_dir() else None
+
+
+def project_commands(project: Path | str, directory: str = "") -> CommandList:
+    """What `npm run` would run here, asked of npm itself (P17.6).
+
+    Nothing about this goes on the graph. It is a list and a choice.
+    """
+    root = Path(project).resolve()
+    here = _within(root, directory)
+    if here is None:
+        return CommandList(False, f"there is no directory {directory!r} in this project")
+    if shutil.which("npm") is None:
+        return CommandList(False, "npm is not installed, so this project has no commands to ask")
+
+    try:
+        completed = subprocess.run(  # noqa: S603 -- the command is ours, built above
+            ["npm", "pkg", "get", "scripts"],  # noqa: S607 -- npm is resolved on PATH above
+            cwd=here,
+            capture_output=True,
+            text=True,
+            timeout=NPM_TIMEOUT_S,
+        )
+    except (subprocess.TimeoutExpired, OSError) as exc:
+        return CommandList(False, f"npm could not be asked: {exc}", directory=directory)
+
+    if completed.returncode != 0:
+        detail = (completed.stderr or "").strip().splitlines()
+        return CommandList(
+            False,
+            detail[-1] if detail else "npm found nothing to answer about here",
+            directory=directory,
+        )
+
+    try:
+        answered = json.loads(completed.stdout.strip() or "{}")
+    except json.JSONDecodeError:
+        return CommandList(False, "npm gave no readable answer", directory=directory)
+
+    if not isinstance(answered, dict) or not answered:
+        return CommandList(True, "this project declares no commands", directory=directory)
+
+    commands = tuple(
+        (str(name), str(line)) for name, line in sorted(answered.items()) if isinstance(line, str)
+    )
+    return CommandList(True, f"{len(commands)} command(s)", commands, directory)
+
+
+def start_command(project: Path | str, command: str, directory: str = "") -> RunResult:
+    """Run one of the commands the project already has, and leave it running (P17.7).
+
+    Refused unless the project itself declares it: this verb runs `npm run <name>`, and the
+    name has to be one npm just said exists. A verb that ran an arbitrary string would be a
+    shell with a button on it, and nothing about the graph would be true of what it started.
+
+    No verdict attaches to what comes back, because 17.6 put nothing on the graph to colour.
+    """
+    root = Path(project).resolve()
+    existing = _read_state(root, COMMAND_STATE_PATH)
+    if existing and _alive(existing.pid):
+        return RunResult(True, f"{existing.target} is already running", existing)
+    if existing:
+        _forget(root, COMMAND_STATE_PATH)
+
+    listed = project_commands(root, directory)
+    if not listed.ok:
+        return RunResult(False, listed.detail)
+    if command not in {name for name, _ in listed.commands}:
+        offered = ", ".join(name for name, _ in listed.commands) or "none"
+        return RunResult(False, f"this project declares no command {command!r} (it has: {offered})")
+
+    here = _within(root, directory)
+    assert here is not None  # `project_commands` already refused anything else
+    log = root / COMMAND_LOG_PATH
+    log.parent.mkdir(parents=True, exist_ok=True)
+    npm = shutil.which("npm") or "npm"
+    line = (npm, "run", command)
+
+    with log.open("wb") as sink:
+        process = subprocess.Popen(  # noqa: S603 -- the command is npm plus a name npm listed
+            line,
+            cwd=here,
+            stdout=sink,
+            stderr=subprocess.STDOUT,
+            stdin=subprocess.DEVNULL,
+            start_new_session=True,
+        )
+
+    time.sleep(COMMAND_SETTLE_S)
+    if process.poll() is not None:
+        return RunResult(
+            False,
+            f"{command} exited immediately ({process.returncode}); see the logs",
+            logs=_tail(log),
+        )
+
+    state = RunState(
+        pid=process.pid,
+        port=0,  # what it publishes is its own business, and asking a log would be parsing
+        target=f"npm run {command}",
+        command=line,
+        started_at=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+    )
+    _write_state(root, state, COMMAND_STATE_PATH)
+    _STARTED_HERE[(str(root), COMMAND_STATE_PATH.name)] = process
+    return RunResult(True, f"{state.target} is running", state, logs=_tail(log))
+
+
+def command_status(project: Path | str) -> RunResult:
+    """Is it still running? Asked of the operating system, never of a memory.
+
+    Only that question, and deliberately only that one: whether a dev server is *ready* is a
+    claim about somebody else's process that nothing here can honestly make.
+    """
+    root = Path(project).resolve()
+    state = _read_state(root, COMMAND_STATE_PATH)
+    if state is None:
+        return RunResult(False, "nothing is running")
+    if not _alive(state.pid):
+        _forget(root, COMMAND_STATE_PATH)
+        return RunResult(False, "nothing is running (the recorded process is gone)")
+    return RunResult(True, f"{state.target} is running", state)
+
+
+def stop_command(project: Path | str) -> RunResult:
+    """Stop it -- this session's, or one a crashed session left behind."""
+    return _stop_recorded(Path(project).resolve(), COMMAND_STATE_PATH)
+
+
+def read_command_logs(project: Path | str, offset: int = 0) -> RunResult:
+    """What it has printed since `offset`. Polled, exactly like the application's."""
+    return read_logs(project, offset, COMMAND_LOG_PATH)
 
 
 def stop_everything_started_here() -> None:

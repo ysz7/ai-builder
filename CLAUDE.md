@@ -10,7 +10,7 @@ AST-addressable markup layer (`bp`); a parser projects that into a graph; edits 
 written back through the syntax tree with `libcst`. Assembled applications deploy as plain Python
 projects with no runtime dependency on the builder.
 
-Current state: **P0–P15 done.** The UI is delivered separately. Window opens, React Flow renders a
+Current state: **P0–P17 done.** Window opens, React Flow renders a
 scaffold canvas, Rust reaches the Python core over NDJSON, the five `bp` primitives exist and are proven inert, and
 `strip` removes the markup with the example service answering identically before and after. The parser
 turns an annotated project into a graph IR, the static gate judges it into addressed diagnostics, and
@@ -23,7 +23,9 @@ again, stripped copy proving the same things — and the same loop closes on a L
 RAG pipeline, which is what makes the mechanism general rather than FastAPI-shaped. Everything around
 the application is there too: the environment it runs in (P11), the vocabulary for a database, a vector
 store and docker (P12), the ability to run and stop things (P13), background work (P14), and MCP with
-the three roles that wear the word "tool" (P15). What is left is the UI.
+the three roles that wear the word "tool" (P15), the workspace itself (P16), and using what was built
+(P17): a pipeline handed its documents, an agent talked to from its own node with the answer counting
+as evidence, and the project's own commands run from inside the builder.
 
 **"Python only" bounds the application's source language, not the project's contents.** Docker files,
 compose, migrations and environment configuration are part of a production project and in scope. Such
@@ -84,13 +86,45 @@ kept rather than tidied on sight, because an agent rewriting a file makes a node
 Which is also why there is no `node.create` (Q14): a node exists because code declares it, so "add a
 node" is a generation, and the new ids are a set difference the canvas computes rather than guesses.
 
-**Three things spawn a process, and they are one shape** — `run.*` (uvicorn), `work.*` (celery) and
-`agent.*` (Claude Code, in `session.py`). All three follow P13: nothing is pushed, output is polled
-with an offset the caller keeps, a record on disk survives a crash, and **nothing starts implicitly**.
-The agent being one of them is Q16 amended about *where the process lives* and nothing else: the core
-still holds no HTTP client to a model and no SDK, and every decision about what to ask and what to do
-with the answer stays in the application. The agent is denied writes to `.aibuilder/`, because an agent
-that could edit the snapshot would be forging evidence about itself.
+**Four things spawn a process, and they are one shape** — `run.*` (uvicorn), `work.*` (celery),
+`agent.*` (Claude Code, in `session.py`) and `talk.*` (the project's own interpreter, in
+`converse.py`). All four follow P13: nothing is pushed, output is polled with an offset the caller
+keeps, a record on disk survives a crash, and **nothing starts implicitly**. The agent being one of
+them is Q16 amended about *where the process lives* and nothing else: the core still holds no HTTP
+client to a model and no SDK, and every decision about what to ask and what to do with the answer
+stays in the application. The agent is denied writes to `.aibuilder/`, because an agent that could
+edit the snapshot would be forging evidence about itself.
+
+**Talking to what the project built is an action on a node, never a node of its own** (Q18, P17). A
+chat surface has no carrier, so by I-3 it is not a node, and a node the canvas draws rather than the
+code declares is the second source of truth I-1 forbids — the precedent is P15's `mcp.inspect` and
+`mcp.call`, which are buttons on the server's node. The message reaches the project through
+`probe.py` as a new `ask`, **never by spawning the project's CLI and reading its output** (§5.8) and
+never over HTTP, which would make an agent with no web layer require one. **The project remembers the
+conversation** — its checkpointer, its `thread_id` — which is why the process lives between questions
+rather than being spawned per turn, and why nothing about the dialogue is stored on this side.
+
+**A conversation is evidence, and it expires with the conversation** (P17.4). A person asked a real
+question, a real process ran the real code, something real came back: that is I-5 satisfied at the rank
+`run.call` has. It ranks **below the project's tests and above the direct checks**, and that ranking
+lives in `probe.run_plan` and nowhere else — the plan carries what was said, the probe decides what it
+is worth. Nothing is written down: `conversations_held` reads the open transcript, so closing a
+conversation takes its claim with it and a colleague who has not talked to the node sees `unproven`
+rather than somebody else's yesterday. A conversation nobody had proves nothing.
+
+**Indexing is the same relation with a different verb** (P17.5). A kind opts in through
+`NodeKind.indexes`, the entry point is the `build_index()` the system prompt already guarantees, and
+what comes back is **what the store said afterwards** — its type and what it answers `len` with, never
+the documents that went in. `len` is Python's own question; reaching past it into a library's internals
+would need a `kinds.TECHNOLOGIES` entry, which RAG deliberately does not have.
+
+**A front end is run, not modelled** (Q20, P17.6–17.7). No nodes, no knobs, no verdict: one verb to
+start it, one to stop it, and a node that cannot be red would be decoration. The commands are **asked
+of `npm pkg get scripts`**, never read out of `package.json` (§5.8), the directory to ask in is passed
+in rather than discovered, and only a command the project itself declares can be run — a verb that ran
+an arbitrary string would be a shell with a button on it. `command.*` is the fifth process of the P13
+shape and it waits for nothing: a dev server picks its own port and announces it in prose, so the start
+proves only that it did not fall over, and the panel says "running", never "ready".
 
 **A contract edge and a flow are different relations** (Q9). Edges are types crossing a boundary, read
 from signatures. Flow — a pipeline's order, an agent's wiring — is never parsed out of assembly code
@@ -148,6 +182,11 @@ uv run python -m aibuilder_core failures examples/fastapi-service
 uv run python -m aibuilder_core work examples/service-with-worker
 uv run python -m aibuilder_core inspect examples/mcp-agent agent.notes
 uv run python -m aibuilder_core tool examples/mcp-agent agent.notes summarize '{"text": "One. Two."}'
+uv run python -m aibuilder_core index examples/rag-pipeline rag
+uv run python -m aibuilder_core commands .
+uv run python -m aibuilder_core command . web:dev
+uv run python -m aibuilder_core command-logs .
+uv run python -m aibuilder_core command-stop .
 ```
 
 The brief is the agent's whole input: the system prompt verbatim, the request (a sentence, a
@@ -203,10 +242,12 @@ diagnostic record and the closed catalogue of codes; `verdict.py` is the single 
 `api.py` assembles the versioned payload and declares its schema; `observe.py` runs the observable
 checks and `probe.py` contains them; `snapshot.py` records the outline of the last valid state and
 `reconcile.py` diffs against it; `writer.py` writes back through `libcst`; `repair.py` acts on
-divergences; `environment.py` is the project's interpreter and the services it declares; `artifacts.py` finds the
+divergences; `converse.py` talks to a node in the project's own interpreter;
+`environment.py` is the project's interpreter and the services it declares; `artifacts.py` finds the
 nodes carried by a file and `project.py` composes them with the parser's; `runner.py` checks them, runs
 the application and holds the verbs that act on it — including the two that reach a consumed MCP
-server; `agent.py` assembles the agent's brief and records its failure modes and `catalog.py`
+server, the one that hands a pipeline its documents, and the ones that list and run the project's own
+commands; `agent.py` assembles the agent's brief and records its failure modes and `catalog.py`
 reads the blueprint catalog; `strip.py` removes the markup.
 
 `apply_repair` takes `resolution` as a required keyword with no default. That is not style: §9 case 2
@@ -331,12 +372,15 @@ agent's system prompt used to and was moved into the package for exactly that re
 
 - [architecture.md](docs/architecture.md) — the v0 spec. Sections 2 (invariants) and 7 (the parser as
   a gate) carry everything load-bearing.
-- [roadmap.md](docs/roadmap.md) — phases P0–P16 with per-phase acceptance criteria and the invariant
-  each protects. Current position: P16, the UI, starting with its design.
+- [roadmap.md](docs/roadmap.md) — **P17 only**. P0–P16 are finished and their record was cleared
+  from the file deliberately, so what is left is the work in front of us; the reasoning behind the
+  decisions those phases settled is in open-questions.md, which is where it belonged anyway. Current
+  position: 17.1–17.7 are done — P17 closes with a person able to index a pipeline, talk to what they
+  built, and run the project's front end without a terminal at any point.
 - [design.md](docs/design.md) — the plan for the UI: what the design has to answer, which method sits
   behind each surface, and what it may not invent. Written before the design, so the design can be
   judged against it.
-- [open-questions.md](docs/open-questions.md) — nothing open; Q1–Q17 are settled, with the reasoning
+- [open-questions.md](docs/open-questions.md) — nothing open; Q1–Q20 are settled, with the reasoning
   kept in the log.
   **Read before starting any phase**, and add an entry the moment two documents disagree — an
   unrecorded conflict is worse than an open one.

@@ -41,12 +41,15 @@ import sys
 import threading
 import time
 import traceback
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from types import CodeType, FrameType
 from typing import Any
 
 __all__ = [
     "TestRun",
+    "build_pipeline_index",
+    "converse",
     "environment_note",
     "locate_application",
     "call_server_tool",
@@ -1254,6 +1257,15 @@ def run_plan_with_flow(
             results.append(Result(node["id"], "tests.exercised", status, detail))
             continue
 
+        # Below the tests and above the direct checks (Q19). A conversation is a real run
+        # with real input a person chose, so it proves more than a call this toolchain could
+        # invent -- and less than a suite somebody wrote knowing the domain. The ranking is
+        # here, in this loop, because there is exactly one place it is allowed to be.
+        spoken = _conversation(node, plan)
+        if spoken is not None:
+            results.append(spoken)
+            continue
+
         results.append(_direct(context, node, run, plan))
 
     flow = observed_flow(run) + wired_flow(context, nodes)
@@ -1350,6 +1362,32 @@ def wired_flow(context: Context, nodes: list[dict[str, Any]]) -> list[dict[str, 
         if source in by_name and target in by_name:
             flow.append({"source": by_name[source], "target": by_name[target], "origin": "wiring"})
     return flow
+
+
+def _conversation(node: dict[str, Any], plan: dict[str, Any]) -> Result | None:
+    """What talking to this node proved, or `None` when nobody has talked to it (P17.4).
+
+    Nothing is invented and nothing is remembered: the plan carries only the conversations
+    that are open right now, so a node nobody asked anything stays unproven rather than
+    keeping a claim from a dialogue that is over.
+    """
+    held = plan.get("conversations") or {}
+    said = held.get(node["id"]) if isinstance(held, dict) else None
+    if not isinstance(said, dict) or not said.get("status"):
+        return None
+
+    status = str(said["status"])
+    detail = str(said.get("detail", ""))
+    # The same attribution rule the tests and the direct checks follow: a node that broke
+    # while the services it needs were down did not necessarily break.
+    if status == FAILED and (note := environment_note(plan)):
+        return Result(
+            node["id"],
+            "talk.answered",
+            SKIPPED,
+            f"{detail}{note} -- a failure cannot be attributed to the node",
+        )
+    return Result(node["id"], "talk.answered", status, detail)
 
 
 def _direct(context: Context, node: dict[str, Any], run: TestRun, plan: dict[str, Any]) -> Result:
@@ -1666,6 +1704,237 @@ def _rendered(answered: Any) -> str:
     return "\n".join(parts) if parts else str(answered)
 
 
+def build_pipeline_index(plan: dict[str, Any]) -> dict[str, Any]:
+    """Hand the pipeline its documents, and report what the store said afterwards (P17.5).
+
+    The same relation as a conversation with a different verb (Q18): an action on the
+    pipeline's node, dispatched by **kind** rather than by what a carrier looks like, and
+    reached through the entry point the system prompt guarantees -- `build_index()`, in the
+    pipeline's own package, unique there or refused.
+
+    It is a **write into somebody's store**, which is why it happens only because a person
+    pressed a button and never as a consequence of drawing a graph (P11).
+
+    What comes back is what the store will say about itself: its own type, and how much it
+    holds **if it answers `len`** -- Python's own question, never a library's internals, and
+    never the number of documents we sent it. Counting the input would report our side of
+    the exchange as though it were the store's, which is the one thing this verb must not do.
+    """
+    context, failure = _import_all(plan)
+    if failure is not None:
+        return {"ok": False, "status": "broken", "detail": failure, "held": ""}
+
+    if str(plan.get("how", "")) != "rag.build_index":
+        return {
+            "ok": False,
+            "status": "unproven",
+            "detail": f"{plan.get('how', '') or 'this node'} holds no index to write into",
+            "held": "",
+        }
+
+    build, refusal = _named_in(context, plan, "build_index")
+    if build is None:
+        return {"ok": False, "status": "unproven", "detail": refusal, "held": ""}
+
+    try:
+        store = build()
+    except Exception as exc:
+        return {
+            "ok": False,
+            "status": "broken",
+            "detail": f"indexing raised {type(exc).__name__}: {exc}",
+            "held": "",
+        }
+
+    return {
+        "ok": True,
+        "status": "green",
+        "detail": f"the pipeline indexed into {type(store).__name__}",
+        "held": _held_by(store),
+    }
+
+
+def _held_by(store: Any) -> str:
+    """How much the store admits to holding, asked with Python's own question.
+
+    `len` and nothing else. Reaching past it -- `store.store`, `_collection`, a client's
+    count endpoint -- is reading a library's internals, and the rule for that is an entry in
+    `kinds.TECHNOLOGIES` with the release it was written against. RAG deliberately has none,
+    so a store that does not answer `len` is reported as not having said, which is true.
+    """
+    try:
+        return str(len(store))
+    except Exception:
+        # A store that refuses the question is reported as not having answered it. Data,
+        # never an exception: this verb's job is to say what happened, not to raise.
+        return ""
+
+
+def converse(plan: dict[str, Any]) -> int:
+    """Hold one conversation with a node, for as long as questions keep arriving (P17.1).
+
+    Unlike every other `ask` here, this one does not answer and exit -- it stays. The reason
+    is Q19: the conversation's memory belongs to the project, and an in-memory checkpointer
+    only works while the memory is still there. A process per turn would quietly turn a
+    dialogue into a series of strangers.
+
+    Two streams, and keeping them apart is the same rule this codebase already applies one
+    level up: **stdout carries the events and nothing else.** The project may print whatever
+    it likes, and it would otherwise land in the middle of a line the reader is parsing --
+    so `sys.stdout` is pointed at stderr for the duration, and events go to the handle that
+    was stdout when we started.
+    """
+    events = sys.stdout
+    sys.stdout = sys.stderr  # the project's own printing, kept out of the stream
+
+    def emit(event: dict[str, Any]) -> None:
+        events.write(json.dumps(event) + "\n")
+        events.flush()
+
+    context, failure = _import_all(plan)
+    if failure is not None:
+        emit({"type": "failed", "detail": failure})
+        return 0
+
+    dotted = str(plan.get("carrier", ""))
+    ask, refusal = _way_in(context, plan)
+    if ask is None:
+        emit({"type": "failed", "detail": refusal})
+        return 0
+
+    emit({"type": "ready", "detail": refusal, "carrier": dotted})
+
+    # End of input is the end of the conversation: the caller closes the pipe to say so,
+    # which is why nothing here needs a "goodbye" message anybody could forget to send.
+    for line in sys.stdin:
+        if not line.strip():
+            continue
+        try:
+            asked = json.loads(line)
+        except json.JSONDecodeError:
+            emit({"type": "failed", "detail": "that question did not arrive whole"})
+            continue
+        text = str(asked.get("say", ""))
+        emit({"type": "asked", "text": text})
+        try:
+            answered = ask(text)
+        except Exception as exc:
+            # Data, never an exception: a question that broke the agent is an answer about
+            # the agent, and the conversation survives it.
+            emit(
+                {
+                    "type": "failed",
+                    "detail": f"{type(exc).__name__}: {exc}",
+                    "traceback": traceback.format_exc(),
+                }
+            )
+            continue
+        emit({"type": "answer", "text": _spoken(answered)})
+    return 0
+
+
+#: Which conversation each way in is, keyed by the `converses` value its kind names.
+#:
+#: A kind opts in by naming one of these; nothing here is chosen by looking at a carrier.
+#: Both are **somebody else's convention that we follow**, never one we invented: the first
+#: is LangGraph's own way of being asked, the second is the entry point the system prompt
+#: requires a generated pipeline to expose -- which is what makes it a guarantee rather than
+#: a hope.
+def _way_in(context: Context, plan: dict[str, Any]) -> tuple[Callable[[str], Any] | None, str]:
+    """How this node is asked things, or why it cannot be.
+
+    Dispatch is by **kind**, never by sniffing what the carrier looks like. Calling anything
+    that happens to be callable would cheerfully construct a class and report its `repr` as
+    an answer -- which is the failure mode this codebase minds most: a button that appears to
+    work.
+    """
+    how = str(plan.get("how", ""))
+    dotted = str(plan.get("carrier", ""))
+
+    # Why an entry point and not the compiled graph itself: **the library cannot be asked
+    # this.** A LangGraph agent's input is the project's own state contract -- the reference
+    # agent's schema requires `question`, `notes`, `answer` and `steps`, all four -- so there
+    # is no general way to put a sentence into it, and picking a field would be a guess
+    # dressed as a convention. Measured before it was decided: the obvious
+    # `{"messages": [...]}` shape failed against the reference project with `KeyError`.
+    if how == "langgraph.ask":
+        entry, refusal = _named_in(context, plan, "ask")
+        return entry, refusal or "the agent is listening"
+
+    if how == "rag.ask":
+        entry, refusal = _named_in(context, plan, "answer")
+        return entry, refusal or "the pipeline is listening"
+
+    if how:
+        return None, f"{how!r} is not a conversation this build knows how to have"
+    return None, f"{dotted or 'this node'} is not something that can be talked to"
+
+
+def _named_in(
+    context: Context, plan: dict[str, Any], name: str
+) -> tuple[Callable[..., Any] | None, str]:
+    """The one function the node exposes under an agreed name, or why there is not one.
+
+    An agreed name and not a guessed one: the system prompt requires it, so generated code
+    has it, and a project that answers under some other name is told so rather than being
+    searched for something that looks close enough.
+
+    Looked for **inside the node**, not across the project. The probe imports every module
+    there is, tests included (Q12), and a suite that defines its own `ask` helper is
+    ordinary -- searching the whole project would find it and refuse over a collision that
+    is not one. The node is a group whose carrier is a package, so what belongs to it is
+    what lives under that package.
+
+    **Unique or nothing** within it, the same rule `_compiled_graph` follows. A tie is not
+    something to break by import order: an agent's step function and its entry point can
+    easily share a word, and calling the wrong one would look like an answer.
+    """
+    inside = str(plan.get("carrier", ""))
+    found = {
+        f"{module_name}.{name}": candidate
+        for module_name, module in context.modules.items()
+        if module_name == inside or module_name.startswith(f"{inside}.")
+        if callable(candidate := getattr(module, name, None))
+    }
+    if not found:
+        return None, f"{inside or 'this project'} exposes no {name}(question) to ask"
+    if len(found) > 1:
+        return None, f"more than one {name}(question) in {inside}: {', '.join(sorted(found))}"
+    return next(iter(found.values())), ""
+
+
+def _spoken(answered: Any) -> str:
+    """What the node said, as text.
+
+    Deliberately shallow: a string is the answer, and anything else is shown as what it is.
+    Reaching into an object to find "the real" answer means knowing a library's shape, and
+    that knowledge belongs to a node kind (P17.2) rather than to this generic path -- where
+    it would be a guess dressed as a convention.
+    """
+    if isinstance(answered, str):
+        return answered
+    # LangGraph answers with the whole state, and the reply is the last message in it. Read
+    # rather than assumed: a state with no messages is shown as what it is instead of being
+    # reached into until something comes out.
+    if isinstance(answered, dict):
+        # The entry point may hand back the whole final state rather than a sentence, and the
+        # prompt names the field the reply is in. Read, not searched for: a state without it
+        # is shown as what it is instead of being rummaged through until a string falls out.
+        reply = answered.get("answer")
+        if isinstance(reply, str) and reply:
+            return reply
+
+    messages = answered.get("messages") if isinstance(answered, dict) else None
+    if isinstance(messages, list) and messages:
+        last = messages[-1]
+        content = getattr(last, "content", None)
+        if content is None and isinstance(last, dict):
+            content = last.get("content")
+        if isinstance(content, str):
+            return content
+    return repr(answered)
+
+
 def _import_all(plan: dict[str, Any]) -> tuple[Context, str | None]:
     """The project's modules, imported once. The first failure is the whole answer."""
     sys.path.insert(0, plan["project"])
@@ -1680,7 +1949,17 @@ def _import_all(plan: dict[str, Any]) -> tuple[Context, str | None]:
 
 
 def main() -> int:
-    plan = json.loads(sys.stdin.read())
+    # The first line, not the whole stream: every other ask sends one line and closes, but a
+    # conversation keeps its stdin open for the questions that follow, and reading to end of
+    # input would wait for a close that is never coming.
+    first = sys.stdin.readline()
+    try:
+        plan = json.loads(first)
+    except json.JSONDecodeError:
+        plan = json.loads(first + sys.stdin.read())
+
+    if plan.get("ask") == "converse":
+        return converse(plan)
     if plan.get("ask") == "application":
         print(json.dumps(locate_application(plan)))
         return 0
@@ -1692,6 +1971,9 @@ def main() -> int:
         return 0
     if plan.get("ask") == "mcp_inspect":
         print(json.dumps(inspect_server(plan)))
+        return 0
+    if plan.get("ask") == "index":
+        print(json.dumps(build_pipeline_index(plan)))
         return 0
     if plan.get("ask") == "mcp_call":
         print(json.dumps(call_server_tool(plan)))

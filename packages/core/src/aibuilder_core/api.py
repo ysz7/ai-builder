@@ -17,6 +17,13 @@ from typing import Any
 
 from aibuilder_core.agent import build_brief, failure_modes, record_outcome
 from aibuilder_core.catalog import find_catalog, list_blueprints
+from aibuilder_core.converse import (
+    poll_talk,
+    say_to,
+    start_talk,
+    stop_talk,
+    talk_status,
+)
 from aibuilder_core.diagnostics import Code, describe
 from aibuilder_core.environment import describe_environment, start_services, stop_services
 from aibuilder_core.gate import GateMode, check_graph
@@ -31,13 +38,19 @@ from aibuilder_core.runner import (
     build_image,
     call_endpoint,
     call_server_tool,
+    command_status,
+    index_pipeline,
     inspect_server,
+    project_commands,
+    read_command_logs,
     read_logs,
     read_worker_logs,
     run_status,
     start_application,
+    start_command,
     start_worker,
     stop_application,
+    stop_command,
     stop_worker,
     worker_status,
 )
@@ -73,14 +86,17 @@ __all__ = [
     "ENVIRONMENT_SCHEMA",
     "GRAPH_API_VERSION",
     "RUN_CALL_SCHEMA",
+    "TALK_SCHEMA",
     "RUN_SCHEMA",
     "SERVICE_SCHEMA",
     "GRAPH_KINDS_SCHEMA",
     "GRAPH_READ_SCHEMA",
     "LAYOUT_READ_SCHEMA",
     "LAYOUT_WRITE_SCHEMA",
+    "COMMAND_LIST_SCHEMA",
     "MCP_CALL_SCHEMA",
     "MCP_INSPECT_SCHEMA",
+    "RAG_INDEX_SCHEMA",
     "SNAPSHOT_STATUS_SCHEMA",
     "SNAPSHOT_TAKE_SCHEMA",
     "REPAIR_APPLY_SCHEMA",
@@ -92,6 +108,11 @@ __all__ = [
     "run_call",
     "run_logs",
     "run_start",
+    "talk_close",
+    "talk_open",
+    "talk_poll",
+    "talk_say",
+    "talk_state",
     "run_state",
     "run_stop",
     "services_start",
@@ -116,8 +137,14 @@ __all__ = [
     "create_new_project",
     "layout_get",
     "layout_put",
+    "command_list",
+    "command_logs",
+    "command_start",
+    "command_state",
+    "command_stop",
     "mcp_call",
     "mcp_inspect",
+    "rag_index",
     "read_graph",
     "snapshot_status",
     "take_project_snapshot",
@@ -257,6 +284,29 @@ RUN_SCHEMA = {
     "offset": "int",
 }
 
+#: The `talk.*` payload: one conversation with a node, in the project's own interpreter.
+#:
+#: The fourth instance of the P13 shape after `run.*`, `work.*` and `agent.*` -- which is why
+#: it carries an offset and not a stream: the wire is one answer per request, and nothing is
+#: ever pushed. What a conversation *is* belongs to the project (Q19): the events here are
+#: what the project said, in the order it said it, and no history is assembled on this side.
+TALK_SCHEMA = {
+    "api_version": "int",
+    "ok": "bool",
+    "detail": "str",
+    # The node being talked to. A conversation is an action **on a node**, never a node of
+    # its own (Q18) -- so it is addressed by one and there is nothing new on the graph.
+    "node": "str",
+    "running": "bool",
+    # What the project said, normalised into one shape. `type` is the probe's own word for
+    # what happened -- `ready`, `asked`, `answer`, `failed` -- and every event carries all
+    # four fields, so a reader never has to ask whether a key is there before looking.
+    "events": [{"type": "str", "text": "str", "detail": "str", "trace": "str"}],
+    "offset": "int",
+    # Which nodes have a conversation open here.
+    "open": ["str"],
+}
+
 #: The `run.call` payload: what the running application answered when it was called.
 RUN_CALL_SCHEMA = {
     "api_version": "int",
@@ -321,6 +371,34 @@ MCP_CALL_SCHEMA = {
     "status": "str",
     "detail": "str",
     "result": "str",
+}
+
+#: The `command.list` payload: the commands the project already has (P17.6).
+#:
+#: Nothing here is on the graph and nothing here has a verdict (Q20): a front end is run, not
+#: modelled, and what a person gets is a list the tool itself produced and a choice. The list
+#: is npm's own answer about npm's own file -- asked, never read (§5.8).
+COMMAND_LIST_SCHEMA = {
+    "api_version": "int",
+    "ok": "bool",
+    "detail": "str",
+    "commands": [{"name": "str", "command": "str"}],
+    # Where they were asked for, relative to the project. Passed in by the caller and never
+    # discovered: what the tool offers must not depend on the shape of somebody's disk.
+    "directory": "str",
+}
+
+#: The `rag.index` payload: what the store said after the pipeline was handed its documents.
+#:
+#: `held` is what the store answered `len` with, or "" when it does not answer that question
+#: -- never the number of documents that went in (P17.5). Reporting our own side of the
+#: exchange as though it were the store's is the one thing this verb must not do.
+RAG_INDEX_SCHEMA = {
+    "api_version": "int",
+    "ok": "bool",
+    "status": "str",
+    "detail": "str",
+    "held": "str",
 }
 
 #: The `layout.read` payload: where the person put things (Q13).
@@ -420,6 +498,13 @@ GRAPH_KINDS_SCHEMA = {
             "carriers": ["str"],
             "top_level": "bool",
             "check": "str",
+            # How a person talks to this kind, or "" for the ones nobody can talk to. This
+            # is what decides whether a node gets the button at all -- so a client shows one
+            # because the registry said so, never because a carrier looked conversational.
+            "converses": "str",
+            # And whether it holds an index somebody can hand documents to (P17.5). Same
+            # rule as `converses`: the button exists because the registry named a way in.
+            "indexes": "str",
             "description": "str",
         }
     ],
@@ -681,6 +766,31 @@ def run_logs(project: Path | str, offset: int = 0) -> dict[str, Any]:
     return {"api_version": GRAPH_API_VERSION, **read_logs(project, offset).as_dict()}
 
 
+def talk_open(project: Path | str, node: str, python: str | None = None) -> dict[str, Any]:
+    """Open a conversation with one node. Never implicit -- somebody pressed a button (P11)."""
+    return {"api_version": GRAPH_API_VERSION, **start_talk(project, node, python).as_dict()}
+
+
+def talk_say(project: Path | str, node: str, text: str) -> dict[str, Any]:
+    """Ask one thing. What comes back arrives through `talk.poll`, never through here."""
+    return {"api_version": GRAPH_API_VERSION, **say_to(project, node, text).as_dict()}
+
+
+def talk_poll(project: Path | str, node: str, offset: int = 0) -> dict[str, Any]:
+    """What the node has said since `offset`. The caller keeps the offset it was given."""
+    return {"api_version": GRAPH_API_VERSION, **poll_talk(project, node, offset).as_dict()}
+
+
+def talk_state(project: Path | str) -> dict[str, Any]:
+    """Which nodes have a conversation open. Reads; starts nothing."""
+    return {"api_version": GRAPH_API_VERSION, **talk_status(project).as_dict()}
+
+
+def talk_close(project: Path | str, node: str) -> dict[str, Any]:
+    """Close one conversation -- this sidecar's, or one a crashed sidecar left behind."""
+    return {"api_version": GRAPH_API_VERSION, **stop_talk(project, node).as_dict()}
+
+
 def run_call(project: Path | str, path: str = "/", method: str = "GET") -> dict[str, Any]:
     """Call the running application: the verb a person pressing a route node wants."""
     return {"api_version": GRAPH_API_VERSION, **call_endpoint(project, path, method).as_dict()}
@@ -738,6 +848,37 @@ def mcp_call(
         "api_version": GRAPH_API_VERSION,
         **call_server_tool(project, node, tool, arguments, python),
     }
+
+
+def command_list(project: Path | str, directory: str = "") -> dict[str, Any]:
+    """The commands this project already has, asked of npm itself (P17.6)."""
+    return {"api_version": GRAPH_API_VERSION, **project_commands(project, directory).as_dict()}
+
+
+def command_start(project: Path | str, command: str, directory: str = "") -> dict[str, Any]:
+    """Run one of them and leave it running. Each process is started on its own (Q20)."""
+    started = start_command(project, command, directory)
+    return {"api_version": GRAPH_API_VERSION, **started.as_dict()}
+
+
+def command_state(project: Path | str) -> dict[str, Any]:
+    """Is it still running? That question and no other -- readiness is not ours to claim."""
+    return {"api_version": GRAPH_API_VERSION, **command_status(project).as_dict()}
+
+
+def command_logs(project: Path | str, offset: int = 0) -> dict[str, Any]:
+    """What it has printed since `offset`. Polled by the caller, never pushed (P13)."""
+    return {"api_version": GRAPH_API_VERSION, **read_command_logs(project, offset).as_dict()}
+
+
+def command_stop(project: Path | str) -> dict[str, Any]:
+    """Stop it -- this session's, or one a crashed session left behind."""
+    return {"api_version": GRAPH_API_VERSION, **stop_command(project).as_dict()}
+
+
+def rag_index(project: Path | str, node: str, python: str | None = None) -> dict[str, Any]:
+    """Hand the pipeline its documents (P17.5). A press, never a consequence of reading."""
+    return {"api_version": GRAPH_API_VERSION, **index_pipeline(project, node, python)}
 
 
 def run_build(project: Path | str) -> dict[str, Any]:
@@ -1034,6 +1175,8 @@ def describe_kinds() -> dict[str, Any]:
                 "carriers": sorted(carrier.value for carrier in kind.carriers),
                 "top_level": kind.top_level,
                 "check": kind.check,
+                "converses": kind.converses,
+                "indexes": kind.indexes,
                 "description": kind.description,
             }
             for kind in sorted(REGISTRY.values(), key=lambda kind: kind.name)

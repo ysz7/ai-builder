@@ -47,9 +47,15 @@ from aibuilder_core.api import (
     agent_brief,
     agent_failures,
     agent_record,
+    command_list,
+    command_logs,
+    command_start,
+    command_state,
+    command_stop,
     environment_status,
     mcp_call,
     mcp_inspect,
+    rag_index,
     repair_divergence,
     repairs_available,
     run_call,
@@ -69,6 +75,9 @@ from aibuilder_core.api import (
     write_knob,
 )
 from aibuilder_core.catalog import CATALOG_ENV
+from aibuilder_core.converse import (
+    close_everything_started_here as close_every_conversation_started_here,
+)
 from aibuilder_core.gate import check_graph, summarize
 from aibuilder_core.handlers import dispatch
 from aibuilder_core.observe import run_observations
@@ -136,8 +145,11 @@ def serve_forever() -> int:
     finally:
         stop_everything_started_here()
         # A session is the sidecar's lifetime (Q16): ending here ends the agent too, or a
-        # closed window leaves somebody's agent running with nothing to talk to.
+        # closed window leaves somebody's agent running with nothing to talk to. The same
+        # is true of a conversation with a node: its pipe dies with this process, so a
+        # survivor could be stopped but never spoken to again (P17.1).
         close_everything_started_here()
+        close_every_conversation_started_here()
     log("stdin closed, exiting")
     return 0
 
@@ -486,6 +498,50 @@ def run_mcp_call_cmd(project: Path, node: str, tool: str, raw: str) -> int:
     return 0 if result["ok"] else 1
 
 
+def run_commands_cmd(project: Path, directory: str) -> int:
+    """The commands the project already has, as npm reported them (P17.6)."""
+    result = command_list(project, directory)
+    print(result["detail"])
+    for entry in result["commands"]:
+        print(f"  {entry['name']} -- {entry['command']}")
+    return 0 if result["ok"] else 1
+
+
+def run_command_start_cmd(project: Path, command: str, directory: str) -> int:
+    result = command_start(project, command, directory)
+    print(result["detail"])
+    if result["logs"]:
+        print(result["logs"])
+    return 0 if result["ok"] else 1
+
+
+def run_command_status_cmd(project: Path) -> int:
+    result = command_state(project)
+    print(result["detail"])
+    return 0 if result["ok"] else 1
+
+
+def run_command_logs_cmd(project: Path) -> int:
+    result = command_logs(project)
+    print(result["logs"] if result["ok"] else result["detail"], end="")
+    return 0 if result["ok"] else 1
+
+
+def run_command_stop_cmd(project: Path) -> int:
+    result = command_stop(project)
+    print(result["detail"])
+    return 0 if result["ok"] else 1
+
+
+def run_index_cmd(project: Path, node: str) -> int:
+    """Hand a pipeline its documents and print what the store said afterwards (P17.5)."""
+    result = rag_index(project, node)
+    print(f"{result['status']}: {result['detail']}")
+    if result["held"]:
+        print(f"the store holds {result['held']}")
+    return 0 if result["ok"] else 1
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="aibuilder-core", description=__doc__)
     sub = parser.add_subparsers(dest="command")
@@ -604,6 +660,30 @@ def build_parser() -> argparse.ArgumentParser:
     inspect_cmd.add_argument("project", type=Path)
     inspect_cmd.add_argument("node", help="the id of the mcp.server node to connect to")
 
+    commands_cmd = sub.add_parser("commands", help="the commands this project already has")
+    commands_cmd.add_argument("project", type=Path)
+    commands_cmd.add_argument("--in", dest="directory", default="", help="a directory to ask in")
+
+    command_run = sub.add_parser("command", help="run one of those commands and leave it running")
+    command_run.add_argument("project", type=Path)
+    # `name`, not `command`: the subparser's own dest is `command`, and a positional with
+    # the same name would quietly overwrite which subcommand was asked for.
+    command_run.add_argument("name", help="the name of a command the project declares")
+    command_run.add_argument("--in", dest="directory", default="", help="a directory to run in")
+
+    command_status_cmd = sub.add_parser("command-status", help="is that command still running?")
+    command_status_cmd.add_argument("project", type=Path)
+
+    command_logs_cmd = sub.add_parser("command-logs", help="what that command has printed")
+    command_logs_cmd.add_argument("project", type=Path)
+
+    command_stop_cmd = sub.add_parser("command-stop", help="stop that command")
+    command_stop_cmd.add_argument("project", type=Path)
+
+    index_cmd = sub.add_parser("index", help="hand a RAG pipeline its documents")
+    index_cmd.add_argument("project", type=Path)
+    index_cmd.add_argument("node", help="the id of the rag.pipeline node to index into")
+
     tool_cmd = sub.add_parser("tool", help="call one tool on a consumed MCP server")
     tool_cmd.add_argument("project", type=Path)
     tool_cmd.add_argument("node")
@@ -675,6 +755,18 @@ def main(argv: list[str] | None = None) -> int:
         return run_work_stop_cmd(parsed.project)
     if parsed.command == "inspect":
         return run_inspect_cmd(parsed.project, parsed.node)
+    if parsed.command == "commands":
+        return run_commands_cmd(parsed.project, parsed.directory)
+    if parsed.command == "command":
+        return run_command_start_cmd(parsed.project, parsed.name, parsed.directory)
+    if parsed.command == "command-status":
+        return run_command_status_cmd(parsed.project)
+    if parsed.command == "command-logs":
+        return run_command_logs_cmd(parsed.project)
+    if parsed.command == "command-stop":
+        return run_command_stop_cmd(parsed.project)
+    if parsed.command == "index":
+        return run_index_cmd(parsed.project, parsed.node)
     if parsed.command == "tool":
         return run_mcp_call_cmd(parsed.project, parsed.node, parsed.tool, parsed.arguments)
 

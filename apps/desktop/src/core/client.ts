@@ -64,7 +64,10 @@ export function ping(echo?: string): Promise<PingResult> {
 import type {
   BodyWrite,
   CallResult,
+  CommandList,
+  GraphKinds,
   GraphRead,
+  IndexResult,
   InspectResult,
   Layout,
   LayoutRead,
@@ -73,6 +76,7 @@ import type {
   RepairList,
   RunResult,
   ServiceResult,
+  TalkResult,
   WriteResult,
 } from "./types";
 
@@ -299,6 +303,98 @@ export function workStart(project: string): Promise<RunResult> {
 
 export function workStop(project: string): Promise<RunResult> {
   return coreRequest<RunResult>("work.stop", { project });
+}
+
+/**
+ * The node-kind registry.
+ *
+ * Which buttons a node gets is the **registry's** answer, not a list of kind names kept in
+ * the front end: a kind opts in by naming a way in, and a kind that has not opted in shows
+ * no button at all rather than one that does nothing (P17.2).
+ */
+export function graphKinds(): Promise<GraphKinds> {
+  return coreRequest<GraphKinds>("graph.kinds", {});
+}
+
+// -- talking to what the project built (P17) ---------------------------------
+//
+// The same shape as `run.*`, `work.*` and `agent.*`: nothing is pushed, the answer is polled
+// with an offset this side keeps, and nothing starts implicitly (P11, P13).
+
+/** Open a conversation with one node. Never implicit — somebody pressed a button. */
+export function talkOpen(project: string, node: string): Promise<TalkResult> {
+  return coreRequest<TalkResult>("talk.open", { project, node });
+}
+
+/** Ask one thing. What comes back arrives through `talkPoll`, never from here. */
+export function talkSay(
+  project: string,
+  node: string,
+  text: string,
+): Promise<TalkResult> {
+  return coreRequest<TalkResult>("talk.say", { project, node, text });
+}
+
+export function talkPoll(
+  project: string,
+  node: string,
+  offset: number,
+): Promise<TalkResult> {
+  return coreRequest<TalkResult>("talk.poll", { project, node, offset });
+}
+
+export function talkState(project: string): Promise<TalkResult> {
+  return coreRequest<TalkResult>("talk.state", { project });
+}
+
+export function talkClose(project: string, node: string): Promise<TalkResult> {
+  return coreRequest<TalkResult>("talk.close", { project, node });
+}
+
+/**
+ * Hand a pipeline its documents (P17.5).
+ *
+ * A write into somebody's store, so it happens because a person pressed it and never as a
+ * consequence of drawing the graph. What comes back is what the store said afterwards.
+ */
+export function ragIndex(project: string, node: string): Promise<IndexResult> {
+  return coreRequest<IndexResult>("rag.index", { project, node });
+}
+
+// -- the commands the project already has, and running one (P17.6, P17.7) ----
+
+export function commandList(
+  project: string,
+  directory = "",
+): Promise<CommandList> {
+  return coreRequest<CommandList>("command.list", { project, directory });
+}
+
+export function commandStart(
+  project: string,
+  command: string,
+  directory = "",
+): Promise<RunResult> {
+  return coreRequest<RunResult>("command.start", {
+    project,
+    command,
+    directory,
+  });
+}
+
+export function commandState(project: string): Promise<RunResult> {
+  return coreRequest<RunResult>("command.state", { project });
+}
+
+export function commandLogs(
+  project: string,
+  offset: number,
+): Promise<RunResult> {
+  return coreRequest<RunResult>("command.logs", { project, offset });
+}
+
+export function commandStop(project: string): Promise<RunResult> {
+  return coreRequest<RunResult>("command.stop", { project });
 }
 
 export function mcpInspect(

@@ -21,6 +21,7 @@ import { Dock } from "./panels/Dock";
 import { Grip } from "./panels/Grip";
 import { Notice } from "./panels/Notice";
 import { Terminal } from "./panels/Terminal";
+import { Commands } from "./panels/Commands";
 import { Code } from "./panels/Code";
 import { Observe } from "./panels/Observe";
 import { Repairs } from "./panels/Repairs";
@@ -397,6 +398,13 @@ export default function App() {
                 id: "terminal",
                 label: "Terminal",
                 content: <Terminal project={project} />,
+              },
+              {
+                // The commands the project already has (P17.6). A face and not a node:
+                // a front end is run, not modelled, and nothing here turns a colour (Q20).
+                id: "commands",
+                label: "Commands",
+                content: <Commands project={project} />,
               },
             ]}
           />

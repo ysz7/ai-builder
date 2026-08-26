@@ -33,6 +33,11 @@ from aibuilder_core.api import (
     agent_shut,
     agent_sign_in,
     agent_sign_out,
+    command_list,
+    command_logs,
+    command_start,
+    command_state,
+    command_stop,
     create_new_project,
     describe_kinds,
     environment_status,
@@ -40,6 +45,7 @@ from aibuilder_core.api import (
     layout_put,
     mcp_call,
     mcp_inspect,
+    rag_index,
     read_graph,
     read_source,
     repair_divergence,
@@ -54,6 +60,11 @@ from aibuilder_core.api import (
     services_stop,
     snapshot_status,
     take_project_snapshot,
+    talk_close,
+    talk_open,
+    talk_poll,
+    talk_say,
+    talk_state,
     work_logs,
     work_start,
     work_state,
@@ -325,6 +336,45 @@ def run_logs_method(params: dict[str, Any]) -> dict[str, Any]:
     return run_logs(_project_of(params), offset)
 
 
+def talk_open_method(params: dict[str, Any]) -> dict[str, Any]:
+    """Open a conversation with one node, in the project's own interpreter (P17.1).
+
+    Addressed by node, because a conversation is an action **on a node** and never a node of
+    its own (Q18): there is nothing new on the graph to address it by.
+    """
+    return talk_open(
+        _project_of(params),
+        _required_str(params, "node"),
+        _optional_str(params, "python") or None,
+    )
+
+
+def talk_say_method(params: dict[str, Any]) -> dict[str, Any]:
+    """Ask one thing. The answer arrives through `talk.poll`, not through this call."""
+    return talk_say(
+        _project_of(params), _required_str(params, "node"), _required_str(params, "text")
+    )
+
+
+def talk_poll_method(params: dict[str, Any]) -> dict[str, Any]:
+    """Poll one conversation. The caller keeps the offset it was last given (P13)."""
+    offset = params.get("offset", 0)
+    if not isinstance(offset, int) or isinstance(offset, bool):
+        raise ProtocolError("invalid_params", "'offset' must be a number")
+
+    return talk_poll(_project_of(params), _required_str(params, "node"), offset)
+
+
+def talk_state_method(params: dict[str, Any]) -> dict[str, Any]:
+    """Which nodes have a conversation open. A read: it starts nothing (P11)."""
+    return talk_state(_project_of(params))
+
+
+def talk_close_method(params: dict[str, Any]) -> dict[str, Any]:
+    """Close one conversation -- this sidecar's, or one a crashed sidecar left behind."""
+    return talk_close(_project_of(params), _required_str(params, "node"))
+
+
 def run_call_method(params: dict[str, Any]) -> dict[str, Any]:
     """Call the running application and hand back what it said."""
     return run_call(
@@ -533,6 +583,46 @@ def mcp_call_method(params: dict[str, Any]) -> dict[str, Any]:
     )
 
 
+def command_list_method(params: dict[str, Any]) -> dict[str, Any]:
+    """The commands the project already has (P17.6). Nothing here goes on the graph."""
+    return command_list(_project_of(params), _optional_str(params, "directory") or "")
+
+
+def command_start_method(params: dict[str, Any]) -> dict[str, Any]:
+    """Run one of them. Each process is started on its own; there is no "bring it all up"."""
+    return command_start(
+        _project_of(params),
+        _required_str(params, "command"),
+        _optional_str(params, "directory") or "",
+    )
+
+
+def command_state_method(params: dict[str, Any]) -> dict[str, Any]:
+    """Is it still running? A read: it starts nothing (P11)."""
+    return command_state(_project_of(params))
+
+
+def command_logs_method(params: dict[str, Any]) -> dict[str, Any]:
+    """Poll its output. The caller keeps the offset it was last given (P13)."""
+    offset = params.get("offset", 0)
+    if not isinstance(offset, int) or isinstance(offset, bool):
+        raise ProtocolError("invalid_params", "'offset' must be a number")
+
+    return command_logs(_project_of(params), offset)
+
+
+def command_stop_method(params: dict[str, Any]) -> dict[str, Any]:
+    """Stop it -- this session's, or one a crashed session left behind."""
+    return command_stop(_project_of(params))
+
+
+def rag_index_method(params: dict[str, Any]) -> dict[str, Any]:
+    """Hand the pipeline its documents. A write into somebody's store, so: a press (P17.5)."""
+    return rag_index(
+        _project_of(params), _required_str(params, "node"), _optional_str(params, "python")
+    )
+
+
 def graph_kinds(params: dict[str, Any]) -> dict[str, Any]:
     """The node-kind registry, so a client can pick shapes without guessing."""
     return describe_kinds()
@@ -562,6 +652,11 @@ HANDLERS: dict[str, Handler] = {
     "run.status": run_status_method,
     "run.logs": run_logs_method,
     "run.call": run_call_method,
+    "talk.open": talk_open_method,
+    "talk.say": talk_say_method,
+    "talk.poll": talk_poll_method,
+    "talk.state": talk_state_method,
+    "talk.close": talk_close_method,
     "run.build": run_build_method,
     "work.start": work_start_method,
     "work.stop": work_stop_method,
@@ -585,6 +680,12 @@ HANDLERS: dict[str, Handler] = {
     "layout.write": layout_write,
     "mcp.inspect": mcp_inspect_method,
     "mcp.call": mcp_call_method,
+    "rag.index": rag_index_method,
+    "command.list": command_list_method,
+    "command.start": command_start_method,
+    "command.state": command_state_method,
+    "command.logs": command_logs_method,
+    "command.stop": command_stop_method,
 }
 
 
