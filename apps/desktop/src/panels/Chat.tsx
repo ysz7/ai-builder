@@ -30,6 +30,8 @@ import {
   agentStart,
 } from "../core/client";
 import { Markdown } from "../code/markdown";
+import { Menu } from "./Menu";
+import type { Placed } from "./Menu";
 import { Step } from "./Step";
 import { Notice } from "./Notice";
 import type { Account, AgentEvent, AgentSessionRef } from "../core/client";
@@ -128,6 +130,7 @@ export function Chat({
   const [naming, setNaming] = useState<string | null>(null);
   /** Whose account a turn would spend. Asked of the agent; never stored here. */
   const [who, setWho] = useState<Account | null>(null);
+  const [menu, setMenu] = useState<Placed>(null);
   /**
    * The answer as it is being written.
    *
@@ -461,6 +464,26 @@ export function Chat({
             </span>
             {/* Closing by hand as well as by looking away: a panel that only closes when
                 attention moves cannot be put away while attention stays here. */}
+            {/* Whose account a turn spends. It was invisible before, and the agent runs on
+                whatever `claude auth login` left on this machine -- so the application has
+                to say it rather than let a person assume. */}
+            {who?.signed_in ? (
+              <button
+                className="bp-who"
+                title={`${who.method} · ${who.organisation} · click to sign out`}
+                onClick={() => {
+                  void attempt(() => agentSignOut()).then(
+                    (told) => told && setWho(told),
+                  );
+                }}
+              >
+                {who.email || who.method}
+                {who.plan ? (
+                  <span className="bp-who-plan">{who.plan}</span>
+                ) : null}
+              </button>
+            ) : null}
+
             <button
               className="bp-icon"
               onClick={() => setOpen(false)}
@@ -497,10 +520,30 @@ export function Chat({
                   ) : (
                     <button
                       className="bp-sess-open"
-                      title={`${session.id} · ${session.at} · double-click to rename`}
+                      title={`${session.id} · ${session.at}`}
                       disabled={connecting}
                       onClick={() => void begin(session.id)}
                       onDoubleClick={() => setNaming(session.id)}
+                      onContextMenu={(event) => {
+                        // Where a person looks for rename and delete. The double-click still
+                        // renames, but nothing announced it, so it was a secret.
+                        event.preventDefault();
+                        setMenu({
+                          x: event.clientX,
+                          y: event.clientY,
+                          items: [
+                            {
+                              label: "Rename",
+                              run: () => setNaming(session.id),
+                            },
+                            {
+                              label: "Delete",
+                              destructive: true,
+                              run: () => void forget(session.id),
+                            },
+                          ],
+                        });
+                      }}
                     >
                       {session.label}
                       <span className="bp-sess-id">
@@ -605,6 +648,8 @@ export function Chat({
         </div>
       ) : null}
 
+      <Menu at={menu} onClose={() => setMenu(null)} />
+
       {blocked ? (
         <Notice
           tone="blocked"
@@ -620,6 +665,26 @@ export function Chat({
             <div className="bp-chat-absent">
               No agent on this machine — install Claude Code.
             </div>
+            <Toggle open={open} onToggle={() => setOpen(!open)} />
+          </div>
+        ) : who !== null && !who.signed_in ? (
+          // Nobody is signed in, so there is nothing to connect *to*. The button that starts
+          // a session would spawn an agent that immediately asks for credentials, which is a
+          // worse way to find out.
+          <div className="bp-chat-row">
+            <button
+              className="bp-chat-connect"
+              disabled={connecting}
+              onClick={() => {
+                setConnecting(true);
+                void attempt(() => agentSignIn())
+                  .then((told) => told && setWho(told))
+                  .finally(() => setConnecting(false));
+              }}
+              title="opens the agent's own sign-in page in your browser"
+            >
+              {connecting ? "Waiting for the browser…" : "Sign in to Claude"}
+            </button>
             <Toggle open={open} onToggle={() => setOpen(!open)} />
           </div>
         ) : !running ? (

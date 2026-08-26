@@ -59,6 +59,15 @@ __all__ = [
 #: Beside the run and worker records. Tooling state; delete it and the project is unchanged.
 AGENT_STATE_PATH = Path(".aibuilder") / "session.json"
 #: The raw stream, one JSON object per line, exactly as the agent wrote it.
+#: Where a conversation's stream is kept, one file per conversation.
+#:
+#: **Per conversation and not per project.** One file, truncated on every `agent.start`, meant
+#: that switching conversations destroyed the transcript of the one being left: the agent
+#: keeps its own, ours was gone, and "go back to that conversation" showed an empty panel.
+LOGS_PATH = Path(".aibuilder") / "conversations"
+
+#: The log of a project with no session on record. Kept for exactly that case -- reading a
+#: stream that no `agent.start` produced -- and never written to by a session.
 AGENT_LOG_PATH = Path(".aibuilder") / "session.log"
 #: The conversations this project has had. A list of ids the agent owns, not a transcript --
 #: what was said lives in the agent's own store, and this is only how to ask for it again.
@@ -358,11 +367,22 @@ def forget_session(project: Path | str, identifier: str) -> SessionResult:
     """
     root = Path(project).resolve()
     state = _read_state(root)
+    # A fork that has not taken a turn yet still writes under a key of its own, because the
+    # agent has not named it. Forgetting it has to remove that file too, or it stays on disk
+    # under a name nothing will ever look for again.
+    spawned_as = str(state.get("log") or "") if state else ""
     if state and str(state.get("session")) == identifier:
         stop_session(root)
+        if spawned_as and spawned_as != identifier:
+            with contextlib.suppress(OSError):
+                _log_for(root, spawned_as).unlink(missing_ok=True)
 
     known = [item for item in list_sessions(root) if item.get("id") != identifier]
     _write_sessions(root, known)
+    # Forgetting is where a transcript is actually deleted. Nothing else removes one: a
+    # conversation keeps what was said until somebody says otherwise.
+    with contextlib.suppress(OSError):
+        _log_for(root, identifier).unlink(missing_ok=True)
     return SessionResult(
         True,
         "conversation forgotten",
@@ -371,6 +391,24 @@ def forget_session(project: Path | str, identifier: str) -> SessionResult:
         available=agent_available()[0],
         sessions=tuple(known),
     )
+
+
+def _log_for(project: Path, key: str) -> Path:
+    return project / LOGS_PATH / f"{key}.log"
+
+
+def _current_log(project: Path) -> Path | None:
+    """The log of the session on record here.
+
+    Falls back to the single-file log for a project that has none: a stream written by
+    something other than `agent.start` is still a stream, and reading it is not a guess.
+    """
+    state = _read_state(project)
+    key = str(state.get("log") or "") if state else ""
+    if key:
+        return _log_for(project, key)
+    legacy = project / AGENT_LOG_PATH
+    return legacy if legacy.is_file() else None
 
 
 def _state_path(project: Path) -> Path:
@@ -474,9 +512,17 @@ def start_session(
         stop_session(root)
 
     identifier = resume or str(uuid.uuid4())
-    log = root / AGENT_LOG_PATH
+
+    # **A fork must not write into the log of the conversation it forks.** It spawns under
+    # that conversation's id -- the agent gives it a new one only later -- so keying the file
+    # by the id in hand would open the original's transcript and truncate it, destroying the
+    # very thing a fork exists to keep. A key of its own, renamed when the identity is
+    # corrected, is the only ordering that is safe at the moment the process starts.
+    key = str(uuid.uuid4()) if fork else identifier
+    log = _log_for(root, key)
     log.parent.mkdir(parents=True, exist_ok=True)
-    log.write_bytes(b"")
+    # Appended to, not truncated: continuing a conversation continues its transcript.
+    log.touch()
 
     binary = agent_binary() or "claude"
     command = [
@@ -514,7 +560,7 @@ def start_session(
         command += ["--session-id", identifier]
 
     try:
-        with log.open("wb") as sink:
+        with log.open("ab") as sink:
             process = subprocess.Popen(  # noqa: S603 -- the command is ours, built above
                 command,
                 cwd=root,
@@ -536,6 +582,7 @@ def start_session(
             {
                 "pid": process.pid,
                 "session": identifier,
+                "log": key,
                 "started_at": _now(),
                 "invented": resume is None,
                 "label": label or _label(resume, fork),
@@ -596,8 +643,8 @@ def poll_session(project: Path | str, offset: int = 0) -> SessionResult:
     what was refused. Everything else stays in the log, where it can be read in full.
     """
     root = Path(project).resolve()
-    log = root / AGENT_LOG_PATH
-    if not log.is_file():
+    log = _current_log(root)
+    if log is None or not log.is_file():
         return SessionResult(False, "no session has been opened here", offset=0)
 
     try:
@@ -696,6 +743,16 @@ def _correct_identity(project: Path, raw: dict[str, Any]) -> None:
 
     previous = str(state.get("session") or "")
     state["session"] = told
+
+    # The transcript follows the identity. Until now it was under a key of its own -- a fork's
+    # own, so that it could not truncate what it forked -- and from here it is under the id
+    # the conversation will be resumed by, which is the name it has to be found under later.
+    was = str(state.get("log") or "")
+    if was and was != told:
+        with contextlib.suppress(OSError):
+            _log_for(project, was).replace(_log_for(project, told))
+        state["log"] = told
+
     with contextlib.suppress(OSError):
         _state_path(project).write_text(json.dumps(state, indent=2), encoding="utf-8")
 

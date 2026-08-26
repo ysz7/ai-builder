@@ -27,7 +27,14 @@ from aibuilder_core.session import (
 
 
 def log(project: Path, *lines: dict[str, object]) -> None:
-    path = project / AGENT_LOG_PATH
+    """Write a stream by hand, where the session on record would have written it.
+
+    A transcript lives per conversation now, so "the log" is whichever file the open session
+    is writing to -- and only a project with no session at all falls back to the single file.
+    """
+    from aibuilder_core.session import _current_log
+
+    path = _current_log(project) or project / AGENT_LOG_PATH
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text("".join(json.dumps(line) + "\n" for line in lines), encoding="utf-8")
 
@@ -724,3 +731,174 @@ def test_a_stream_event_that_is_not_a_delta_says_nothing(tmp_path: Path) -> None
     )
 
     assert poll_session(tmp_path).events == ()
+
+
+# -- whose account a turn spends ---------------------------------------------------
+
+
+def test_the_account_is_read_from_the_agent(monkeypatch) -> None:
+    """Asked, never assumed (§5.8) -- and never held: the credential is the CLI's, put on
+    this machine by its own browser flow, and the core has nothing to store."""
+    from aibuilder_core import session
+
+    told = {
+        "loggedIn": True,
+        "authMethod": "claude.ai",
+        "email": "someone@example.com",
+        "subscriptionType": "pro",
+        "orgName": "Example",
+    }
+    monkeypatch.setattr(session, "agent_binary", lambda: "claude")
+    monkeypatch.setattr(
+        session.subprocess,
+        "run",
+        lambda *a, **k: type("R", (), {"stdout": json.dumps(told), "returncode": 0})(),
+    )
+
+    who = session.account()
+
+    assert (who.signed_in, who.email, who.plan) == (True, "someone@example.com", "pro")
+    assert who.detail == ""
+
+
+def test_an_agent_that_answers_nothing_useful_says_it_does_not_know(monkeypatch) -> None:
+    """Not knowing is an answer. Guessing that somebody is signed in would put a person's
+    subscription behind a button that claims to be ready."""
+    from aibuilder_core import session
+
+    monkeypatch.setattr(session, "agent_binary", lambda: "claude")
+    monkeypatch.setattr(
+        session.subprocess,
+        "run",
+        lambda *a, **k: type("R", (), {"stdout": "Logged in as someone", "returncode": 0})(),
+    )
+
+    who = session.account()
+
+    assert who.signed_in is False
+    assert "does not report" in who.detail
+
+
+def test_no_agent_means_no_account_and_no_crash(monkeypatch) -> None:
+    from aibuilder_core import session
+
+    monkeypatch.setattr(session, "agent_binary", lambda: None)
+
+    who = session.account()
+
+    assert who.signed_in is False
+    assert "no agent" in who.detail
+
+
+def test_asking_who_is_signed_in_signs_nobody_in(monkeypatch) -> None:
+    """A read that could start a browser flow would be P11's rule broken in the one place
+    it is most surprising: looking at the panel."""
+    from aibuilder_core import session
+
+    ran: list[list[str]] = []
+    monkeypatch.setattr(session, "agent_binary", lambda: "claude")
+    monkeypatch.setattr(
+        session.subprocess,
+        "run",
+        lambda command, **k: (
+            ran.append(command),
+            type("R", (), {"stdout": "{}", "returncode": 0})(),
+        )[1],
+    )
+
+    session.account()
+
+    assert ran == [["claude", "auth", "status"]]
+
+
+def test_the_account_payload_matches_the_declared_contract(monkeypatch) -> None:
+    from aibuilder_core import session
+    from aibuilder_core.api import AGENT_ACCOUNT_SCHEMA, agent_account
+
+    monkeypatch.setattr(session, "agent_binary", lambda: None)
+
+    validate(wire_form(agent_account()), AGENT_ACCOUNT_SCHEMA)
+
+
+# -- a conversation keeps what was said --------------------------------------------
+
+
+def test_switching_conversations_does_not_destroy_the_one_left(monkeypatch, tmp_path) -> None:
+    """One log per project, truncated on every start, meant the transcript of the
+    conversation being left was gone -- the agent kept its own, ours did not exist."""
+    from aibuilder_core.session import start_session
+
+    spawn(monkeypatch, tmp_path)
+    first = start_session(tmp_path).session
+    assert first is not None
+    log(tmp_path, {"type": "assistant", "message": {"content": [{"type": "text", "text": "one"}]}})
+    live(monkeypatch)
+
+    start_session(tmp_path, resume="somewhere-else")
+
+    assert [(e["kind"], e["text"]) for e in poll_session(tmp_path).events] == []
+    # And the one that was left still has its own words, under its own name.
+    kept = tmp_path / ".aibuilder" / "conversations" / f"{first}.log"
+    assert "one" in kept.read_text(encoding="utf-8")
+
+
+def test_coming_back_to_a_conversation_finds_what_it_said(monkeypatch, tmp_path) -> None:
+    from aibuilder_core.session import start_session
+
+    spawn(monkeypatch, tmp_path)
+    first = start_session(tmp_path).session
+    assert first is not None
+    log(tmp_path, {"type": "assistant", "message": {"content": [{"type": "text", "text": "one"}]}})
+    live(monkeypatch)
+    start_session(tmp_path, resume="somewhere-else")
+
+    start_session(tmp_path, resume=first)
+
+    assert [e["text"] for e in poll_session(tmp_path).events] == ["one"]
+
+
+def test_a_fork_does_not_truncate_the_conversation_it_forks(monkeypatch, tmp_path) -> None:
+    """The trap of this design: a fork spawns under the id it is forking, so a log keyed by
+    that id would open the original's transcript and empty it before the real id is known."""
+    from aibuilder_core.session import start_session
+
+    spawn(monkeypatch, tmp_path)
+    first = start_session(tmp_path).session
+    assert first is not None
+    log(tmp_path, {"type": "assistant", "message": {"content": [{"type": "text", "text": "one"}]}})
+    live(monkeypatch)
+
+    start_session(tmp_path, resume=first, fork=True)
+
+    original = tmp_path / ".aibuilder" / "conversations" / f"{first}.log"
+    assert "one" in original.read_text(encoding="utf-8")
+
+
+def test_a_forks_transcript_follows_the_id_the_agent_gave_it(monkeypatch, tmp_path) -> None:
+    from aibuilder_core.session import start_session
+
+    spawn(monkeypatch, tmp_path)
+    first = start_session(tmp_path).session
+    assert first is not None
+    live(monkeypatch)
+    start_session(tmp_path, resume=first, fork=True)
+    log(tmp_path, {"type": "system", "subtype": "init", "session_id": "the-fork"})
+
+    poll_session(tmp_path)
+
+    assert (tmp_path / ".aibuilder" / "conversations" / "the-fork.log").is_file()
+
+
+def test_forgetting_a_conversation_deletes_its_transcript(monkeypatch, tmp_path) -> None:
+    """The one place a transcript is deleted. Everything else keeps it."""
+    from aibuilder_core.session import forget_session, start_session
+
+    spawn(monkeypatch, tmp_path)
+    opened = start_session(tmp_path).session
+    assert opened is not None
+    log(tmp_path, {"type": "assistant", "message": {"content": [{"type": "text", "text": "one"}]}})
+    live(monkeypatch)
+
+    forget_session(tmp_path, opened)
+
+    assert not (tmp_path / ".aibuilder" / "conversations" / f"{opened}.log").is_file()

@@ -1630,3 +1630,82 @@ body.is-resizing {
   white-space: pre;
   tab-size: 4;
 }
+
+/* Whose account a turn spends. Quiet, and always there -- an application that runs somebody
+   else's agent on somebody's subscription has to say whose. */
+.bp-who {
+  margin-left: auto;
+  margin-right: 6px;
+  display: inline-flex;
+  align-items: baseline;
+  gap: 7px;
+  border: 1px solid var(--line);
+  background: none;
+  color: var(--muted-2);
+  font-family: var(--mono);
+  font-size: 9.5px;
+  letter-spacing: 0.04em;
+  padding: 3px 8px;
+  cursor: pointer;
+}
+.bp-who:hover {
+  color: var(--fg);
+  border-color: var(--line-strong);
+}
+.bp-who-plan {
+  color: var(--accent);
+  text-transform: uppercase;
+  font-size: 8.5px;
+  letter-spacing: 0.12em;
+}
+
+/* ---------- our own menu ---------- */
+.bp-menu {
+  position: fixed;
+  z-index: 60;
+  min-width: 148px;
+  padding: 4px;
+  background: var(--surface-2);
+  border: 1px solid var(--line-strong);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
+  display: flex;
+  flex-direction: column;
+}
+.bp-menu-item {
+  border: none;
+  background: none;
+  color: var(--fg);
+  font-family: var(--body);
+  font-size: 12.5px;
+  text-align: left;
+  padding: 6px 10px;
+  cursor: pointer;
+}
+.bp-menu-item:hover {
+  background: var(--surface);
+}
+.bp-menu-item.is-destructive:hover {
+  color: var(--bad);
+}
+
+/* The browser's own behaviours, turned off. This is an application, not a page: text is not
+   a thing to select by dragging across a panel, an image is not a thing to drag out, and the
+   rubber-band overscroll belongs to a document that can be scrolled past its end. */
+body {
+  overscroll-behavior: none;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-user-drag: none;
+}
+/* Except where the content really is text somebody may want to copy. */
+.bp-turn-text,
+.bp-step-body,
+.bp-src,
+.bp-term-out,
+.bp-detail-addr,
+.bp-notice-text,
+input,
+textarea {
+  -webkit-user-select: text;
+  user-select: text;
+}
