@@ -48,6 +48,7 @@ __all__ = [
     "agent_available",
     "agent_binary",
     "close_everything_started_here",
+    "interrupt",
     "list_sessions",
     "poll_session",
     "say",
@@ -110,6 +111,8 @@ class SessionResult:
     context: int = 0
     #: Which model is answering, as the agent itself named it. Empty until it says.
     model: str = ""
+    #: The agent's own running estimate of what this turn has cost so far. Zero between turns.
+    spending: int = 0
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -124,6 +127,7 @@ class SessionResult:
             "sessions": [dict(item) for item in self.sessions],
             "context": self.context,
             "model": self.model,
+            "spending": self.spending,
         }
 
 
@@ -376,13 +380,16 @@ def forget_session(project: Path | str, identifier: str) -> SessionResult:
         if spawned_as and spawned_as != identifier:
             with contextlib.suppress(OSError):
                 _log_for(root, spawned_as).unlink(missing_ok=True)
+                _said_path(root, spawned_as).unlink(missing_ok=True)
 
     known = [item for item in list_sessions(root) if item.get("id") != identifier]
     _write_sessions(root, known)
     # Forgetting is where a transcript is actually deleted. Nothing else removes one: a
-    # conversation keeps what was said until somebody says otherwise.
+    # conversation keeps what was said until somebody says otherwise -- both halves of it,
+    # the agent's stream and the person's own turns.
     with contextlib.suppress(OSError):
         _log_for(root, identifier).unlink(missing_ok=True)
+        _said_path(root, identifier).unlink(missing_ok=True)
     return SessionResult(
         True,
         "conversation forgotten",
@@ -632,7 +639,107 @@ def say(project: Path | str, text: str) -> SessionResult:
         process.stdin.flush()
     except (OSError, ValueError) as exc:
         return SessionResult(False, f"the agent stopped listening: {exc}")
+
+    _remember_said(root, text)
     return SessionResult(True, "sent", running=True)
+
+
+def interrupt(project: Path | str) -> SessionResult:
+    """Stop the turn that is running. **The conversation survives it.**
+
+    The agent accepts a `control_request` of subtype `interrupt` on the same pipe a turn is
+    sent on, answers it, and ends the turn -- so stopping is not killing. Reaching for
+    `stop_session` here would have thrown away the session, its process and the thread of what
+    was being discussed, to cancel one answer.
+
+    Sent, and not waited on: the answer comes back through the log like everything else, and
+    the caller reads it with the offset it keeps (P13).
+    """
+    root = Path(project).resolve()
+    process = _LIVE.get(str(root))
+    if process is None or process.poll() is not None:
+        _LIVE.pop(str(root), None)
+        return SessionResult(False, "nothing is running here")
+
+    message = {
+        "type": "control_request",
+        "request_id": f"stop-{uuid.uuid4()}",
+        "request": {"subtype": "interrupt"},
+    }
+    try:
+        assert process.stdin is not None
+        process.stdin.write((json.dumps(message) + "\n").encode("utf-8"))
+        process.stdin.flush()
+    except (OSError, ValueError) as exc:
+        return SessionResult(False, f"the agent stopped listening: {exc}")
+    return SessionResult(True, "stopping", running=True)
+
+
+def _said_path(project: Path, key: str) -> Path:
+    return project / LOGS_PATH / f"{key}.said.json"
+
+
+def _current_said(project: Path) -> Path | None:
+    state = _read_state(project)
+    key = str(state.get("log") or "") if state else ""
+    return _said_path(project, key) if key else None
+
+
+def _remember_said(project: Path, text: str) -> None:
+    """Write down what the person said, because **nobody else does.**
+
+    The agent's stream carries what the agent says and what its tools answer, and not one
+    line of what it was asked -- checked, not assumed. So a conversation reopened later had
+    the replies and none of the questions, which reads as the agent talking to itself.
+
+    Recorded **beside** the log rather than into it: the log is the stream exactly as the
+    agent wrote it, and a second writer appending to a file its process holds open is a race
+    as well as a lie. What is stored is the position in that log where the turn was sent,
+    which is what puts the line back in the right place when it is read again.
+    """
+    path = _current_said(project)
+    if path is None:
+        return
+    log = _current_log(project)
+    at = log.stat().st_size if log is not None and log.is_file() else 0
+
+    known: list[dict[str, Any]] = []
+    if path.is_file():
+        with contextlib.suppress(OSError, json.JSONDecodeError):
+            stored = json.loads(path.read_text(encoding="utf-8"))
+            known = [item for item in stored if isinstance(item, dict)]
+    known.append({"offset": at, "text": text, "at": _now()})
+    with contextlib.suppress(OSError):
+        path.write_text(json.dumps(known, indent=2), encoding="utf-8")
+
+
+def _said_between(project: Path, start: int, stop: int) -> list[tuple[int, str]]:
+    """What the person said while the log grew from `start` to `stop`.
+
+    **The left edge is exclusive and the right edge is not**, which is not symmetry for its
+    own sake. A turn is recorded at the position the log had reached when it was sent, so the
+    newest one usually sits exactly at the end with nothing written after it yet: excluding
+    the right edge would hide the question until the answer arrived, and including the left
+    would repeat it on the next poll, whose start is this poll's end. The first read is the
+    exception, because a turn sent into an empty log sits at zero and has never been read.
+    """
+    path = _current_said(project)
+    if path is None or not path.is_file():
+        return []
+    try:
+        stored = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return []
+    if not isinstance(stored, list):
+        return []
+    picked: list[tuple[int, str]] = []
+    for item in stored:
+        if not isinstance(item, dict):
+            continue
+        at = int(item.get("offset", 0))
+        if at <= stop and (at > start or start == 0):
+            picked.append((at, str(item.get("text", ""))))
+    return picked
 
 
 def poll_session(project: Path | str, offset: int = 0) -> SessionResult:
@@ -658,7 +765,19 @@ def poll_session(project: Path | str, offset: int = 0) -> SessionResult:
     events: list[dict[str, Any]] = []
     context = 0
     model = ""
-    for line in chunk.decode("utf-8", errors="replace").splitlines():
+    spending = 0
+
+    # What the person said, put back where they said it. Their turns are not in the stream
+    # -- the agent echoes nothing of what it was asked -- so they are kept beside it with the
+    # position the log had reached, and woven in by that position rather than appended at one
+    # end, which would put every question after every answer.
+    said = _said_between(root, offset, here)
+    at = offset
+
+    for line in chunk.decode("utf-8", errors="replace").splitlines(keepends=True):
+        while said and said[0][0] <= at:
+            events.append(_event("you", said.pop(0)[1]))
+        at += len(line.encode("utf-8"))
         if not line.strip():
             continue
         try:
@@ -668,7 +787,12 @@ def poll_session(project: Path | str, offset: int = 0) -> SessionResult:
         events.extend(_read_event(raw))
         context = _context_of(raw) or context
         model = _model_of(raw) or model
+        if raw.get("type") == "system" and raw.get("subtype") == "thinking_tokens":
+            spending = int(raw.get("estimated_tokens", 0) or 0)
         _correct_identity(root, raw)
+
+    for _, text in said:
+        events.append(_event("you", text))
 
     process = _LIVE.get(str(root))
     running = process is not None and process.poll() is None
@@ -681,6 +805,7 @@ def poll_session(project: Path | str, offset: int = 0) -> SessionResult:
         offset=here,
         context=context,
         model=model,
+        spending=spending,
         sessions=list_sessions(root),
     )
 
@@ -703,6 +828,26 @@ def _model_of(raw: dict[str, Any]) -> str:
     return ""
 
 
+def _usage_in(raw: dict[str, Any]) -> dict[str, Any] | None:
+    """Where this line reports what the turn has cost so far, if it does.
+
+    Three places, and the third is why a counter used to sit still through a whole answer:
+    a turn's cost is reported *as it is written*, in `message_start` and `message_delta`, and
+    reading only the finished message meant reading it once, at the end.
+    """
+    if raw.get("type") == "assistant":
+        usage = raw.get("message", {}).get("usage")
+        return usage if isinstance(usage, dict) else None
+    if raw.get("type") == "result":
+        usage = raw.get("usage")
+        return usage if isinstance(usage, dict) else None
+    if raw.get("type") == "stream_event":
+        event = raw.get("event") or {}
+        usage = event.get("usage") or (event.get("message") or {}).get("usage")
+        return usage if isinstance(usage, dict) else None
+    return None
+
+
 def _context_of(raw: dict[str, Any]) -> int:
     """How much the last turn carried, in tokens.
 
@@ -712,9 +857,8 @@ def _context_of(raw: dict[str, Any]) -> int:
     divided by is not in this event, it is a property of the model -- which `_model_of` reads
     from the same stream, so that nobody downstream has to assume one.
     """
-    usage = raw.get("message", {}).get("usage") if raw.get("type") == "assistant" else None
-    usage = usage or (raw.get("usage") if raw.get("type") == "result" else None)
-    if not isinstance(usage, dict):
+    usage = _usage_in(raw)
+    if usage is None:
         return 0
     return sum(
         int(usage.get(key, 0) or 0)
@@ -751,6 +895,9 @@ def _correct_identity(project: Path, raw: dict[str, Any]) -> None:
     if was and was != told:
         with contextlib.suppress(OSError):
             _log_for(project, was).replace(_log_for(project, told))
+        if _said_path(project, was).is_file():
+            with contextlib.suppress(OSError):
+                _said_path(project, was).replace(_said_path(project, told))
         state["log"] = told
 
     with contextlib.suppress(OSError):
@@ -792,6 +939,13 @@ def _read_event(raw: dict[str, Any]) -> list[dict[str, Any]]:
     """
     kind = raw.get("type")
 
+    if kind == "system" and raw.get("subtype") == "thinking_tokens":
+        # **The agent's own running estimate**, not one of ours. Usage proper is reported
+        # exactly twice -- once at the start of a message and once at its end -- so a number
+        # that moves while it works could only have been invented here. This one is streamed,
+        # it is labelled an estimate by the agent, and it is passed on as one.
+        return [_event("spending", str(int(raw.get("estimated_tokens", 0) or 0)))]
+
     if kind == "system" and raw.get("subtype") == "init":
         # Read back rather than assumed: this is how a silently ignored flag was caught.
         return [
@@ -817,6 +971,7 @@ def _read_event(raw: dict[str, Any]) -> list[dict[str, Any]]:
                         file=str(block.get("input", {}).get("file_path", "")),
                         detail=_given(block),
                         identifier=str(block.get("id", "")),
+                        tool=str(block.get("name", "")),
                     )
                 )
         return events
@@ -859,9 +1014,24 @@ def _read_event(raw: dict[str, Any]) -> list[dict[str, Any]]:
 
 
 def _event(
-    kind: str, text: str, file: str = "", detail: str = "", identifier: str = ""
+    kind: str,
+    text: str,
+    file: str = "",
+    detail: str = "",
+    identifier: str = "",
+    tool: str = "",
 ) -> dict[str, Any]:
-    return {"kind": kind, "text": text, "file": file, "detail": detail, "id": identifier}
+    # `tool` is the agent's own name for what it called -- `Bash`, `Read`, `Edit` -- kept
+    # beside the readable phrase rather than instead of it. A transcript wants to say
+    # "running pytest -q"; a block around it wants to be labelled with the tool.
+    return {
+        "kind": kind,
+        "text": text,
+        "file": file,
+        "detail": detail,
+        "id": identifier,
+        "tool": tool,
+    }
 
 
 def _cut(text: str) -> str:

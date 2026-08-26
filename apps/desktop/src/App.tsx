@@ -22,7 +22,9 @@ import { Grip } from "./panels/Grip";
 import { Notice } from "./panels/Notice";
 import { Terminal } from "./panels/Terminal";
 import { Code } from "./panels/Code";
+import { Observe } from "./panels/Observe";
 import { Repairs } from "./panels/Repairs";
+import { Settings } from "./panels/Settings";
 import { Canvas } from "./graph/Canvas";
 import { Chat } from "./panels/Chat";
 import { Welcome } from "./panels/Welcome";
@@ -92,7 +94,7 @@ export default function App() {
   const [touched, setTouched] = useState<Set<string>>(new Set());
   /** Which face of the selection is showing: what it is set to, or what it is made of. */
   const [tab, setTab] = useState<"details" | "code">("details");
-  const [repairing, setRepairing] = useState(false);
+  const [settling, setSettling] = useState(false);
   const [leftWidth, setLeftWidth] = useState(() => widthOf(PANES.left, 216));
   const [rightWidth, setRightWidth] = useState(() => widthOf(PANES.right, 258));
   /** A repair the toolchain cannot carry out, on its way to the chat's field. */
@@ -225,19 +227,11 @@ export default function App() {
           Awesome <em>AI Builder</em>
         </span>
 
-        <span className="bp-project">{project}</span>
-        <button className="bp-btn" onClick={() => void open(project, false)}>
-          Read
-        </button>
-        {/* Running the project is an action, never a side effect of looking at it. */}
-        <button
-          className="bp-btn"
-          onClick={() => void open(project, true)}
-          title="runs the project"
-        >
-          Observe
-        </button>
-
+        {/* The bar carries no readouts and no verbs of its own any more. The project's path
+            was for whoever was building this; `Read` did what opening, an agent turn and
+            `Observe` already do; and observing and repairing are lists to read rather than
+            buttons to press and forget, so they are faces of the dock. What stays is the one
+            thing that is true of the whole workspace: whether anything has been run. */}
         {graph ? (
           <span className="bp-live">
             <span className={`bp-livedot${observed ? "" : " is-off"}`} />
@@ -245,28 +239,30 @@ export default function App() {
           </span>
         ) : null}
 
-        {/* Divergence is detected against the snapshot, never by watching files (I-6), so
-            this is a dialog somebody opens rather than something that interrupts them. */}
+        {/* A gear and nothing round it: settings are not a verb of the workspace, and a
+            bordered button among no other buttons reads as the bar's one action. */}
         <button
-          className="bp-btn"
-          onClick={() => setRepairing(true)}
-          title="what diverged"
+          className="bp-gear"
+          onClick={() => setSettling(true)}
+          title="Settings"
+          aria-label="Settings"
         >
-          Repair
-        </button>
-
-        <button
-          className="bp-btn"
-          onClick={() => setProject("")}
-          title="close this project"
-        >
-          Close
-        </button>
-        <button
-          className="bp-btn bp-theme"
-          onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
-        >
-          {theme === "dark" ? "Light" : "Dark"}
+          <svg
+            viewBox="0 0 24 24"
+            width="17"
+            height="17"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.7"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            aria-hidden="true"
+          >
+            {/* Teeth around the ring. Rays out of the centre draw a sun, which is what the
+                first attempt at this was. */}
+            <path d="M12.2 2h-.4a2 2 0 0 0-2 2v.2a2 2 0 0 1-1 1.7l-.4.3a2 2 0 0 1-2 0l-.2-.1a2 2 0 0 0-2.7.7l-.2.4a2 2 0 0 0 .7 2.7l.2.1a2 2 0 0 1 1 1.7v.5a2 2 0 0 1-1 1.7l-.2.1a2 2 0 0 0-.7 2.7l.2.4a2 2 0 0 0 2.7.7l.2-.1a2 2 0 0 1 2 0l.4.3a2 2 0 0 1 1 1.7v.2a2 2 0 0 0 2 2h.4a2 2 0 0 0 2-2v-.2a2 2 0 0 1 1-1.7l.4-.3a2 2 0 0 1 2 0l.2.1a2 2 0 0 0 2.7-.7l.2-.4a2 2 0 0 0-.7-2.7l-.2-.1a2 2 0 0 1-1-1.7v-.5a2 2 0 0 1 1-1.7l.2-.1a2 2 0 0 0 .7-2.7l-.2-.4a2 2 0 0 0-2.7-.7l-.2.1a2 2 0 0 1-2 0l-.4-.3a2 2 0 0 1-1-1.7V4a2 2 0 0 0-2-2Z" />
+            <circle cx="12" cy="12" r="3" />
+          </svg>
         </button>
       </header>
 
@@ -363,9 +359,46 @@ export default function App() {
           </aside>
 
           <Dock
-            count={graph.diagnostics.length + Object.keys(graph.skipped).length}
-            problems={<Problems graph={graph} onSelect={setSelected} />}
-            terminal={<Terminal project={project} />}
+            faces={[
+              {
+                id: "problems",
+                label: "Problems",
+                badge:
+                  graph.diagnostics.length + Object.keys(graph.skipped).length,
+                content: <Problems graph={graph} onSelect={setSelected} />,
+              },
+              {
+                // Where green comes from (I-5), and a face rather than a bar button because
+                // the evidence is a list to read, not a verb to press and forget.
+                id: "observe",
+                label: "Observe",
+                content: (
+                  <Observe
+                    graph={graph}
+                    observed={observed}
+                    busy={load.status === "loading"}
+                    onRun={() => void open(project, true)}
+                    onSelect={setSelected}
+                  />
+                ),
+              },
+              {
+                id: "repair",
+                label: "Repair",
+                content: (
+                  <Repairs
+                    project={project}
+                    onDone={() => void open(project, observed)}
+                    onHandOver={setHandOver}
+                  />
+                ),
+              },
+              {
+                id: "terminal",
+                label: "Terminal",
+                content: <Terminal project={project} />,
+              },
+            ]}
           />
         </div>
       ) : (
@@ -390,15 +423,16 @@ export default function App() {
         onHandedOver={() => setHandOver(null)}
       />
 
-      {repairing ? (
-        <Repairs
+      {settling ? (
+        <Settings
           project={project}
-          onDone={() => void open(project, observed)}
-          onClose={() => setRepairing(false)}
-          onHandOver={(request) => {
-            setHandOver(request);
-            setRepairing(false);
+          theme={theme}
+          onTheme={setTheme}
+          onCloseProject={() => {
+            setSettling(false);
+            setProject("");
           }}
+          onClose={() => setSettling(false)}
         />
       ) : null}
     </div>

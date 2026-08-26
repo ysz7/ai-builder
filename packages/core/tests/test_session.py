@@ -691,6 +691,7 @@ def test_thinking_is_kept_rather_than_dropped(tmp_path: Path) -> None:
         "file": "",
         "detail": "",
         "id": "",
+        "tool": "",
     }
 
 
@@ -902,3 +903,98 @@ def test_forgetting_a_conversation_deletes_its_transcript(monkeypatch, tmp_path)
     forget_session(tmp_path, opened)
 
     assert not (tmp_path / ".aibuilder" / "conversations" / f"{opened}.log").is_file()
+
+
+def test_what_the_person_said_is_kept_because_nothing_else_keeps_it(monkeypatch, tmp_path) -> None:
+    """Checked rather than assumed: the agent's stream carries what it says and what its
+    tools answer, and not one line of what it was asked. A conversation reopened later had
+    the replies and none of the questions."""
+    from aibuilder_core.session import _remember_said, start_session
+
+    spawn(monkeypatch, tmp_path)
+    start_session(tmp_path)
+    _remember_said(tmp_path, "do the thing")
+    log(tmp_path, {"type": "assistant", "message": {"content": [{"type": "text", "text": "done"}]}})
+
+    assert [(e["kind"], e["text"]) for e in poll_session(tmp_path).events] == [
+        ("you", "do the thing"),
+        ("says", "done"),
+    ]
+
+
+def test_a_question_is_put_back_where_it_was_asked(monkeypatch, tmp_path) -> None:
+    """Woven in by the position the log had reached, not appended at one end -- which would
+    put every question after every answer."""
+    from aibuilder_core.session import _remember_said, start_session
+
+    spawn(monkeypatch, tmp_path)
+    start_session(tmp_path)
+    _remember_said(tmp_path, "first")
+    log(tmp_path, {"type": "assistant", "message": {"content": [{"type": "text", "text": "one"}]}})
+    _remember_said(tmp_path, "second")
+
+    assert [e["text"] for e in poll_session(tmp_path).events] == ["first", "one", "second"]
+
+
+def test_a_turns_cost_is_reported_as_it_is_written(tmp_path: Path) -> None:
+    """It used to be read only from the finished message, so a counter sat still through a
+    whole answer and then jumped -- the cost is in the stream all along."""
+    log(
+        tmp_path,
+        {
+            "type": "stream_event",
+            "event": {
+                "type": "message_start",
+                "message": {"usage": {"input_tokens": 5, "cache_read_input_tokens": 100}},
+            },
+        },
+    )
+
+    assert poll_session(tmp_path).context == 105
+
+
+def test_stopping_a_turn_is_not_stopping_the_conversation(monkeypatch, tmp_path) -> None:
+    """The agent takes a control message and ends the turn. Killing the process would throw
+    away the session and the thread of what was being discussed to cancel one answer."""
+    from aibuilder_core import session
+    from aibuilder_core.session import interrupt, start_session
+
+    seen = spawn(monkeypatch, tmp_path)
+    written: list[bytes] = []
+
+    class Pipe:
+        def write(self, data: bytes) -> None:
+            written.append(data)
+
+        def flush(self) -> None:
+            return None
+
+    start_session(tmp_path)
+    session._LIVE[str(tmp_path.resolve())].stdin = Pipe()
+
+    answer = interrupt(tmp_path)
+
+    assert answer.ok is True
+    assert answer.running is True
+    sent = json.loads(written[0])
+    assert sent["type"] == "control_request"
+    assert sent["request"]["subtype"] == "interrupt"
+    # The process is still the one that was started; nothing was signalled.
+    assert len(seen) == 1
+
+
+def test_stopping_when_nothing_runs_is_an_answer_not_a_crash(tmp_path: Path) -> None:
+    from aibuilder_core.session import interrupt
+
+    assert interrupt(tmp_path).ok is False
+
+
+def test_the_agents_own_estimate_is_passed_on_as_an_estimate(tmp_path: Path) -> None:
+    """A number that *moves* during a turn is the agent's estimate or it is nobody's: real
+    usage is reported exactly twice, at the start of a message and at its end."""
+    log(tmp_path, {"type": "system", "subtype": "thinking_tokens", "estimated_tokens": 107})
+
+    answer = poll_session(tmp_path)
+
+    assert answer.spending == 107
+    assert answer.events[0]["kind"] == "spending"

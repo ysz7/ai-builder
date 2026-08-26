@@ -21,6 +21,7 @@ from aibuilder_core.api import (
     agent_brief,
     agent_failures,
     agent_forget,
+    agent_interrupt,
     agent_open,
     agent_poll,
     agent_record,
@@ -423,6 +424,11 @@ def agent_rename_method(params: dict[str, Any]) -> dict[str, Any]:
     return agent_rename(_project_of(params), _required_str(params, "session"), label)
 
 
+def agent_interrupt_method(params: dict[str, Any]) -> dict[str, Any]:
+    """Stop the running turn. Not the session -- see `interrupt`."""
+    return agent_interrupt(_project_of(params))
+
+
 def agent_stop_method(params: dict[str, Any]) -> dict[str, Any]:
     return agent_shut(_project_of(params))
 
@@ -517,6 +523,7 @@ HANDLERS: dict[str, Handler] = {
     "agent.say": agent_say_method,
     "agent.poll": agent_poll_method,
     "agent.stop": agent_stop_method,
+    "agent.interrupt": agent_interrupt_method,
     "agent.forget": agent_forget_method,
     "agent.rename": agent_rename_method,
     "agent.account": agent_account_method,

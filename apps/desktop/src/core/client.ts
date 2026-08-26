@@ -128,6 +128,8 @@ export type AgentEvent = {
   file: string;
   detail: string;
   id: string;
+  /** The agent's own name for the tool it called — `Bash`, `Read`. Empty where none applies. */
+  tool: string;
 };
 export type AgentSessionRef = { id: string; label: string; at: string };
 export type AgentSession = {
@@ -145,6 +147,14 @@ export type AgentSession = {
   context: number;
   /** Which model is answering, as the agent named it. The ring's denominator comes from it. */
   model: string;
+  /**
+   * The agent's own running estimate of what this turn has cost.
+   *
+   * Usage proper is reported exactly twice in a turn — at the start of a message and at its
+   * end — so a number that *moves* while it works is the agent's estimate or it is nobody's.
+   * This one is the agent's, and it says so by being called an estimate.
+   */
+  spending: number;
 };
 
 /** Is there an agent on this machine, and is a session open? Starts nothing. */
@@ -360,4 +370,14 @@ export function agentSignIn(console = false): Promise<Account> {
 
 export function agentSignOut(): Promise<Account> {
   return coreRequest<Account>("agent.sign_out", {});
+}
+
+/**
+ * Stop the turn that is running. **Not the session.**
+ *
+ * The agent takes a control message on the same pipe a turn is sent on and ends the turn;
+ * killing the process would throw away the conversation to cancel one answer.
+ */
+export function agentInterrupt(project: string): Promise<AgentSession> {
+  return coreRequest<AgentSession>("agent.interrupt", { project });
 }

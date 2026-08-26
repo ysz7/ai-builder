@@ -21,22 +21,26 @@ const HEADER = 34;
 const MIN_OPEN = 96;
 const REMEMBERED = "aibuilder.dock";
 
-type Tab = "problems" | "terminal";
-
-type Props = {
-  problems: React.ReactNode;
-  terminal: React.ReactNode;
-  /** How many addressed things are wrong. Shown on the tab, so a collapsed dock still says. */
-  count: number;
+/**
+ * One face of the dock. `badge` is a count worth seeing without opening it -- how much is
+ * wrong, how much has diverged -- which is what makes a collapsed dock still informative.
+ */
+export type Face = {
+  id: string;
+  label: string;
+  badge?: number;
+  content: React.ReactNode;
 };
+
+type Props = { faces: Face[] };
 
 function stored(): number {
   const raw = Number(localStorage.getItem(REMEMBERED));
   return Number.isFinite(raw) && raw >= HEADER ? raw : 152;
 }
 
-export function Dock({ problems, terminal, count }: Props) {
-  const [tab, setTab] = useState<Tab>("problems");
+export function Dock({ faces }: Props) {
+  const [tab, setTab] = useState(faces[0]?.id ?? "");
   const [height, setHeight] = useState(stored);
   /** The height to come back to. Collapsing must not lose the size that was chosen. */
   const restore = useRef(Math.max(stored(), MIN_OPEN));
@@ -61,24 +65,23 @@ export function Dock({ problems, terminal, count }: Props) {
         onDoubleClick={() => setHeight(collapsed ? restore.current : HEADER)}
         title="double-click to collapse or open"
       >
-        <button
-          className={`bp-dock-tab${tab === "problems" ? " is-on" : ""}`}
-          onClick={() => {
-            setTab("problems");
-            if (collapsed) setHeight(restore.current);
-          }}
-        >
-          Problems <span className="bp-cap-n">{count}</span>
-        </button>
-        <button
-          className={`bp-dock-tab${tab === "terminal" ? " is-on" : ""}`}
-          onClick={() => {
-            setTab("terminal");
-            if (collapsed) setHeight(restore.current);
-          }}
-        >
-          Terminal
-        </button>
+        {faces.map((face) => (
+          <button
+            key={face.id}
+            className={`bp-dock-tab${tab === face.id ? " is-on" : ""}`}
+            onClick={() => {
+              setTab(face.id);
+              // Choosing a face is asking to see it, so a collapsed dock opens rather than
+              // switching to something the person cannot look at.
+              if (collapsed) setHeight(restore.current);
+            }}
+          >
+            {face.label}
+            {face.badge !== undefined ? (
+              <span className="bp-cap-n">{face.badge}</span>
+            ) : null}
+          </button>
+        ))}
 
         <button
           className="bp-icon bp-dock-fold"
@@ -93,7 +96,7 @@ export function Dock({ problems, terminal, count }: Props) {
           panel is out of the way without being gone. */}
       {collapsed ? null : (
         <div className="bp-dock-body">
-          {tab === "problems" ? problems : terminal}
+          {faces.find((face) => face.id === tab)?.content ?? null}
         </div>
       )}
     </footer>

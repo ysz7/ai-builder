@@ -24,9 +24,9 @@ import {
   agentPoll,
   agentRename,
   agentSay,
+  agentInterrupt,
   agentSession,
   agentSignIn,
-  agentSignOut,
   agentStart,
 } from "../core/client";
 import { Markdown } from "../code/markdown";
@@ -79,7 +79,47 @@ function windowFor(model: string): number {
  * decision.
  */
 function worthShowing(event: AgentEvent): boolean {
-  return event.kind !== "done" && event.kind !== "ready";
+  // `done` and `ready` are the protocol talking about itself. `delta` and `spending` are
+  // read for the line being written and the number beside it -- they are used, and they are
+  // not lines of the conversation, so they do not accumulate in it.
+  return !["done", "ready", "delta", "spending"].includes(event.kind);
+}
+
+/**
+ * The mark on a line shown before the core has confirmed it.
+ *
+ * What the person typed is true the moment they press send, so it is drawn at once. The core
+ * then records it and replays it with the rest of the conversation -- which is what makes it
+ * survive a switch between conversations -- and the two have to be the same line rather than
+ * two of them.
+ */
+const PENDING = "pending";
+
+/** What the person said, as a line of the transcript. Marked pending until the core has it. */
+function yours(text: string): AgentEvent {
+  return { kind: "you", text, file: "", detail: "", id: PENDING, tool: "" };
+}
+
+function absorbTurns(
+  previous: AgentEvent[],
+  incoming: AgentEvent[],
+): AgentEvent[] {
+  const shown = incoming.filter(worthShowing);
+  const confirmed = new Set(
+    shown.filter((event) => event.kind === "you").map((event) => event.text),
+  );
+  const kept =
+    confirmed.size === 0
+      ? previous
+      : previous.filter(
+          (event) =>
+            !(
+              event.kind === "you" &&
+              event.id === PENDING &&
+              confirmed.has(event.text)
+            ),
+        );
+  return [...kept, ...shown];
 }
 
 type Props = {
@@ -94,6 +134,32 @@ type Props = {
   handOver: string | null;
   onHandedOver: () => void;
 };
+
+/**
+ * The mark on the sign-in row.
+ *
+ * A glyph of our own rather than a reproduction of somebody's logo: this application is not
+ * Anthropic's, and wearing their mark would say it was. It reads as "the agent" here because
+ * of where it sits, which is all it has to do.
+ */
+function Spark() {
+  return (
+    <svg
+      className="bp-spark"
+      viewBox="0 0 16 16"
+      width="15"
+      height="15"
+      aria-hidden="true"
+    >
+      <path
+        d="M8 1v14M1 8h14M3 3l10 10M13 3L3 13"
+        stroke="currentColor"
+        strokeWidth="1.2"
+        strokeLinecap="round"
+      />
+    </svg>
+  );
+}
 
 function Toggle({ open, onToggle }: { open: boolean; onToggle: () => void }) {
   return (
@@ -128,9 +194,26 @@ export function Chat({
   const [connecting, setConnecting] = useState(false);
   /** The conversation being renamed, if any. Its chip becomes a field while it is. */
   const [naming, setNaming] = useState<string | null>(null);
-  /** Whose account a turn would spend. Asked of the agent; never stored here. */
+  /**
+   * Whether anybody is signed in. **Only that** -- who they are lives in Settings, because an
+   * email address above every turn is somebody's address on a screen they may be sharing, and
+   * it is not something a person reads while talking to an agent.
+   */
   const [who, setWho] = useState<Account | null>(null);
   const [menu, setMenu] = useState<Placed>(null);
+  /** The agent's own running estimate of what this turn has cost. Zero between turns. */
+  const [spending, setSpending] = useState(0);
+  /**
+   * Questions asked while an answer was still being written.
+   *
+   * A turn is one at a time -- the agent is answering the last one -- so a second question
+   * waits rather than being refused or silently dropped. It is shown in the transcript at
+   * once, because it *was* said; what is pending is the asking, not the saying.
+   */
+  const queue = useRef<string[]>([]);
+  // The poll loop is defined before the sender and has to reach it when a turn ends. A ref
+  // rather than a dependency, so the two do not have to be rebuilt around each other.
+  const deliverRef = useRef<((text: string) => Promise<void>) | null>(null);
   /**
    * The answer as it is being written.
    *
@@ -140,7 +223,23 @@ export function Chat({
    */
   const [writing, setWriting] = useState("");
   const [musing, setMusing] = useState("");
-  const [open, setOpen] = useState(false);
+  /**
+   * Open from the start.
+   *
+   * The chat is the way a project gets its first line of code, and a panel that begins folded
+   * is a feature a person has to already know about. Closed is now something they chose.
+   */
+  const [open, setOpen] = useState(true);
+  /**
+   * The next message starts a new conversation.
+   *
+   * **A conversation is not created until something is said in it.** Opening the application
+   * used to mean either an empty panel with a button on it, or a session spawned for a person
+   * who had not yet decided to say anything -- and a session that was never spoken to does not
+   * exist for the agent either (`--resume` on one answers "no conversation found"). So the
+   * panel offers a conversation, and sending is what brings it into being.
+   */
+  const [unstarted, setUnstarted] = useState(true);
   const [busy, setBusy] = useState(false);
 
   const offset = useRef(0);
@@ -247,6 +346,7 @@ export function Chat({
     if (answer === null) return;
     offset.current = answer.offset;
     if (answer.context > 0) setContext(answer.context);
+    if (answer.spending > 0) setSpending(answer.spending);
     if (answer.model) setModel(answer.model);
     absorb(answer);
 
@@ -269,10 +369,7 @@ export function Chat({
         setMusing("");
       }
     }
-    setTranscript((previous) => [
-      ...previous,
-      ...answer.events.filter(worthShowing),
-    ]);
+    setTranscript((previous) => [...absorbTurns(previous, answer.events)]);
 
     if (answer.events.some((event) => event.kind === "done")) {
       // The turn is over: stop asking, and read the graph again -- the agent has been
@@ -281,8 +378,13 @@ export function Chat({
       setStatus("");
       setWriting("");
       setMusing("");
+      setSpending(0);
       stopPolling();
       onSettled();
+      // The turn is over, so the next question that was waiting can be asked. One at a
+      // time, in the order they were typed.
+      const next = queue.current.shift();
+      if (next !== undefined) void deliverRef.current?.(next);
       return;
     }
     timer.current = window.setTimeout(() => void poll(), POLL_MS);
@@ -316,10 +418,7 @@ export function Chat({
         offset.current = answer.offset;
         if (answer.model) setModel(answer.model);
         absorb(answer);
-        setTranscript((previous) => [
-          ...previous,
-          ...answer.events.filter(worthShowing),
-        ]);
+        setTranscript((previous) => [...absorbTurns(previous, answer.events)]);
         for (const event of answer.events) {
           if (event.kind === "blocked") setBlocked(event.text);
         }
@@ -342,12 +441,12 @@ export function Chat({
       // Starting the agent spawns a process, which takes a second or two. Without a visible
       // in-flight state the button looks unpressed for that whole time, and a button that
       // looks unpressed gets pressed again -- five `agent.start` calls for one intention.
-      if (connecting) return;
+      if (connecting) return false;
       setConnecting(true);
       setBlocked(null);
       try {
         const state = await attempt(() => agentStart(project, resume, fork));
-        if (state === null) return;
+        if (state === null) return false;
         setRunning(state.running);
         setAvailable(state.available);
         absorb(state);
@@ -359,17 +458,33 @@ export function Chat({
         setModel("");
         if (!state.ok) {
           setBlocked(state.detail);
-          return;
+          return false;
         }
         // One read for a conversation being resumed: it will not announce itself until it
         // answers, and its model and corrected id arrive with that turn.
         await readOpening(resume ? 1 : 12);
+        setUnstarted(false);
+        return true;
       } finally {
         setConnecting(false);
       }
+      return false;
     },
     [project, absorb, attempt, connecting, readOpening],
   );
+
+  /** Put the panel back to an unstarted conversation. Starts nothing; stops nothing. */
+  const freshen = useCallback(() => {
+    setUnstarted(true);
+    setTranscript([]);
+    setBlocked(null);
+    setStatus("");
+    setContext(0);
+    setModel("");
+    setCurrent(null);
+    offset.current = 0;
+    field.current?.focus();
+  }, []);
 
   const forget = useCallback(
     async (identifier: string) => {
@@ -402,21 +517,35 @@ export function Chat({
     [project, absorb, attempt],
   );
 
-  const send = useCallback(
-    async (text: string) => {
-      const said = text.trim();
-      if (!said || busy) return;
-      setDraft("");
+  const deliver = useCallback(
+    async (said: string) => {
       setBlocked(null);
       setBusy(true);
       setStatus("thinking…");
       // Shown before the core has answered: what the person typed is true the moment they
       // press send, and waiting for a round trip to display it is what made the panel read
       // as a log of the agent rather than as a conversation between two parties.
-      setTranscript((previous) => [
-        ...previous,
-        { kind: "you", text: said, file: "", detail: "", id: "" },
-      ]);
+      // **Sending is what creates the conversation.** Until now there was a tab and a draft
+      // and nothing on disk -- no process, no id, no entry in the list -- because a session
+      // nobody has spoken to is not a conversation the agent will resume either.
+      //
+      // Opened *before* the line is drawn, not after. Opening clears the transcript, and
+      // doing it second wiped the question for the two seconds a session takes to start --
+      // leaving "thinking…" above an empty panel that said nothing had been said.
+      if (unstarted || !running) {
+        const opened = await begin();
+        if (!opened) {
+          setBusy(false);
+          setStatus("");
+          return;
+        }
+      }
+
+      // What the person typed is true the moment they press send, so it is drawn without
+      // waiting for a round trip. The core records it and replays it later; `PENDING` is
+      // what keeps the two from becoming two lines.
+      setTranscript((previous) => [...previous, yours(said)]);
+
       const answer = await attempt(() => agentSay(project, said));
       if (answer === null) return;
       if (!answer.ok) {
@@ -427,8 +556,44 @@ export function Chat({
       }
       void poll();
     },
-    [project, busy, poll, attempt],
+    [project, poll, attempt, unstarted, running, begin],
   );
+
+  deliverRef.current = deliver;
+
+  /**
+   * Ask, or wait to ask.
+   *
+   * A turn is one at a time, so a question typed while an answer is being written joins a
+   * queue instead of being refused. It appears in the transcript immediately either way --
+   * it *was* said; what is waiting is the asking.
+   */
+  const send = useCallback(
+    (text: string) => {
+      const said = text.trim();
+      if (!said) return;
+      setDraft("");
+      if (busy) {
+        queue.current.push(said);
+        setTranscript((previous) => [...previous, yours(said)]);
+        return;
+      }
+      void deliver(said);
+    },
+    [busy, deliver],
+  );
+
+  /**
+   * Stop the answer being written. **Not the conversation.**
+   *
+   * The agent takes a control message and ends the turn; killing its process would throw
+   * away the session and the thread of what was being discussed to cancel one answer.
+   * Anything still waiting to be asked is dropped too -- stopping means stopping.
+   */
+  const halt = useCallback(async () => {
+    queue.current = [];
+    await attempt(() => agentInterrupt(project));
+  }, [project, attempt]);
 
   /** Attach files by naming them the way the agent already understands: `@path`. */
   async function attach() {
@@ -464,26 +629,6 @@ export function Chat({
             </span>
             {/* Closing by hand as well as by looking away: a panel that only closes when
                 attention moves cannot be put away while attention stays here. */}
-            {/* Whose account a turn spends. It was invisible before, and the agent runs on
-                whatever `claude auth login` left on this machine -- so the application has
-                to say it rather than let a person assume. */}
-            {who?.signed_in ? (
-              <button
-                className="bp-who"
-                title={`${who.method} · ${who.organisation} · click to sign out`}
-                onClick={() => {
-                  void attempt(() => agentSignOut()).then(
-                    (told) => told && setWho(told),
-                  );
-                }}
-              >
-                {who.email || who.method}
-                {who.plan ? (
-                  <span className="bp-who-plan">{who.plan}</span>
-                ) : null}
-              </button>
-            ) : null}
-
             <button
               className="bp-icon"
               onClick={() => setOpen(false)}
@@ -500,7 +645,9 @@ export function Chat({
                 // inside the other would make every close a switch as well.
                 <span
                   key={session.id}
-                  className={`bp-sess-chip${session.id === current ? " is-on" : ""}`}
+                  className={`bp-sess-chip${
+                    !unstarted && session.id === current ? " is-on" : ""
+                  }`}
                 >
                   {naming === session.id ? (
                     // The chip becomes the field, so the name is edited where it is read.
@@ -520,6 +667,8 @@ export function Chat({
                   ) : (
                     <button
                       className="bp-sess-open"
+                      // The id lives in the tooltip. On the chip it was eight characters of
+                      // hex that told a person nothing and made every tab look alike.
                       title={`${session.id} · ${session.at}`}
                       disabled={connecting}
                       onClick={() => void begin(session.id)}
@@ -546,25 +695,16 @@ export function Chat({
                       }}
                     >
                       {session.label}
-                      <span className="bp-sess-id">
-                        {session.id.slice(0, 8)}
-                      </span>
                     </button>
                   )}
-                  <button
-                    className="bp-sess-shut"
-                    title="Forget this conversation — the agent keeps its own transcript"
-                    disabled={connecting}
-                    onClick={() => void forget(session.id)}
-                  >
-                    ✕
-                  </button>
                 </span>
               ))}
+              {/* Instant, and empty. Nothing is spawned and nothing is written until the
+                  first message -- the tab is a place to start, not a session. */}
               <button
-                className="bp-sess-chip bp-sess-act"
+                className={`bp-sess-chip bp-sess-act${unstarted ? " is-on" : ""}`}
                 disabled={connecting}
-                onClick={() => void begin()}
+                onClick={freshen}
               >
                 + New
               </button>
@@ -635,10 +775,22 @@ export function Chat({
                 {musing && !status ? (
                   <span className="bp-musing">{musing.slice(-90)}</span>
                 ) : null}
+                {/* What this turn has cost so far, counting up from nothing. **The agent's
+                    own estimate**, and shown with a tilde because of it: real usage is
+                    reported exactly twice in a turn, so a number that moves could only ever
+                    have been the agent's guess or ours, and ours would be a fiction. */}
+                {spending > 0 ? (
+                  <span
+                    className="bp-spent"
+                    title="the agent's own running estimate"
+                  >
+                    ~{spending.toLocaleString()} tokens
+                  </span>
+                ) : null}
               </div>
             ) : null}
 
-            {transcript.length === 0 ? (
+            {transcript.length === 0 && !busy ? (
               <div className="bp-empty">
                 Nothing said in this conversation yet. What the agent does shows
                 on the canvas.
@@ -668,10 +820,14 @@ export function Chat({
             <Toggle open={open} onToggle={() => setOpen(!open)} />
           </div>
         ) : who !== null && !who.signed_in ? (
-          // Nobody is signed in, so there is nothing to connect *to*. The button that starts
-          // a session would spawn an agent that immediately asks for credentials, which is a
-          // worse way to find out.
+          // Nobody is signed in, so there is nothing to talk to. Everything stays visible --
+          // the panel, the conversations, what was said in them -- and only writing is off:
+          // hiding it all behind a login would hide the thing the login is for.
           <div className="bp-chat-row">
+            <Spark />
+            <div className="bp-chat-absent">
+              Not signed in — the agent runs on your own Claude account.
+            </div>
             <button
               className="bp-chat-connect"
               disabled={connecting}
@@ -683,20 +839,7 @@ export function Chat({
               }}
               title="opens the agent's own sign-in page in your browser"
             >
-              {connecting ? "Waiting for the browser…" : "Sign in to Claude"}
-            </button>
-            <Toggle open={open} onToggle={() => setOpen(!open)} />
-          </div>
-        ) : !running ? (
-          // Past conversations are worth looking at before there is a live one, so the
-          // transcript stays reachable whether or not anything is connected.
-          <div className="bp-chat-row">
-            <button
-              className="bp-chat-connect"
-              disabled={connecting}
-              onClick={() => void begin()}
-            >
-              {connecting ? "Connecting…" : "Connect Claude"}
+              {connecting ? "Waiting for the browser…" : "Connect"}
             </button>
             <Toggle open={open} onToggle={() => setOpen(!open)} />
           </div>
@@ -710,9 +853,13 @@ export function Chat({
               onFocus={() => setOpen(true)}
               value={draft}
               rows={1}
-              placeholder={busy ? "working…" : "ask for a change"}
+              placeholder={
+                busy
+                  ? "ask the next thing — it waits its turn"
+                  : "ask for a change"
+              }
               spellCheck={false}
-              disabled={busy}
+              disabled={connecting}
               onChange={(event) => setDraft(event.target.value)}
               onKeyDown={(event) => {
                 if (event.key === "Enter" && !event.shiftKey) {
@@ -766,14 +913,28 @@ export function Chat({
 
               <Toggle open={open} onToggle={() => setOpen(!open)} />
 
-              <button
-                className="bp-send"
-                onClick={() => void send(draft)}
-                disabled={busy || !draft.trim()}
-                title="Send"
-              >
-                ↑
-              </button>
+              {/* One button, and what it does follows what there is to do. A turn is
+                  running and the field is empty: there is nothing to send and something to
+                  stop. Type into it and sending is the intention again -- the question joins
+                  the queue rather than interrupting the answer being written. */}
+              {busy && !draft.trim() ? (
+                <button
+                  className="bp-send is-stop"
+                  onClick={() => void halt()}
+                  title="Stop this answer — the conversation stays"
+                >
+                  ■
+                </button>
+              ) : (
+                <button
+                  className="bp-send"
+                  onClick={() => send(draft)}
+                  disabled={!draft.trim()}
+                  title={busy ? "Ask next — it waits for this answer" : "Send"}
+                >
+                  ↑
+                </button>
+              )}
             </div>
           </>
         )}

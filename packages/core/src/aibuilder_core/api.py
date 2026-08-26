@@ -44,6 +44,7 @@ from aibuilder_core.runner import (
 from aibuilder_core.session import (
     account,
     forget_session,
+    interrupt,
     poll_session,
     rename_session,
     say,
@@ -97,6 +98,7 @@ __all__ = [
     "agent_say",
     "agent_session",
     "agent_shut",
+    "agent_interrupt",
     "agent_forget",
     "agent_rename",
     "agent_account",
@@ -494,7 +496,19 @@ AGENT_SESSION_SCHEMA = {
     # One step of a turn. `detail` is what a tool was called with, or what it answered;
     # `id` is the agent's own `tool_use_id`, which is what lets a result be shown against the
     # call it answers rather than merely after it. Both are "" where they do not apply.
-    "events": [{"kind": "str", "text": "str", "file": "str", "detail": "str", "id": "str"}],
+    # One step of a turn. `detail` is what a tool was called with or what it answered; `id`
+    # is the agent's own `tool_use_id`, which is what pairs a result with the call it answers
+    # rather than merely following it; `tool` is the agent's name for what it called.
+    "events": [
+        {
+            "kind": "str",
+            "text": "str",
+            "file": "str",
+            "detail": "str",
+            "id": "str",
+            "tool": "str",
+        }
+    ],
     # Where the reader got to. Events are polled, never pushed (P13).
     "offset": "int",
     # The conversations this project has had -- ids and labels, never a transcript.
@@ -504,6 +518,10 @@ AGENT_SESSION_SCHEMA = {
     "context": "int",
     # Which model is answering, as the agent named it. Empty until it has said.
     "model": "str",
+    # The agent's own running estimate of what the turn has cost so far. Usage proper is
+    # reported exactly twice in a turn -- at the start of a message and at its end -- so a
+    # number that *moves* while it works is the agent's estimate or it is nobody's.
+    "spending": "int",
 }
 
 #: The `agent.record` payload: what the gates said about one generation, as it was logged.
@@ -891,6 +909,11 @@ def agent_say(project: Path | str, text: str) -> dict[str, Any]:
 def agent_poll(project: Path | str, offset: int = 0) -> dict[str, Any]:
     """What the agent has said since `offset`. The caller keeps the offset it was given."""
     return {"api_version": GRAPH_API_VERSION, **poll_session(project, offset).as_dict()}
+
+
+def agent_interrupt(project: Path | str) -> dict[str, Any]:
+    """Stop the turn that is running. The conversation and its process both survive."""
+    return {"api_version": GRAPH_API_VERSION, **interrupt(project).as_dict()}
 
 
 def agent_shut(project: Path | str) -> dict[str, Any]:

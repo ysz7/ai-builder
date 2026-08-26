@@ -102,9 +102,6 @@ textarea {
 .bp-btn:hover {
   background: var(--surface-2);
 }
-.bp-theme {
-  margin-left: auto;
-}
 
 .bp-live {
   display: flex;
@@ -587,6 +584,14 @@ textarea {
 .bp-sev.is-unproven {
   color: var(--unknown);
 }
+/* Proven has no hue: green is the absence of a problem, not a colour of its own, and giving
+   it one would put it in competition with the kind tints. */
+.bp-sev.is-green {
+  color: var(--ok);
+}
+.bp-sev.is-broken {
+  color: var(--bad);
+}
 .bp-problem-msg {
   flex: 1 1 auto;
 }
@@ -782,9 +787,11 @@ textarea {
 /* The two verbs that are not a conversation carry their own padding: the chip gave its
    away to the buttons nested inside it. */
 .bp-sess-act {
-  align-items: baseline;
+  align-items: center;
+  justify-content: center;
   gap: 6px;
   padding: 4px 9px;
+  min-width: 84px;
   cursor: pointer;
 }
 .bp-sess-act:disabled {
@@ -792,8 +799,7 @@ textarea {
   cursor: not-allowed;
 }
 
-.bp-sess-open,
-.bp-sess-shut {
+.bp-sess-open {
   border: none;
   background: none;
   color: inherit;
@@ -803,33 +809,19 @@ textarea {
 }
 .bp-sess-open {
   display: inline-flex;
-  align-items: baseline;
-  gap: 6px;
-  padding: 4px 4px 4px 9px;
+  align-items: center;
+  justify-content: center;
+  padding: 4px 9px;
+  /* Wide enough that a short name is still a tab. A chip that says "new" was three
+     characters of border and read as a fragment rather than as somewhere to go. */
+  min-width: 84px;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
-/* Shown on hover only: closing is the rarer intention, and a ✕ on every chip turns a list
-   of conversations into a list of ways to lose one. It still takes space when hidden, so
-   the chips do not jump as the pointer crosses them. */
-.bp-sess-shut {
-  padding: 4px 7px 4px 3px;
-  color: var(--muted-2);
-  opacity: 0;
-  transition: opacity 90ms ease;
-}
-.bp-sess-chip:hover .bp-sess-shut {
-  opacity: 1;
-}
-.bp-sess-shut:hover {
-  color: var(--bad);
-}
-.bp-sess-open:disabled,
-.bp-sess-shut:disabled {
+.bp-sess-open:disabled {
   opacity: 0.4;
   cursor: not-allowed;
-}
-.bp-sess-id {
-  color: var(--muted-2);
-  font-size: 9px;
 }
 
 .bp-chat-log {
@@ -1631,34 +1623,6 @@ body.is-resizing {
   tab-size: 4;
 }
 
-/* Whose account a turn spends. Quiet, and always there -- an application that runs somebody
-   else's agent on somebody's subscription has to say whose. */
-.bp-who {
-  margin-left: auto;
-  margin-right: 6px;
-  display: inline-flex;
-  align-items: baseline;
-  gap: 7px;
-  border: 1px solid var(--line);
-  background: none;
-  color: var(--muted-2);
-  font-family: var(--mono);
-  font-size: 9.5px;
-  letter-spacing: 0.04em;
-  padding: 3px 8px;
-  cursor: pointer;
-}
-.bp-who:hover {
-  color: var(--fg);
-  border-color: var(--line-strong);
-}
-.bp-who-plan {
-  color: var(--accent);
-  text-transform: uppercase;
-  font-size: 8.5px;
-  letter-spacing: 0.12em;
-}
-
 /* ---------- our own menu ---------- */
 .bp-menu {
   position: fixed;
@@ -1708,4 +1672,200 @@ input,
 textarea {
   -webkit-user-select: text;
   user-select: text;
+}
+
+/* The folder being worked in, and the way to read it again. */
+.bp-folder {
+  border: none;
+  background: none;
+  color: inherit;
+  font: inherit;
+  letter-spacing: inherit;
+  text-transform: inherit;
+  padding: 0;
+  width: 100%;
+  cursor: pointer;
+}
+.bp-folder:hover {
+  color: var(--fg);
+}
+
+/* ---------- settings ---------- */
+.bp-sheet.is-settings {
+  width: min(560px, 92vw);
+  gap: 10px;
+}
+.bp-set {
+  display: flex;
+  flex-direction: column;
+}
+.bp-set-row {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--line);
+}
+.bp-set-row:last-child {
+  border-bottom: none;
+}
+.bp-set-label {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  font-size: 13px;
+  min-width: 0;
+  word-break: break-word;
+}
+.bp-set-help {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--muted-2);
+  line-height: 1.5;
+}
+.bp-set-pick {
+  display: flex;
+  gap: 4px;
+}
+
+/* ---------- observe & repair, as faces of the dock ---------- */
+.bp-observe,
+.bp-repairs {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.bp-observe-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.bp-observe-tally {
+  display: flex;
+  gap: 10px;
+}
+.bp-observe-note {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--muted-2);
+}
+
+/* The mark on the sign-in row. Ours, not a reproduction of anybody's logo. */
+.bp-spark {
+  flex: 0 0 auto;
+  color: var(--accent);
+  opacity: 0.85;
+}
+
+/* An unstarted conversation is a chip like any other, marked as the one selected. It leads
+   the strip because it is where a person starts, not where they end up. */
+.bp-sess-act.is-on {
+  color: var(--fg);
+  border-color: var(--line-strong);
+  background: var(--surface-2);
+}
+
+/* What the turn has cost so far, beside what it is doing. */
+.bp-spent {
+  flex: 0 0 auto;
+  color: var(--muted-2);
+  font-size: 9.5px;
+  letter-spacing: 0.06em;
+}
+
+/* ---------- a tool the agent used ---------- */
+.bp-tool {
+  border: 1px solid var(--line);
+  background: var(--bg-2);
+  margin: 2px 0;
+}
+.bp-tool.is-blocked {
+  border-color: var(--bad);
+}
+.bp-tool-head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  width: 100%;
+  border: none;
+  background: none;
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 10.5px;
+  padding: 6px 9px;
+  text-align: left;
+  cursor: pointer;
+}
+.bp-tool-head:hover {
+  color: var(--fg);
+}
+.bp-tool-name {
+  flex: 0 0 auto;
+  color: var(--fg);
+  font-size: 9px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+.bp-tool-said {
+  flex: 1 1 auto;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.bp-tool-body {
+  border-top: 1px solid var(--line);
+}
+/* `in` and `out` are captions in a column, the way a terminal transcript reads: the label is
+   narrow and fixed so the eye finds the content at the same place every time. */
+.bp-tool-row {
+  display: flex;
+  gap: 10px;
+  padding: 7px 9px;
+  border-bottom: 1px solid var(--line);
+}
+.bp-tool-row:last-child {
+  border-bottom: none;
+}
+.bp-tool-cap {
+  flex: 0 0 auto;
+  width: 22px;
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--muted-2);
+}
+.bp-tool-text {
+  flex: 1 1 auto;
+  margin: 0;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  line-height: 1.6;
+  color: var(--muted);
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 220px;
+  overflow: auto;
+}
+
+/* Stopping is a different intention from sending, so it is a different button. */
+.bp-send.is-stop {
+  background: var(--bad);
+  color: var(--bg);
+  border-color: var(--bad);
+}
+
+.bp-gear {
+  margin-left: auto;
+  border: none;
+  background: none;
+  color: var(--muted-2);
+  padding: 4px;
+  display: inline-flex;
+  cursor: pointer;
+}
+.bp-gear:hover {
+  color: var(--fg);
 }
