@@ -115,7 +115,20 @@ export function knobSet(
 
 // -- the agent ---------------------------------------------------------------
 
-export type AgentEvent = { kind: string; text: string; file: string };
+/**
+ * One step of a turn.
+ *
+ * `detail` is what a tool was called with, or what it answered; `id` is the agent's own
+ * `tool_use_id`, which is what lets a result be shown against the call it answers rather
+ * than merely after it.
+ */
+export type AgentEvent = {
+  kind: string;
+  text: string;
+  file: string;
+  detail: string;
+  id: string;
+};
 export type AgentSessionRef = { id: string; label: string; at: string };
 export type AgentSession = {
   api_version: number;
@@ -301,4 +314,50 @@ export function agentForget(
   session: string,
 ): Promise<AgentSession> {
   return coreRequest<AgentSession>("agent.forget", { project, session });
+}
+
+/**
+ * Name one conversation.
+ *
+ * The label is the only field of a conversation that belongs to the person: its id is the
+ * agent's, its transcript is the agent's, when it happened is a fact. An empty name puts the
+ * default back rather than leaving a chip with nothing on it.
+ */
+export function agentRename(
+  project: string,
+  session: string,
+  label: string,
+): Promise<AgentSession> {
+  return coreRequest<AgentSession>("agent.rename", { project, session, label });
+}
+
+/**
+ * Who the agent is signed in as.
+ *
+ * **Read, never held.** The credential belongs to the CLI, which put it on this machine
+ * through its own browser flow; this application stores nothing and has nothing to leak. What
+ * it answers is the question a bare "Connect" button could not: whose account is about to be
+ * spent.
+ */
+export type Account = {
+  api_version: number;
+  signed_in: boolean;
+  method: string;
+  email: string;
+  plan: string;
+  organisation: string;
+  detail: string;
+};
+
+export function agentAccount(): Promise<Account> {
+  return coreRequest<Account>("agent.account", {});
+}
+
+/** Opens the agent's own browser flow and waits for it. Never implicit (P11). */
+export function agentSignIn(console = false): Promise<Account> {
+  return coreRequest<Account>("agent.sign_in", { console });
+}
+
+export function agentSignOut(): Promise<Account> {
+  return coreRequest<Account>("agent.sign_out", {});
 }

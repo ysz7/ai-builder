@@ -16,6 +16,7 @@ from collections.abc import Callable
 from typing import Any
 
 from aibuilder_core.api import (
+    agent_account,
     agent_blueprints,
     agent_brief,
     agent_failures,
@@ -23,9 +24,12 @@ from aibuilder_core.api import (
     agent_open,
     agent_poll,
     agent_record,
+    agent_rename,
     agent_say,
     agent_session,
     agent_shut,
+    agent_sign_in,
+    agent_sign_out,
     create_new_project,
     describe_kinds,
     environment_status,
@@ -394,6 +398,31 @@ def agent_forget_method(params: dict[str, Any]) -> dict[str, Any]:
     return agent_forget(_project_of(params), _required_str(params, "session"))
 
 
+def agent_account_method(params: dict[str, Any]) -> dict[str, Any]:
+    """Who is signed in. A read: it starts no session and signs nobody in."""
+    return agent_account()
+
+
+def agent_sign_in_method(params: dict[str, Any]) -> dict[str, Any]:
+    """Open the agent's own browser sign-in. Never implicit -- somebody pressed it (P11)."""
+    console = params.get("console", False)
+    if not isinstance(console, bool):
+        raise ProtocolError("invalid_params", "'console' must be true or false")
+    return agent_sign_in(console)
+
+
+def agent_sign_out_method(params: dict[str, Any]) -> dict[str, Any]:
+    return agent_sign_out()
+
+
+def agent_rename_method(params: dict[str, Any]) -> dict[str, Any]:
+    """Name one conversation. An empty name restores the default rather than clearing it."""
+    label = params.get("label", "")
+    if not isinstance(label, str):
+        raise ProtocolError("invalid_params", "'label' must be a string")
+    return agent_rename(_project_of(params), _required_str(params, "session"), label)
+
+
 def agent_stop_method(params: dict[str, Any]) -> dict[str, Any]:
     return agent_shut(_project_of(params))
 
@@ -489,6 +518,10 @@ HANDLERS: dict[str, Handler] = {
     "agent.poll": agent_poll_method,
     "agent.stop": agent_stop_method,
     "agent.forget": agent_forget_method,
+    "agent.rename": agent_rename_method,
+    "agent.account": agent_account_method,
+    "agent.sign_in": agent_sign_in_method,
+    "agent.sign_out": agent_sign_out_method,
     "project.create": project_create,
     "layout.read": layout_read,
     "layout.write": layout_write,

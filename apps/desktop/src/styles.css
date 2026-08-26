@@ -838,33 +838,137 @@ textarea {
   overflow: auto;
   padding: 12px;
 }
-.bp-chat-line {
-  font-family: var(--mono);
-  font-size: 11px;
-  line-height: 1.65;
-  color: var(--muted);
-  padding: 5px 0;
-  border-bottom: 1px solid var(--line);
-  display: flex;
-  gap: 9px;
+/* A turn is a block, not a row in a table. The captioned column was what made this read as
+   a log: every line, whoever said it, arrived in the same shape with a label in front. */
+.bp-turn {
+  margin-bottom: 14px;
 }
-.bp-chat-line.is-says {
+.bp-turn-text {
+  font-family: var(--body);
+  font-size: 13px;
+  line-height: 1.6;
   color: var(--fg);
+  white-space: pre-wrap;
+  word-break: break-word;
 }
-.bp-chat-line.is-blocked {
-  color: var(--bad);
+/* What the person said reads as a message, not as a marked-up line: a soft box with room
+   around the words. Not alternated to one side -- the panel is 460px, and at that width an
+   alternating alignment is a column of ragged fragments rather than a conversation. */
+.bp-turn.is-you {
+  display: flex;
+  justify-content: flex-end;
 }
-.bp-chat-kind {
-  flex: 0 0 auto;
-  width: 52px;
-  font-size: 9px;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
-  color: var(--muted-2);
+.bp-turn.is-you .bp-turn-text {
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 9px 13px;
+  max-width: 88%;
+}
+.bp-turn.is-says {
+  padding: 0 2px;
 }
 
-/* one line of status, above the input, while a turn is running */
-.bp-chat-status,
+/* The agent working, shown where the work is happening rather than on a shelf above the
+   field. It is the last thing in the transcript for exactly as long as the turn runs. */
+.bp-turn.is-working {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--muted);
+}
+
+/* A step is neither party speaking: it is the agent working. Quiet, narrow, mono, and
+   folded -- "what is it doing" is one line, "what exactly did it do" costs a click. */
+.bp-step {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  line-height: 1.6;
+  color: var(--muted-2);
+}
+.bp-step-line {
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
+  width: 100%;
+  border: none;
+  background: none;
+  color: inherit;
+  font: inherit;
+  padding: 2px 0;
+  text-align: left;
+  cursor: pointer;
+}
+.bp-step-line:hover {
+  color: var(--muted);
+}
+.bp-step-mark {
+  flex: 0 0 auto;
+  width: 9px;
+  color: var(--muted-2);
+}
+.bp-step-text {
+  flex: 1 1 auto;
+  word-break: break-word;
+}
+.bp-step-no {
+  flex: 0 0 auto;
+  color: var(--bad);
+  font-size: 9px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+.bp-step.is-blocked .bp-step-line {
+  color: var(--bad);
+}
+.bp-step-body {
+  margin: 3px 0 6px 16px;
+  border-left: 1px solid var(--line);
+  padding-left: 11px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: var(--muted);
+  max-height: 260px;
+  overflow: auto;
+}
+/* What went in, and what came back. Separated by weight rather than by a label: a caption
+   on each would double the height of a thing that exists to be skimmed. */
+.bp-step-in {
+  color: var(--muted-2);
+  margin-bottom: 6px;
+}
+.bp-step-out {
+  color: var(--muted);
+}
+.bp-step.is-thinking .bp-step-body {
+  font-style: italic;
+}
+
+/* The answer is still being written. */
+.bp-caret {
+  display: inline-block;
+  width: 7px;
+  height: 13px;
+  vertical-align: text-bottom;
+  background: var(--accent);
+  animation: bp-blink 1.05s steps(2, start) infinite;
+}
+@keyframes bp-blink {
+  to {
+    opacity: 0;
+  }
+}
+.bp-musing {
+  flex: 1 1 auto;
+  color: var(--muted-2);
+  font-style: italic;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
 .bp-chat-box {
   flex: 0 0 auto;
   border: 1px solid var(--line-strong);
@@ -1441,4 +1545,88 @@ body.is-resizing {
 }
 .bp-notice-shut:hover {
   color: var(--fg);
+}
+
+/* Renaming happens in place: the chip becomes the field, so the name is edited where it is
+   read rather than in a dialog about a chip. */
+.bp-sess-name {
+  border: none;
+  background: none;
+  font: inherit;
+  letter-spacing: inherit;
+  padding: 4px 4px 4px 9px;
+  width: 11ch;
+  min-width: 0;
+}
+.bp-sess-name:focus {
+  outline: none;
+}
+
+/* ---------- markdown, in what the agent says ---------- */
+.bp-md > *:first-child {
+  margin-top: 0;
+}
+.bp-md > *:last-child {
+  margin-bottom: 0;
+}
+.bp-md-p {
+  margin: 0 0 9px;
+  white-space: pre-wrap;
+}
+.bp-md-h {
+  font-family: var(--display);
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  margin: 14px 0 7px;
+}
+.bp-md-h.is-h1 {
+  font-size: 16px;
+}
+.bp-md-h.is-h2 {
+  font-size: 14.5px;
+}
+.bp-md-h.is-h3,
+.bp-md-h.is-h4 {
+  font-size: 13px;
+}
+.bp-md-list {
+  margin: 0 0 9px;
+  padding-left: 18px;
+}
+.bp-md-list li {
+  margin-bottom: 3px;
+}
+.bp-md-list.is-ordered {
+  list-style: decimal;
+}
+.bp-md-quote {
+  border-left: 2px solid var(--line-strong);
+  padding-left: 10px;
+  margin: 0 0 9px;
+  color: var(--muted);
+  white-space: pre-wrap;
+}
+.bp-md-rule {
+  height: 1px;
+  background: var(--line);
+  margin: 12px 0;
+}
+.bp-md-code {
+  font-family: var(--mono);
+  font-size: 11px;
+  background: var(--bg-2);
+  border: 1px solid var(--line);
+  padding: 1px 4px;
+}
+.bp-md-fence {
+  font-family: var(--mono);
+  font-size: 11px;
+  line-height: 1.6;
+  background: var(--bg-2);
+  border: 1px solid var(--line);
+  padding: 9px 11px;
+  margin: 0 0 9px;
+  overflow-x: auto;
+  white-space: pre;
+  tab-size: 4;
 }

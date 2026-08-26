@@ -70,6 +70,13 @@ DENIED = ("Edit(.aibuilder/**)", "Write(.aibuilder/**)")
 #: How long to wait for the agent to answer that it exists.
 PROBE_TIMEOUT_S = 10
 
+#: How long a browser sign-in may take before we stop waiting on it.
+#:
+#: Minutes rather than seconds: a person has to find the window, read the page and press the
+#: button, and the CLI holds the process open until they do. Giving up early would report "not
+#: signed in" about a sign-in that was still going on.
+SIGN_IN_TIMEOUT_S = 300
+
 #: The live process, held for the sidecar's lifetime. Unlike a web server, this one has to be
 #: *written to*, and a pipe cannot be reopened from a pid -- so a session is the sidecar's
 #: lifetime, and a session inherited from a crashed one can be stopped but not continued.
@@ -158,6 +165,103 @@ def agent_available() -> tuple[bool, str]:
     return answer.returncode == 0, answer.stdout.strip()
 
 
+@dataclass(frozen=True)
+class Account:
+    """Who the agent is signed in as.
+
+    **This is read, never held.** The credential belongs to the CLI, which put it on this
+    machine through its own browser flow; the core has no HTTP client to a model and no SDK
+    (Q16), so there is nothing here to store and nothing to leak. What was missing was not a
+    login -- it was the application saying whose account a turn is about to spend.
+    """
+
+    signed_in: bool = False
+    method: str = ""
+    email: str = ""
+    plan: str = ""
+    organisation: str = ""
+    detail: str = ""
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "signed_in": self.signed_in,
+            "method": self.method,
+            "email": self.email,
+            "plan": self.plan,
+            "organisation": self.organisation,
+            "detail": self.detail,
+        }
+
+
+def account() -> Account:
+    """Ask the agent who it is signed in as. Asked, never assumed (§5.8)."""
+    binary = agent_binary()
+    if binary is None:
+        return Account(detail="no agent found on this machine")
+    try:
+        answer = subprocess.run(  # noqa: S603 -- the command is ours
+            [binary, "auth", "status"],
+            capture_output=True,
+            text=True,
+            timeout=PROBE_TIMEOUT_S,
+        )
+    except (subprocess.SubprocessError, OSError) as exc:
+        return Account(detail=f"the agent could not be asked: {exc}")
+
+    try:
+        told = json.loads(answer.stdout or "{}")
+    except json.JSONDecodeError:
+        # An older agent may not answer in JSON. Not knowing is an answer; guessing is not.
+        return Account(detail="this agent does not report its account")
+    if not isinstance(told, dict):
+        return Account(detail="this agent does not report its account")
+
+    return Account(
+        signed_in=bool(told.get("loggedIn")),
+        method=str(told.get("authMethod") or ""),
+        email=str(told.get("email") or ""),
+        plan=str(told.get("subscriptionType") or ""),
+        organisation=str(told.get("orgName") or ""),
+        detail="" if told.get("loggedIn") else "not signed in",
+    )
+
+
+def sign_in(console: bool = False) -> Account:
+    """Run the agent's own browser sign-in, and report what it left behind.
+
+    **Its flow, not ours.** The browser is opened by the CLI, the credential is written where
+    the CLI keeps it, and this waits for that to finish and then asks again. Building a login
+    of our own would mean holding a secret, which is the one thing this design does not do.
+    """
+    binary = agent_binary()
+    if binary is None:
+        return Account(detail="no agent found on this machine")
+    try:
+        subprocess.run(  # noqa: S603 -- the command is ours
+            [binary, "auth", "login", "--console" if console else "--claudeai"],
+            capture_output=True,
+            text=True,
+            timeout=SIGN_IN_TIMEOUT_S,
+        )
+    except subprocess.TimeoutExpired:
+        return Account(detail="the sign-in was not finished in time")
+    except (subprocess.SubprocessError, OSError) as exc:
+        return Account(detail=f"the sign-in could not be started: {exc}")
+    return account()
+
+
+def sign_out() -> Account:
+    """Sign the agent out. Ours to ask for, the CLI's to carry out."""
+    binary = agent_binary()
+    if binary is None:
+        return Account(detail="no agent found on this machine")
+    with contextlib.suppress(subprocess.SubprocessError, OSError):
+        subprocess.run(  # noqa: S603 -- the command is ours
+            [binary, "auth", "logout"], capture_output=True, text=True, timeout=PROBE_TIMEOUT_S
+        )
+    return account()
+
+
 def _sessions_path(project: Path) -> Path:
     return project / SESSIONS_PATH
 
@@ -203,6 +307,41 @@ def _remember(project: Path, identifier: str, label: str) -> None:
             _write_sessions(project, known)
             return
     _write_sessions(project, [{"id": identifier, "label": label, "at": _now()}, *known])
+
+
+#: The longest a conversation's name may be. A list of chips, not a place to write in.
+NAME_LIMIT = 60
+
+
+def rename_session(project: Path | str, identifier: str, label: str) -> SessionResult:
+    """Give one conversation a name.
+
+    **The label is the only field of a conversation that belongs to the person.** Its id is
+    the agent's, its transcript is the agent's, and when it happened is a fact -- the name is
+    the one thing here that is a choice, so it is the one thing that may be written. The
+    default (`new`, `continued`, `fork`) says how the session was opened, which is a fine
+    default and a poor name for a list where every entry says `new`.
+
+    An empty name puts the default back rather than leaving a nameless chip.
+    """
+    root = Path(project).resolve()
+    known = list(list_sessions(root))
+    wanted = " ".join(label.split())[:NAME_LIMIT]
+
+    for index, item in enumerate(known):
+        if item.get("id") == identifier:
+            known[index] = {**item, "label": wanted or "new"}
+            _write_sessions(root, known)
+            return SessionResult(
+                True,
+                "renamed",
+                session=_current(root),
+                running=str(root) in _LIVE,
+                available=agent_available()[0],
+                sessions=tuple(known),
+            )
+
+    return SessionResult(False, f"no conversation {identifier!r} in this project")
 
 
 def forget_session(project: Path | str, identifier: str) -> SessionResult:
@@ -352,6 +491,15 @@ def start_session(
         # the transport gives us (Q17).
         "--permission-mode",
         "acceptEdits",
+        # An answer arrives as deltas as it is written, instead of whole at the end -- which
+        # is the difference between silence and a wall of text, and a wall of text.
+        #
+        # The help says this works "only with --print", and our session is not a --print
+        # session. It was **tried in our own configuration** before being relied on, because
+        # a flag the CLI accepts and ignores is exactly what `--permission-mode manual` was
+        # (Q17), and the way that was found was by reading the effect back rather than the
+        # documentation.
+        "--include-partial-messages",
         "--disallowed-tools",
         *DENIED,
         # Verbatim, and on every invocation: what `--resume` keeps is not ours to assume.
@@ -379,8 +527,21 @@ def start_session(
         return SessionResult(False, f"the agent could not be started: {exc}", available=True)
 
     _LIVE[str(root)] = process
+    # `invented` is the one fact `_correct_identity` cannot work out later: whether this id is
+    # ours (a uuid the agent may replace, and then it was never a conversation) or a real
+    # conversation we asked to resume (which a fork must keep, since going back to it is the
+    # whole point of forking).
     _state_path(root).write_text(
-        json.dumps({"pid": process.pid, "session": identifier, "started_at": _now()}, indent=2),
+        json.dumps(
+            {
+                "pid": process.pid,
+                "session": identifier,
+                "started_at": _now(),
+                "invented": resume is None,
+                "label": label or _label(resume, fork),
+            },
+            indent=2,
+        ),
         encoding="utf-8",
     )
     _remember(root, identifier, label or _label(resume, fork))
@@ -519,6 +680,12 @@ def _correct_identity(project: Path, raw: dict[str, Any]) -> None:
 
     Asked rather than assumed (§5.8): we hand `--fork-session` over and find out what it
     decided from the `init` line, instead of predicting an id it never agreed to.
+
+    **What the previous id was decides whether it is dropped.** A uuid we invented and the
+    agent replaced was never a conversation, and leaving it in the list offers a person
+    something to resume that does not exist. An id we asked to *resume* is a real conversation
+    -- and a fork of it must keep it, because going back to it is the entire point of forking.
+    Treating both the same is how forking session 1 came to delete session 1.
     """
     if raw.get("type") != "system" or raw.get("subtype") != "init":
         return
@@ -531,12 +698,14 @@ def _correct_identity(project: Path, raw: dict[str, Any]) -> None:
     state["session"] = told
     with contextlib.suppress(OSError):
         _state_path(project).write_text(json.dumps(state, indent=2), encoding="utf-8")
-    known = [item for item in list_sessions(project) if item.get("id") != previous]
-    with contextlib.suppress(OSError):
-        _sessions_path(project).write_text(
-            json.dumps([{"id": told, "label": "fork", "at": _now()}, *known][:40], indent=2),
-            encoding="utf-8",
-        )
+
+    known = [
+        item
+        for item in list_sessions(project)
+        if item.get("id") != told and not (state.get("invented") and item.get("id") == previous)
+    ]
+    entry = {"id": told, "label": str(state.get("label") or "fork"), "at": _now()}
+    _write_sessions(project, [entry, *known])
 
 
 def _current(project: Path) -> str | None:
@@ -544,53 +713,105 @@ def _current(project: Path) -> str | None:
     return str(state.get("session")) if state and state.get("session") else None
 
 
+#: The most of a tool's input or output that travels with an event.
+#:
+#: A `Read` of a large file answers with the whole file, and a transcript is not a place to
+#: put one. The **log keeps everything** -- this is the part a panel shows, and it says when
+#: it has cut something rather than trailing off as if that were all there was.
+EXCERPT = 2000
+
+
 def _read_event(raw: dict[str, Any]) -> list[dict[str, Any]]:
     """One line of the agent's stream, as the events an interface can show.
 
-    Deliberately shallow. The status line wants to say "editing app/api/reports.py", the
-    canvas wants the file so it can light the nodes in it, and a refusal has to be visible
-    because there is no permission round-trip to intercept (Q17). Nothing else is
-    interpreted -- the raw line stays in the log.
+    Once deliberately shallow -- a status line wants "editing app/api/reports.py" and no more.
+    A transcript wants the chain: what the agent thought, which tool it called *with what*,
+    and what came back. So the event carries `detail` and `id` as well, and a tool result is
+    surfaced whether or not it failed. This is a change of mind rather than a correction:
+    shallow was right for the thing it was written for.
+
+    `id` is the agent's own `tool_use_id`, which is what lets a result be shown against the
+    call it answers instead of merely after it.
     """
     kind = raw.get("type")
 
     if kind == "system" and raw.get("subtype") == "init":
         # Read back rather than assumed: this is how a silently ignored flag was caught.
         return [
-            {
-                "kind": "ready",
-                "text": (
-                    f"session ready · {raw.get('model', '?')} · {raw.get('permissionMode', '?')}"
-                ),
-                "file": "",
-            }
+            _event(
+                "ready",
+                f"session ready · {raw.get('model', '?')} · {raw.get('permissionMode', '?')}",
+            )
         ]
 
     if kind == "assistant":
         events: list[dict[str, Any]] = []
         for block in raw.get("message", {}).get("content", []) or []:
-            if block.get("type") == "text" and block.get("text", "").strip():
-                events.append({"kind": "says", "text": block["text"].strip(), "file": ""})
-            elif block.get("type") == "tool_use":
+            block_type = block.get("type")
+            if block_type == "text" and block.get("text", "").strip():
+                events.append(_event("says", block["text"].strip()))
+            elif block_type == "thinking" and str(block.get("thinking", "")).strip():
+                events.append(_event("thinking", str(block["thinking"]).strip()[:EXCERPT]))
+            elif block_type == "tool_use":
                 events.append(
-                    {
-                        "kind": "doing",
-                        "text": _doing(block),
-                        "file": str(block.get("input", {}).get("file_path", "")),
-                    }
+                    _event(
+                        "doing",
+                        _doing(block),
+                        file=str(block.get("input", {}).get("file_path", "")),
+                        detail=_given(block),
+                        identifier=str(block.get("id", "")),
+                    )
                 )
         return events
 
     if kind == "user":
+        events = []
         for block in raw.get("message", {}).get("content", []) or []:
-            if block.get("type") == "tool_result" and block.get("is_error"):
-                return [{"kind": "blocked", "text": _text_of(block), "file": ""}]
+            if block.get("type") != "tool_result":
+                continue
+            # A refusal has to be visible because there is no permission round-trip to
+            # intercept (Q17); an ordinary result is shown because a chain without its
+            # answers is a list of intentions.
+            events.append(
+                _event(
+                    "blocked" if block.get("is_error") else "did",
+                    _cut(_text_of(block)),
+                    identifier=str(block.get("tool_use_id", "")),
+                )
+            )
+        return events
+
+    if kind == "stream_event":
+        # A piece of the answer as it is written. The complete `assistant` message still
+        # arrives at the end and is authoritative -- these are what fills the gap until it
+        # does, and the reader replaces them with it rather than keeping both.
+        event = raw.get("event") or {}
+        if event.get("type") != "content_block_delta":
+            return []
+        delta = event.get("delta") or {}
+        if delta.get("type") == "text_delta":
+            return [_event("delta", str(delta.get("text", "")), detail="text")]
+        if delta.get("type") == "thinking_delta":
+            return [_event("delta", str(delta.get("thinking", "")), detail="thinking")]
         return []
 
     if kind == "result":
-        return [{"kind": "done", "text": str(raw.get("stop_reason") or "done"), "file": ""}]
+        return [_event("done", str(raw.get("stop_reason") or "done"))]
 
     return []
+
+
+def _event(
+    kind: str, text: str, file: str = "", detail: str = "", identifier: str = ""
+) -> dict[str, Any]:
+    return {"kind": kind, "text": text, "file": file, "detail": detail, "id": identifier}
+
+
+def _cut(text: str) -> str:
+    """An excerpt, and it says so. Trailing off would read as the whole answer."""
+    if len(text) <= EXCERPT:
+        return text
+    return f"{text[:EXCERPT]}\n… {len(text) - EXCERPT} more characters, in the log"
 
 
 def _doing(block: dict[str, Any]) -> str:
@@ -605,6 +826,22 @@ def _doing(block: dict[str, Any]) -> str:
     if name == "Bash":
         return f"running {str(given.get('command', ''))[:60]}"
     return name
+
+
+def _given(block: dict[str, Any]) -> str:
+    """What a tool was called with, as one readable piece.
+
+    Rendered rather than passed through: the input is the agent's JSON, and a panel showing
+    it raw would be showing a data structure where a person is trying to follow a story.
+    """
+    given = block.get("input", {}) or {}
+    if not isinstance(given, dict):
+        return _cut(str(given))
+    parts = []
+    for name, value in given.items():
+        rendered = value if isinstance(value, str) else json.dumps(value, ensure_ascii=False)
+        parts.append(f"{name}: {rendered}")
+    return _cut("\n".join(parts))
 
 
 def _text_of(block: dict[str, Any]) -> str:

@@ -19,14 +19,20 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 
 import {
+  agentAccount,
   agentForget,
   agentPoll,
+  agentRename,
   agentSay,
   agentSession,
+  agentSignIn,
+  agentSignOut,
   agentStart,
 } from "../core/client";
+import { Markdown } from "../code/markdown";
+import { Step } from "./Step";
 import { Notice } from "./Notice";
-import type { AgentEvent, AgentSessionRef } from "../core/client";
+import type { Account, AgentEvent, AgentSessionRef } from "../core/client";
 
 const POLL_MS = 700;
 
@@ -56,6 +62,22 @@ function windowFor(model: string): number {
   // Dated ids ("claude-haiku-4-5-20251001") name the same model as the alias they extend.
   const prefix = Object.keys(WINDOWS).find((name) => model.startsWith(name));
   return prefix ? WINDOWS[prefix] : 0;
+}
+
+/**
+ * Is this event something a person asked to see?
+ *
+ * `done` carries `end_turn` -- a fact about the protocol, and the signal the poll loop stops
+ * on. It is used, and it is not shown. `ready` is the session announcing itself, which the
+ * status line under the field already says; printing it in the log as well left the panel
+ * opening with a record of its own startup.
+ *
+ * Filtered here rather than in the core, deliberately: the events are the *core's* answer and
+ * another reader may want every one of them. What a chat panel puts on screen is the panel's
+ * decision.
+ */
+function worthShowing(event: AgentEvent): boolean {
+  return event.kind !== "done" && event.kind !== "ready";
 }
 
 type Props = {
@@ -102,6 +124,19 @@ export function Chat({
   const [model, setModel] = useState("");
   /** A session is being opened right now. Nothing else may ask for one until it answers. */
   const [connecting, setConnecting] = useState(false);
+  /** The conversation being renamed, if any. Its chip becomes a field while it is. */
+  const [naming, setNaming] = useState<string | null>(null);
+  /** Whose account a turn would spend. Asked of the agent; never stored here. */
+  const [who, setWho] = useState<Account | null>(null);
+  /**
+   * The answer as it is being written.
+   *
+   * Held apart from the transcript rather than appended to it, because the complete
+   * `assistant` message is what is authoritative: when it arrives this is dropped and the
+   * message takes its place, so there is never a moment where both are on screen.
+   */
+  const [writing, setWriting] = useState("");
+  const [musing, setMusing] = useState("");
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
 
@@ -109,6 +144,7 @@ export function Chat({
   const timer = useRef<number | null>(null);
   const field = useRef<HTMLTextAreaElement | null>(null);
   const shell = useRef<HTMLDivElement | null>(null);
+  const tail = useRef<HTMLDivElement | null>(null);
 
   /**
    * The conversation closes when attention goes elsewhere.
@@ -133,6 +169,11 @@ export function Chat({
     document.addEventListener("pointerdown", away);
     return () => document.removeEventListener("pointerdown", away);
   }, [open]);
+
+  // The newest line is the one being waited for, so the view follows it.
+  useEffect(() => {
+    if (tail.current) tail.current.scrollTop = tail.current.scrollHeight;
+  }, [transcript, status]);
 
   // A request handed over from the repair dialog lands in the field, focused and unsent.
   useEffect(() => {
@@ -182,6 +223,12 @@ export function Chat({
   }, []);
   stopPollingRef.current = stopPolling;
 
+  // Who is signed in is a fact about the machine, not about the project, so it is asked once
+  // rather than on every project change.
+  useEffect(() => {
+    void attempt(() => agentAccount()).then((told) => told && setWho(told));
+  }, [attempt]);
+
   useEffect(() => {
     void attempt(async () => {
       const state = await agentSession(project);
@@ -204,16 +251,33 @@ export function Chat({
     if (touched.length > 0) onTouch(touched);
 
     for (const event of answer.events) {
+      // The working line says what the agent is *doing*, so only a tool call writes to it.
+      // Letting `says` through put a whole answer on one line, and letting `ready` through
+      // left the session's own startup sitting there for the rest of it.
       if (event.kind === "blocked") setBlocked(event.text);
-      else if (event.kind !== "done") setStatus(event.text);
+      else if (event.kind === "doing") setStatus(event.text);
+      else if (event.kind === "delta") {
+        if (event.detail === "thinking")
+          setMusing((previous) => previous + event.text);
+        else setWriting((previous) => previous + event.text);
+      } else if (event.kind === "says") {
+        // The whole message has arrived; what was accumulating for it is now a duplicate.
+        setWriting("");
+        setMusing("");
+      }
     }
-    setTranscript((previous) => [...previous, ...answer.events]);
+    setTranscript((previous) => [
+      ...previous,
+      ...answer.events.filter(worthShowing),
+    ]);
 
     if (answer.events.some((event) => event.kind === "done")) {
       // The turn is over: stop asking, and read the graph again -- the agent has been
       // editing files, and everything on the canvas is a claim about older code.
       setBusy(false);
       setStatus("");
+      setWriting("");
+      setMusing("");
       stopPolling();
       onSettled();
       return;
@@ -226,34 +290,49 @@ export function Chat({
   /**
    * Read the opening of a session, and stop.
    *
-   * The agent writes its `init` line a moment *after* the process exists, so `agent.start`
-   * returning is not the same as the agent having said anything -- and until it does, the
-   * panel has no model to draw the context ring against and nothing to show for the press.
+   * A **new** session writes its `init` line a moment after the process exists, so
+   * `agent.start` returning is not the same as the agent having said anything -- and until it
+   * does, the panel has no model for the context ring and nothing to show for the press.
    *
-   * Bounded on purpose. Polling stops when the agent has announced itself or when the tries
-   * run out; a connect that never says anything must stop asking rather than leave a timer
-   * running for the rest of the session (P13: polled, with the caller keeping the offset).
+   * A **resumed** one announces nothing until it answers a turn. Measured, not assumed:
+   * `agent.start` with `resume` returns in 0.6s and no `ready` arrives within twenty
+   * seconds. So waiting for one is waiting for something that is not coming, and every
+   * switch between conversations sat on "Connecting…" for the full timeout — which is the
+   * whole of why switching felt slow. The core was never the slow part.
+   *
+   * Bounded either way: a connect that never says anything must stop asking rather than
+   * leave a timer running for the rest of the session (P13).
    */
-  const readOpening = useCallback(async () => {
-    for (let tries = 0; tries < 12; tries += 1) {
-      const answer = await attempt(() => agentPoll(project, offset.current));
-      if (answer === null) return;
-      offset.current = answer.offset;
-      if (answer.model) setModel(answer.model);
-      absorb(answer);
-      setTranscript((previous) => [...previous, ...answer.events]);
-      for (const event of answer.events) {
-        if (event.kind === "blocked") setBlocked(event.text);
-      }
-      if (
-        answer.events.some(
-          (event) => event.kind === "ready" || event.kind === "blocked",
+  const readOpening = useCallback(
+    async (tries = 12) => {
+      // Named `tried`, not `attempt`: the loop variable would shadow the helper that wraps
+      // every call to the core, and the shadowing is silent until the call is made.
+      for (let tried = 0; tried < tries; tried += 1) {
+        const answer = await attempt(() => agentPoll(project, offset.current));
+        if (answer === null) return;
+        offset.current = answer.offset;
+        if (answer.model) setModel(answer.model);
+        absorb(answer);
+        setTranscript((previous) => [
+          ...previous,
+          ...answer.events.filter(worthShowing),
+        ]);
+        for (const event of answer.events) {
+          if (event.kind === "blocked") setBlocked(event.text);
+        }
+        if (
+          answer.events.some(
+            (event) => event.kind === "ready" || event.kind === "blocked",
+          )
         )
-      )
-        return;
-      await new Promise((resolve) => window.setTimeout(resolve, 400));
-    }
-  }, [project, absorb, attempt]);
+          return;
+        if (tried + 1 < tries) {
+          await new Promise((resolve) => window.setTimeout(resolve, 400));
+        }
+      }
+    },
+    [project, absorb, attempt],
+  );
 
   const begin = useCallback(
     async (resume?: string, fork = false) => {
@@ -279,7 +358,9 @@ export function Chat({
           setBlocked(state.detail);
           return;
         }
-        await readOpening();
+        // One read for a conversation being resumed: it will not announce itself until it
+        // answers, and its model and corrected id arrive with that turn.
+        await readOpening(resume ? 1 : 12);
       } finally {
         setConnecting(false);
       }
@@ -307,6 +388,17 @@ export function Chat({
     [project, absorb, attempt],
   );
 
+  const rename = useCallback(
+    async (identifier: string, label: string) => {
+      setNaming(null);
+      const state = await attempt(() =>
+        agentRename(project, identifier, label),
+      );
+      if (state !== null) absorb(state);
+    },
+    [project, absorb, attempt],
+  );
+
   const send = useCallback(
     async (text: string) => {
       const said = text.trim();
@@ -315,6 +407,13 @@ export function Chat({
       setBlocked(null);
       setBusy(true);
       setStatus("thinking…");
+      // Shown before the core has answered: what the person typed is true the moment they
+      // press send, and waiting for a round trip to display it is what made the panel read
+      // as a log of the agent rather than as a conversation between two parties.
+      setTranscript((previous) => [
+        ...previous,
+        { kind: "you", text: said, file: "", detail: "", id: "" },
+      ]);
       const answer = await attempt(() => agentSay(project, said));
       if (answer === null) return;
       if (!answer.ok) {
@@ -380,15 +479,35 @@ export function Chat({
                   key={session.id}
                   className={`bp-sess-chip${session.id === current ? " is-on" : ""}`}
                 >
-                  <button
-                    className="bp-sess-open"
-                    title={`${session.id} · ${session.at}`}
-                    disabled={connecting}
-                    onClick={() => void begin(session.id)}
-                  >
-                    {session.label}
-                    <span className="bp-sess-id">{session.id.slice(0, 8)}</span>
-                  </button>
+                  {naming === session.id ? (
+                    // The chip becomes the field, so the name is edited where it is read.
+                    <input
+                      className="bp-sess-name"
+                      autoFocus
+                      defaultValue={session.label}
+                      maxLength={60}
+                      onBlur={(event) =>
+                        void rename(session.id, event.target.value)
+                      }
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter") event.currentTarget.blur();
+                        if (event.key === "Escape") setNaming(null);
+                      }}
+                    />
+                  ) : (
+                    <button
+                      className="bp-sess-open"
+                      title={`${session.id} · ${session.at} · double-click to rename`}
+                      disabled={connecting}
+                      onClick={() => void begin(session.id)}
+                      onDoubleClick={() => setNaming(session.id)}
+                    >
+                      {session.label}
+                      <span className="bp-sess-id">
+                        {session.id.slice(0, 8)}
+                      </span>
+                    </button>
+                  )}
                   <button
                     className="bp-sess-shut"
                     title="Forget this conversation — the agent keeps its own transcript"
@@ -418,13 +537,64 @@ export function Chat({
             </div>
           </div>
 
-          <div className="bp-chat-log">
-            {transcript.map((event, index) => (
-              <div key={index} className={`bp-chat-line is-${event.kind}`}>
-                <span className="bp-chat-kind">{event.kind}</span>
-                <span>{event.text}</span>
+          <div className="bp-chat-log" ref={tail}>
+            {transcript.map((event, index) => {
+              // A `did` is not a line of its own: it is the answer to the call above it,
+              // and it is drawn there. Pairing is by the agent's `tool_use_id`, because
+              // "the next one" stops being true as soon as two tools are in flight.
+              if (event.kind === "did" || event.kind === "delta") return null;
+
+              const answer =
+                event.kind === "doing"
+                  ? (transcript.find(
+                      (later) =>
+                        (later.kind === "did" || later.kind === "blocked") &&
+                        later.id === event.id,
+                    ) ?? null)
+                  : null;
+
+              return (
+                <div key={index} className={`bp-turn is-${event.kind}`}>
+                  {event.kind === "says" ? (
+                    // Only the agent's text is formatted. What the person typed is shown as
+                    // typed -- rendering their asterisks would be editing what they said.
+                    <div className="bp-turn-text">
+                      <Markdown source={event.text} />
+                    </div>
+                  ) : event.kind === "you" ? (
+                    <div className="bp-turn-text">{event.text}</div>
+                  ) : event.kind === "blocked" && event.id ? null : (
+                    <Step event={event} answer={answer} />
+                  )}
+                </div>
+              );
+            })}
+
+            {/* The answer as it is being written. Replaced by the complete message the
+                moment it arrives, so the two are never both on screen. */}
+            {writing ? (
+              <div className="bp-turn is-says">
+                <div className="bp-turn-text">
+                  <Markdown source={writing} />
+                  <span className="bp-caret" />
+                </div>
               </div>
-            ))}
+            ) : null}
+            {/* The working line lives *in* the transcript, at the point in the conversation
+                where the work is happening. Above the field it was a separate readout about
+                the chat rather than a part of it. */}
+            {busy ? (
+              <div className="bp-turn is-working">
+                <span className="bp-livedot" />
+                <span className="bp-step-text">{status || "thinking…"}</span>
+                {/* What it is thinking, while it is thinking it. Trailing rather than
+                    whole: the finished thought is folded into the chain afterwards. */}
+                {musing && !status ? (
+                  <span className="bp-musing">{musing.slice(-90)}</span>
+                ) : null}
+              </div>
+            ) : null}
+
             {transcript.length === 0 ? (
               <div className="bp-empty">
                 Nothing said in this conversation yet. What the agent does shows
@@ -442,13 +612,6 @@ export function Chat({
           text={blocked}
           onClose={() => setBlocked(null)}
         />
-      ) : null}
-
-      {status ? (
-        <div className="bp-chat-status">
-          <span className="bp-livedot" />
-          {status}
-        </div>
       ) : null}
 
       <div className="bp-chat-box">

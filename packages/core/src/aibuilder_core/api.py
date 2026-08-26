@@ -42,10 +42,14 @@ from aibuilder_core.runner import (
     worker_status,
 )
 from aibuilder_core.session import (
+    account,
     forget_session,
     poll_session,
+    rename_session,
     say,
     session_status,
+    sign_in,
+    sign_out,
     start_session,
     stop_session,
 )
@@ -94,6 +98,10 @@ __all__ = [
     "agent_session",
     "agent_shut",
     "agent_forget",
+    "agent_rename",
+    "agent_account",
+    "agent_sign_in",
+    "agent_sign_out",
     "agent_record",
     "describe_kinds",
     "create_new_project",
@@ -483,7 +491,10 @@ AGENT_SESSION_SCHEMA = {
     "running": "bool",
     "available": "bool",
     "version": "str",
-    "events": [{"kind": "str", "text": "str", "file": "str"}],
+    # One step of a turn. `detail` is what a tool was called with, or what it answered;
+    # `id` is the agent's own `tool_use_id`, which is what lets a result be shown against the
+    # call it answers rather than merely after it. Both are "" where they do not apply.
+    "events": [{"kind": "str", "text": "str", "file": "str", "detail": "str", "id": "str"}],
     # Where the reader got to. Events are polled, never pushed (P13).
     "offset": "int",
     # The conversations this project has had -- ids and labels, never a transcript.
@@ -890,6 +901,44 @@ def agent_shut(project: Path | str) -> dict[str, Any]:
 def agent_forget(project: Path | str, session: str) -> dict[str, Any]:
     """Drop one conversation from this project's list -- our reference, not the transcript."""
     return {"api_version": GRAPH_API_VERSION, **forget_session(project, session).as_dict()}
+
+
+#: The `agent.account` payload: who the agent is signed in as.
+#:
+#: Read from the CLI, never held here. The credential belongs to the agent, which put it on
+#: this machine through its own browser flow -- the core has no HTTP client to a model and no
+#: SDK (Q16), so there is nothing to store. What this answers is the question the application
+#: could not answer before: whose account is a turn about to spend?
+AGENT_ACCOUNT_SCHEMA = {
+    "api_version": "int",
+    "signed_in": "bool",
+    "method": "str",
+    "email": "str",
+    "plan": "str",
+    "organisation": "str",
+    # Why not, when the answer is no. Never a guess about what went wrong.
+    "detail": "str",
+}
+
+
+def agent_account() -> dict[str, Any]:
+    """Who the agent is signed in as. Asks; signs nobody in."""
+    return {"api_version": GRAPH_API_VERSION, **account().as_dict()}
+
+
+def agent_sign_in(console: bool = False) -> dict[str, Any]:
+    """Run the agent's own browser sign-in and report what it left behind."""
+    return {"api_version": GRAPH_API_VERSION, **sign_in(console).as_dict()}
+
+
+def agent_sign_out() -> dict[str, Any]:
+    """Sign the agent out. Ours to ask for, the CLI's to carry out."""
+    return {"api_version": GRAPH_API_VERSION, **sign_out().as_dict()}
+
+
+def agent_rename(project: Path | str, session: str, label: str) -> dict[str, Any]:
+    """Name one conversation. The label is the person's; everything else about it is not."""
+    return {"api_version": GRAPH_API_VERSION, **rename_session(project, session, label).as_dict()}
 
 
 def agent_failures(project: Path | str) -> dict[str, Any]:

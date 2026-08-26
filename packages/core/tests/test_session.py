@@ -340,11 +340,42 @@ def test_a_forks_real_id_is_taken_from_the_agent(monkeypatch, tmp_path: Path) ->
     answer = poll_session(tmp_path)
 
     assert answer.session == "grown-up-id"
-    ids = [item["id"] for item in answer.sessions]
+    assert "grown-up-id" in [item["id"] for item in answer.sessions]
+
+
+def test_a_fork_keeps_the_conversation_it_forked(monkeypatch, tmp_path: Path) -> None:
+    """Going back to the original is the entire point of forking.
+
+    This assertion used to say the opposite -- that the id started from is gone, reasoning it
+    "was never a conversation". True of a uuid the agent replaced; false of a fork, where the
+    previous id is a real conversation somebody asked to keep. The claim was written from the
+    mechanism rather than from what a fork is for, and it locked the bug in.
+    """
+    from aibuilder_core.session import start_session
+
+    spawn(monkeypatch, tmp_path)
+    start_session(tmp_path, resume="abc-123", fork=True)
+    log(tmp_path, {"type": "system", "subtype": "init", "session_id": "grown-up-id"})
+
+    ids = [item["id"] for item in poll_session(tmp_path).sessions]
+
+    assert "abc-123" in ids
     assert "grown-up-id" in ids
-    # The id we started with was never a conversation; leaving it in the list offers a
-    # person something to resume that does not exist.
-    assert "abc-123" not in ids
+
+
+def test_an_id_the_agent_replaced_is_dropped(monkeypatch, tmp_path: Path) -> None:
+    """The other half of the same rule: a uuid we invented and the agent did not use never
+    named a conversation, and offering it to resume offers something that does not exist."""
+    from aibuilder_core.session import start_session
+
+    spawn(monkeypatch, tmp_path)
+    invented = start_session(tmp_path).session
+    log(tmp_path, {"type": "system", "subtype": "init", "session_id": "the-agents-own"})
+
+    ids = [item["id"] for item in poll_session(tmp_path).sessions]
+
+    assert ids == ["the-agents-own"]
+    assert invented not in ids
 
 
 def test_the_model_is_read_from_the_stream_rather_than_assumed(tmp_path: Path) -> None:
@@ -495,3 +526,201 @@ def test_forgetting_the_open_conversation_closes_it_first(monkeypatch, tmp_path)
     forget_session(tmp_path, opened)
 
     assert session_status(tmp_path).running is False
+
+
+def test_a_conversation_can_be_given_a_name(monkeypatch, tmp_path) -> None:
+    """The label is the only field of a conversation that belongs to the person."""
+    from aibuilder_core.session import list_sessions, rename_session, start_session
+
+    spawn(monkeypatch, tmp_path)
+    opened = start_session(tmp_path).session
+    assert opened is not None
+
+    answer = rename_session(tmp_path, opened, "  the   first   try  ")
+
+    assert answer.ok is True
+    # Whitespace is collapsed rather than stored: a chip is one line, and a name typed with
+    # a stray tab in it would render as a gap nobody can see the cause of.
+    assert [item["label"] for item in list_sessions(tmp_path)] == ["the first try"]
+
+
+def test_an_empty_name_puts_the_default_back(monkeypatch, tmp_path) -> None:
+    from aibuilder_core.session import list_sessions, rename_session, start_session
+
+    spawn(monkeypatch, tmp_path)
+    opened = start_session(tmp_path).session
+    assert opened is not None
+    rename_session(tmp_path, opened, "something")
+
+    rename_session(tmp_path, opened, "   ")
+
+    assert [item["label"] for item in list_sessions(tmp_path)] == ["new"]
+
+
+def test_a_name_is_capped_rather_than_refused(monkeypatch, tmp_path) -> None:
+    """A chip is not a place to write in, and refusing a long name would be a dialog about
+    a field that should simply hold what fits."""
+    from aibuilder_core.session import NAME_LIMIT, list_sessions, rename_session, start_session
+
+    spawn(monkeypatch, tmp_path)
+    opened = start_session(tmp_path).session
+    assert opened is not None
+
+    rename_session(tmp_path, opened, "x" * 200)
+
+    assert len(list_sessions(tmp_path)[0]["label"]) == NAME_LIMIT
+
+
+def test_naming_a_conversation_that_is_not_there_is_refused(tmp_path: Path) -> None:
+    from aibuilder_core.session import rename_session
+
+    answer = rename_session(tmp_path, "no-such-id", "whatever")
+
+    assert answer.ok is False
+    assert "no-such-id" in answer.detail
+
+
+# -- the chain of a turn -----------------------------------------------------------
+
+
+def test_a_tool_call_carries_what_it_was_called_with(tmp_path: Path) -> None:
+    """A chain of intentions with no arguments and no answers is not a chain."""
+    log(
+        tmp_path,
+        {
+            "type": "assistant",
+            "message": {
+                "content": [
+                    {
+                        "type": "tool_use",
+                        "id": "call-1",
+                        "name": "Bash",
+                        "input": {"command": "pytest -q", "timeout": 60},
+                    }
+                ]
+            },
+        },
+    )
+
+    event = poll_session(tmp_path).events[0]
+
+    assert event["kind"] == "doing"
+    assert event["id"] == "call-1"
+    assert "command: pytest -q" in event["detail"]
+    assert "timeout: 60" in event["detail"]
+
+
+def test_a_tool_result_is_shown_whether_or_not_it_failed(tmp_path: Path) -> None:
+    """It used to be surfaced only when it was an error. A refusal has to be visible (Q17);
+    an ordinary answer has to be visible too, or the chain shows only what was attempted."""
+    log(
+        tmp_path,
+        {
+            "type": "user",
+            "message": {
+                "content": [{"type": "tool_result", "tool_use_id": "call-1", "content": "2 passed"}]
+            },
+        },
+    )
+
+    event = poll_session(tmp_path).events[0]
+
+    assert (event["kind"], event["id"], event["text"]) == ("did", "call-1", "2 passed")
+
+
+def test_a_refused_tool_is_still_told_apart_from_one_that_worked(tmp_path: Path) -> None:
+    log(
+        tmp_path,
+        {
+            "type": "user",
+            "message": {
+                "content": [
+                    {
+                        "type": "tool_result",
+                        "tool_use_id": "call-2",
+                        "is_error": True,
+                        "content": "denied",
+                    }
+                ]
+            },
+        },
+    )
+
+    assert poll_session(tmp_path).events[0]["kind"] == "blocked"
+
+
+def test_an_enormous_result_is_excerpted_and_says_so(tmp_path: Path) -> None:
+    """A `Read` of a large file answers with the whole file. Trailing off would read as the
+    whole answer; the log keeps everything either way."""
+    from aibuilder_core.session import EXCERPT
+
+    log(
+        tmp_path,
+        {
+            "type": "user",
+            "message": {
+                "content": [
+                    {"type": "tool_result", "tool_use_id": "c", "content": "x" * (EXCERPT + 500)}
+                ]
+            },
+        },
+    )
+
+    text = poll_session(tmp_path).events[0]["text"]
+
+    assert len(text) < EXCERPT + 200
+    assert "500 more characters" in text
+
+
+def test_thinking_is_kept_rather_than_dropped(tmp_path: Path) -> None:
+    log(
+        tmp_path,
+        {"type": "assistant", "message": {"content": [{"type": "thinking", "thinking": "hmm"}]}},
+    )
+
+    assert poll_session(tmp_path).events[0] == {
+        "kind": "thinking",
+        "text": "hmm",
+        "file": "",
+        "detail": "",
+        "id": "",
+    }
+
+
+def test_an_answer_arrives_as_deltas_before_it_arrives_whole(tmp_path: Path) -> None:
+    """The complete message is still authoritative -- the deltas fill the gap until it comes,
+    and a reader replaces them with it rather than showing the answer twice."""
+    log(
+        tmp_path,
+        {
+            "type": "stream_event",
+            "event": {"type": "content_block_delta", "delta": {"type": "text_delta", "text": "OK"}},
+        },
+        {
+            "type": "stream_event",
+            "event": {
+                "type": "content_block_delta",
+                "delta": {"type": "thinking_delta", "thinking": "let me see"},
+            },
+        },
+        {"type": "assistant", "message": {"content": [{"type": "text", "text": "OK"}]}},
+    )
+
+    events = poll_session(tmp_path).events
+
+    assert [(e["kind"], e["detail"]) for e in events[:2]] == [
+        ("delta", "text"),
+        ("delta", "thinking"),
+    ]
+    assert events[2]["kind"] == "says"
+
+
+def test_a_stream_event_that_is_not_a_delta_says_nothing(tmp_path: Path) -> None:
+    """`message_start`, `content_block_stop` and the rest are the protocol talking about
+    itself, and a transcript is not where that belongs."""
+    log(
+        tmp_path,
+        {"type": "stream_event", "event": {"type": "content_block_stop", "index": 0}},
+    )
+
+    assert poll_session(tmp_path).events == ()
