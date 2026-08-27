@@ -88,8 +88,25 @@ COMMANDS_PATH = Path(".aibuilder") / "commands.json"
 #: what was said lives in the agent's own store, and this is only how to ask for it again.
 SESSIONS_PATH = Path(".aibuilder") / "sessions.json"
 
+#: Ways out of the project, refused by name. Denials are checked before permissions.
+#:
+#: Absolute paths only: `cat app/main.py` is the project's own file and is nobody's business
+#: but the agent's, while `cat /Users/...` is a machine somebody else lives on.
+OUTSIDE = (
+    "Bash(cat /*)",
+    "Bash(cd /*)",
+    "Bash(ls /*)",
+    "Bash(find /*)",
+    "Bash(cp /*)",
+    "Bash(mv /*)",
+    "Bash(rm /*)",
+    "Bash(head /*)",
+    "Bash(tail /*)",
+    "Bash(grep * /*)",
+)
+
 #: What the agent may not touch. Its own evidence about itself is in there (Q16).
-DENIED = ("Edit(.aibuilder/**)", "Write(.aibuilder/**)")
+DENIED = ("Edit(.aibuilder/**)", "Write(.aibuilder/**)", *OUTSIDE)
 
 #: How a session is set up, kept because the flags that set it are **flags at spawn**.
 #:
@@ -138,29 +155,21 @@ MODES = ("acceptEdits", "plan", "dontAsk", "auto")
 #: what makes I-5 reachable at all, because a node cannot be proven by tests nobody may run.
 COMMANDS = ("", "bash")
 
-#: What "may run commands" actually grants: the commands a project is checked with.
+#: What "may run commands" grants: commands, and the ones that leave the project denied.
 #:
-#: A list rather than a bare `Bash`, because a bare `Bash` is not a permission to run this
-#: project's tests -- it is a shell, and a shell reaches the whole disk. `cat` and `find` on
-#: an absolute path outside the project went through on the first version of this, which is
-#: how the list came to exist.
+#: The first attempt at this was a list of prefixes -- `Bash(python3*)`, `Bash(pip*)` -- and
+#: it was wrong in the way prefix rules are always wrong: a project's own interpreter is
+#: `/usr/bin/python3`, its pip is `.venv/bin/pip`, and a person's `cd build && make` starts
+#: with neither. Every one of those was refused while the person had already said yes, which
+#: is worse than not asking at all.
 #:
-#: **It narrows the surface; it is not a boundary.** `python3 -c` can open any file on the
-#: machine, and no arrangement of these patterns changes that. A real boundary is an OS
-#: sandbox, which this transport does not offer -- so reading and writing outside the project
-#: are denied by the *tools* (below), the prompt tells the agent the project is where it
-#: works, and this list keeps the ordinary case from needing a shell at all.
-PROJECT_COMMANDS = (
-    "Bash(python3*)",
-    "Bash(python*)",
-    "Bash(pytest*)",
-    "Bash(pip*)",
-    "Bash(pip3*)",
-    "Bash(uv*)",
-    "Bash(npm*)",
-    "Bash(node*)",
-    "Bash(docker*)",
-)
+#: So the grant is the tool, and the **boundary is a denial**: the obvious ways out of the
+#: project are refused by name. It is not airtight and is not offered as such -- `python3 -c`
+#: opens any file on the machine -- but it stops the ordinary drift outward, which is what
+#: actually happened: the agent read the builder's own `pyproject.toml` with `cat`.
+#: The real boundary is an OS sandbox, which this transport does not provide.
+COMMANDS_GRANTED = ("Bash",)
+
 
 #: What a project gets when nobody has asked for anything.
 DEFAULT_MODE = "acceptEdits"
@@ -816,7 +825,7 @@ def start_session(
     # -- neither `acceptEdits` nor `dontAsk` lets a command through -- so a project where the
     # tests are meant to be run says so here, once, and the flag is simply absent otherwise.
     if settings.get("commands") == "bash":
-        command += ["--allowed-tools", *PROJECT_COMMANDS]
+        command += ["--allowed-tools", *COMMANDS_GRANTED]
     # Asked for by alias and by name, never with a default of ours put in the agent's mouth:
     # an empty setting means the agent picks, and the flag is simply not passed.
     if settings["model"]:

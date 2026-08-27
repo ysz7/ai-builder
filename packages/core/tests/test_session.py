@@ -1463,13 +1463,7 @@ def test_running_commands_is_a_setting_of_its_own_and_not_the_mode(
 
     granted = seen[-1]
     assert "--allowed-tools" in granted
-    # A list of what a project is checked with, not a bare `Bash`. A bare `Bash` is a shell,
-    # and a shell reaches the whole disk: `cat` and `find` on absolute paths outside the
-    # project went through the first version of this, which is how the list came to exist.
-    allowed = granted[granted.index("--allowed-tools") + 1 :]
-    assert "Bash" not in allowed
-    assert "Bash(pytest*)" in allowed
-    assert all(rule.startswith("Bash(") for rule in allowed if rule.startswith("Bash"))
+    assert granted[granted.index("--allowed-tools") + 1] == "Bash"
 
 
 def test_a_command_policy_the_agent_would_not_understand_is_refused(tmp_path: Path) -> None:
@@ -1479,3 +1473,31 @@ def test_a_command_policy_the_agent_would_not_understand_is_refused(tmp_path: Pa
 
     assert refused.ok is False
     assert "commands cannot be" in refused.detail
+
+
+def test_the_ways_out_of_the_project_are_denied_by_name(monkeypatch, tmp_path: Path) -> None:
+    """The grant is the tool; the boundary is a denial.
+
+    Prefix rules were tried as the boundary and are the wrong shape for one: a project's
+    interpreter is `/usr/bin/python3`, its pip is `.venv/bin/pip`, and `cd build && make`
+    starts with neither -- so a person who had said yes watched every command refused. What
+    is refused instead is the way *out*: an absolute path is somebody else's machine, and
+    `cat app/main.py` is the project's own business.
+
+    Not airtight, and not offered as such -- `python3 -c` opens any file there is. It stops
+    the drift that actually happened: the agent read the builder's own pyproject.toml.
+    """
+    from aibuilder_core.session import DENIED, configure_session, start_session
+
+    assert "Bash(cat /*)" in DENIED
+    assert "Bash(cd /*)" in DENIED
+
+    seen = spawn(monkeypatch, tmp_path)
+    configure_session(tmp_path, commands="bash")
+    start_session(tmp_path)
+
+    line = seen[-1]
+    refused = line[line.index("--disallowed-tools") + 1 : line.index("--append-system-prompt-file")]
+    assert "Bash(cat /*)" in refused
+    # The builder's own directory stays denied whatever else is granted (Q16).
+    assert "Write(.aibuilder/**)" in refused

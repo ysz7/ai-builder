@@ -710,6 +710,8 @@ export function Chat({
       // Sending is the person choosing the bottom again: their own line is the one they
       // want to see, whatever they were reading a moment ago.
       following.current = true;
+      // A dismissal answered the question that was on screen, not every question after it.
+      setRefusedToAllow(false);
       setTranscript((previous) => [...previous, yours(said)]);
 
       const answer = await attempt(() => agentSay(project, said, images));
@@ -1082,12 +1084,17 @@ export function Chat({
               // Only the **last** standing request gets a card. The agent retries a refused
               // command two or three times inside one turn, and three cards asking the same
               // question would make the person answer it three times.
+              // Shown for **every** standing request, granted or not. The first version hid
+              // it once commands were allowed -- and then a refusal that got past the grant
+              // (a path outside the project, a denied pattern) left the person staring at a
+              // red word with no explanation and nothing to press. What changes with the
+              // grant is what the card offers, never whether it appears.
               const asking =
                 event.kind === "blocked" &&
                 event.detail === "approval" &&
-                settings.commands !== "bash" &&
                 !refusedToAllow &&
                 index === lastAsk;
+              const grantable = settings.commands !== "bash";
               // A `did` is not a line of its own: it is the answer to the call above it,
               // and it is drawn there. Pairing is by the agent's `tool_use_id`, because
               // "the next one" stops being true as soon as two tools are in flight.
@@ -1116,33 +1123,36 @@ export function Chat({
                     <div className="bp-ask">
                       <div className="bp-ask-h">Permission</div>
                       <div className="bp-ask-what">
-                        The agent asked to run a command and was refused —{" "}
-                        {/* Named, so the person is answering about *this* command rather
-                            than about the idea of commands in general. */}
+                        The agent was refused —{" "}
+                        {/* Named, so the person is answering about *this* request rather
+                            than about the idea of permissions in general. */}
                         <code>
                           {transcript.find(
                             (call) => call.kind === "doing" && call.id === event.id,
-                          )?.detail || "a shell command"}
+                          )?.detail || "a command"}
                         </code>
                       </div>
                       <div className="bp-ask-why">
-                        Nothing was run. Allowing this lets it run the project&apos;s tests
-                        and installs — which is what a node needs to turn green.
+                        {grantable
+                          ? "Nothing was run. Allowing this lets it run the project's tests and installs — which is what a node needs to turn green."
+                          : "Commands are already allowed, so this one was refused for what it reaches: the builder's own files, or a path outside the project. Ask the agent to work inside the project instead."}
                       </div>
                       <div className="bp-ask-acts">
-                        <button
-                          className="bp-btn"
-                          disabled={allowing}
-                          onClick={() => void allowCommands()}
-                        >
-                          {allowing ? "…" : "Allow"}
-                        </button>
+                        {grantable ? (
+                          <button
+                            className="bp-btn"
+                            disabled={allowing}
+                            onClick={() => void allowCommands()}
+                          >
+                            {allowing ? "…" : "Allow"}
+                          </button>
+                        ) : null}
                         <button
                           className="bp-btn"
                           disabled={allowing}
                           onClick={() => setRefusedToAllow(true)}
                         >
-                          Keep denied
+                          {grantable ? "Keep denied" : "Dismiss"}
                         </button>
                       </div>
                     </div>
