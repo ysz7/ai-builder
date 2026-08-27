@@ -261,6 +261,7 @@ def run_observations(
             observations=dict(artifacts.observations),
             skipped=dict(artifacts.skipped),
             environment=environment,
+            flow=tuple(artifacts.flow),
         )
 
     try:
@@ -307,9 +308,12 @@ def run_observations(
             )
 
     # The artifact nodes' answers join the probe's. Two runners, one set of evidence --
-    # and no node is ever looked at by both.
+    # and no node is ever looked at by both. Their flow joins it too: an edge a compose file
+    # holds is the same kind of fact as an edge a compiled graph holds, and the canvas has
+    # one place to draw both.
     observations.update(artifacts.observations)
     skipped.update(artifacts.skipped)
+    flow = (*flow, *artifacts.flow)
 
     completeness = payload.get("completeness")
     return ObservationRun(

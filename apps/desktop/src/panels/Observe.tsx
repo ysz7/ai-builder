@@ -38,8 +38,13 @@ export function Observe({ graph, observed, busy, onRun, onSelect }: Props) {
           <span className="bp-sev is-unproven">{tally("unproven")} unproven</span>
         </span>
         {!observed ? (
+          // The sentence a person needs on the day they open a project and find it grey.
+          // Unproven is not broken and never was; what it says is that nobody has asked yet,
+          // and asking is one press away. It goes back to unproven on every reopen because
+          // observing runs somebody's tests, and a window coming back must never do that
+          // (P11) -- so this says so rather than leaving it looking like a regression.
           <span className="bp-observe-note">
-            nothing has been run — every node is unproven until it has been
+            nothing has been run yet — grey means unasked, not broken
           </span>
         ) : null}
       </div>
@@ -51,7 +56,7 @@ export function Observe({ graph, observed, busy, onRun, onSelect }: Props) {
           <button key={id} className="bp-problem" onClick={() => onSelect(id)}>
             <span className={`bp-sev is-${verdict}`}>{verdict}</span>
             <span className="bp-problem-msg">
-              {observation?.detail ?? skipped ?? "no check has run"}
+              {observation?.detail ?? skipped ?? "no check has run against this yet"}
             </span>
             <span className="bp-problem-addr">{observation?.check ?? id}</span>
           </button>

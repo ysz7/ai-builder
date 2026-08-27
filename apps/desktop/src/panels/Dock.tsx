@@ -32,20 +32,60 @@ export type Face = {
   content: React.ReactNode;
 };
 
-type Props = { faces: Face[] };
+type Props = {
+  faces: Face[];
+  /**
+   * Which face is showing, when somebody other than the person decides.
+   *
+   * Controlled from outside for one reason: starting a service has to be able to bring the
+   * terminal forward. Everything else still goes through the tabs, and this is `""` most of
+   * the time, which leaves the choice where it belongs.
+   */
+  face?: string;
+  onFace?: (id: string) => void;
+};
 
 function stored(): number {
   const raw = Number(localStorage.getItem(REMEMBERED));
   return Number.isFinite(raw) && raw >= HEADER ? raw : 152;
 }
 
-export function Dock({ faces }: Props) {
-  const [tab, setTab] = useState(faces[0]?.id ?? "");
+/**
+ * Which face was last open, remembered per machine.
+ *
+ * A fact about this window rather than about the code, so browser storage and not the
+ * project -- the same reasoning as the dock's height. It exists because the workspace used
+ * to unmount on every re-read, which sent the person back to the first tab several times a
+ * minute; keeping it means even a reload comes back where they were.
+ */
+const FACE = "aibuilder.dock-face";
+
+export function Dock({ faces, face, onFace }: Props) {
+  const [tab, setTab] = useState(
+    () => localStorage.getItem(FACE) ?? faces[0]?.id ?? "",
+  );
   const [height, setHeight] = useState(stored);
   /** The height to come back to. Collapsing must not lose the size that was chosen. */
   const restore = useRef(Math.max(stored(), MIN_OPEN));
 
   const collapsed = height <= HEADER;
+
+  const show = useCallback(
+    (id: string) => {
+      setTab(id);
+      localStorage.setItem(FACE, id);
+    },
+    [],
+  );
+
+  // A face asked for from outside. It opens the dock too: being sent to a panel that is
+  // folded away is being sent nowhere.
+  useEffect(() => {
+    if (!face) return;
+    show(face);
+    setHeight((now) => (now <= HEADER ? restore.current : now));
+    onFace?.("");
+  }, [face, show, onFace]);
 
   useEffect(() => {
     localStorage.setItem(REMEMBERED, String(height));
@@ -65,20 +105,20 @@ export function Dock({ faces }: Props) {
         onDoubleClick={() => setHeight(collapsed ? restore.current : HEADER)}
         title="double-click to collapse or open"
       >
-        {faces.map((face) => (
+        {faces.map((one) => (
           <button
-            key={face.id}
-            className={`bp-dock-tab${tab === face.id ? " is-on" : ""}`}
+            key={one.id}
+            className={`bp-dock-tab${tab === one.id ? " is-on" : ""}`}
             onClick={() => {
-              setTab(face.id);
+              show(one.id);
               // Choosing a face is asking to see it, so a collapsed dock opens rather than
               // switching to something the person cannot look at.
               if (collapsed) setHeight(restore.current);
             }}
           >
-            {face.label}
-            {face.badge !== undefined ? (
-              <span className="bp-cap-n">{face.badge}</span>
+            {one.label}
+            {one.badge !== undefined ? (
+              <span className="bp-cap-n">{one.badge}</span>
             ) : null}
           </button>
         ))}
@@ -96,7 +136,7 @@ export function Dock({ faces }: Props) {
           panel is out of the way without being gone. */}
       {collapsed ? null : (
         <div className="bp-dock-body">
-          {faces.find((face) => face.id === tab)?.content ?? null}
+          {faces.find((one) => one.id === tab)?.content ?? null}
         </div>
       )}
     </footer>

@@ -33,6 +33,7 @@ it printed, calling it, and stopping it. Three rules shape it:
 from __future__ import annotations
 
 import contextlib
+import http.client
 import json
 import os
 import shutil
@@ -114,6 +115,14 @@ class ArtifactRun:
     def __init__(self) -> None:
         self.observations: dict[str, Observation] = {}
         self.skipped: dict[str, str] = {}
+        #: The relations this run revealed between file-carried nodes (Q9, Q24).
+        #:
+        #: **Flow, and `wiring` rather than `observed`**: a compose file that builds from a
+        #: Dockerfile holds the edge by declaring it, and nothing ran through it. Same rank
+        #: as a LangGraph edge read off a compiled graph -- the framework holds it, so it is
+        #: drawn dim -- and it appears only after an observe, because the only way to know
+        #: is to ask docker (§5.8). No ask, no arrow.
+        self.flow: list[dict[str, str]] = []
 
     def passed(self, node: str, check: str, detail: str) -> None:
         self.observations[node] = Observation(passed=True, check=check, detail=detail)
@@ -123,6 +132,12 @@ class ArtifactRun:
 
     def skip(self, node: str, detail: str) -> None:
         self.skipped[node] = detail
+
+    def flows(self, source: str, target: str) -> None:
+        """One node feeding another, as the thing that owns the relation reported it."""
+        edge = {"source": source, "target": target, "origin": "wiring"}
+        if edge not in self.flow:
+            self.flow.append(edge)
 
 
 def artifact_nodes(graph: Graph) -> tuple[Node, ...]:
@@ -149,11 +164,11 @@ def check_artifacts(
         if check is None:
             run.skip(node.id, "no runner for this check yet")
             continue
-        check(run, node, state)
+        check(run, node, state, graph)
     return run
 
 
-def _services_answer(run: ArtifactRun, node: Node, environment: Environment) -> None:
+def _services_answer(run: ArtifactRun, node: Node, environment: Environment, graph: Graph) -> None:
     """The services this file declares, and whether anything answers where they publish."""
     check = "docker.services_answer"
 
@@ -183,7 +198,7 @@ def _services_answer(run: ArtifactRun, node: Node, environment: Environment) -> 
     run.passed(node.id, check, f"all {len(published)} declared service(s) answer")
 
 
-def _image_referenced(run: ArtifactRun, node: Node, environment: Environment) -> None:
+def _image_referenced(run: ArtifactRun, node: Node, environment: Environment, graph: Graph) -> None:
     """Is this Dockerfile the one a declared service builds from?
 
     The wiring question, and the same one route mounting asks: declared is not enough, it
@@ -205,6 +220,18 @@ def _image_referenced(run: ArtifactRun, node: Node, environment: Environment) ->
     if not building:
         run.skip(node.id, "no declared service builds from this file")
         return
+
+    # The relation, drawn as well as said. "built by the service(s): api" was the whole of
+    # what tied these two nodes together and it was a sentence in a panel -- so on the canvas
+    # the compose file and the Dockerfile it builds looked like two unrelated things sitting
+    # near each other. The compose node is the target because that is the direction of the
+    # dependency: the image is made first, and the services are what use it.
+    compose = next(
+        (other.id for other in artifact_nodes(graph) if other.kind == "docker.compose"),
+        None,
+    )
+    if compose:
+        run.flows(node.id, compose)
 
     run.passed(node.id, check, f"built by the service(s): {', '.join(sorted(building))}")
 
@@ -603,6 +630,76 @@ def call_endpoint(project: Path | str, path: str = "/", method: str = "GET") -> 
         return CallResult(True, f"{method.upper()} {path}", exc.code, body[:4000])
     except urllib.error.URLError as exc:
         return CallResult(False, f"the application did not answer: {exc.reason}")
+
+
+def call_service(
+    project: Path | str,
+    service: str,
+    path: str = "/",
+    method: str = "GET",
+    port: int = 0,
+) -> CallResult:
+    """Call a service the compose file declares, on the port it publishes (Q24).
+
+    The verb the compose node was missing. "The container is up" and "the container answers
+    me" are different facts -- the second is the one a person is actually after, and until
+    now the only way to find out was to leave the application and reach for curl.
+
+    **The port is asked of docker, never assumed.** Which host port a service publishes is
+    the compose file's business, read through `docker compose config` like everything else
+    here (§5.8); `port` narrows the choice when a service publishes several, and is refused
+    if it is not one of them. Guessing 8000 because it is usually 8000 would be inventing
+    the address of somebody else's program.
+    """
+    from aibuilder_core.environment import describe_environment
+
+    root = Path(project).resolve()
+    environment = describe_environment(root)
+    if environment.docker_unavailable:
+        return CallResult(False, environment.docker_unavailable)
+
+    declared = next((one for one in environment.services if one.name == service), None)
+    if declared is None:
+        offered = ", ".join(one.name for one in environment.services) or "none"
+        return CallResult(
+            False, f"this project declares no service {service!r} (it has: {offered})"
+        )
+    if not declared.ports:
+        # Not a failure of the call: nothing on this side of the compose network can reach
+        # it, so there is no address to fail to reach.
+        return CallResult(False, f"{service} publishes no port, so nothing here can call it")
+    if port and port not in declared.ports:
+        published = ", ".join(str(one) for one in declared.ports)
+        return CallResult(False, f"{service} does not publish {port} (it publishes: {published})")
+
+    where = port or declared.ports[0]
+    url = f"http://127.0.0.1:{where}{path if path.startswith('/') else '/' + path}"
+    request = urllib.request.Request(url, method=method.upper())  # noqa: S310 -- localhost only
+    try:
+        with urllib.request.urlopen(request, timeout=10) as response:  # noqa: S310
+            body = response.read().decode("utf-8", errors="replace")
+            return CallResult(True, f"{method.upper()} {url}", response.status, body[:4000])
+    except urllib.error.HTTPError as exc:
+        # An answer, and a real one: a 404 from a container is the container talking.
+        body = exc.read().decode("utf-8", errors="replace")
+        return CallResult(True, f"{method.upper()} {url}", exc.code, body[:4000])
+    except urllib.error.URLError as exc:
+        return CallResult(
+            False,
+            f"{service} did not answer on {where}: {exc.reason}"
+            + ("" if declared.running else " -- its container is not running"),
+        )
+    except (http.client.HTTPException, OSError) as exc:
+        # **Not everything behind a port speaks HTTP.** redis, postgres and a queue all
+        # accept the connection and then say something that is not a response, which arrives
+        # here as a protocol error rather than a refusal. That is an answer about the
+        # service -- it is up, and this is not how you talk to it -- and saying so is more
+        # use than a stack trace about a disconnected remote.
+        return CallResult(
+            False,
+            f"{service} is listening on {where} but did not answer in HTTP "
+            f"({type(exc).__name__}) -- it may not be a web service",
+        )
 
 
 def build_image(project: Path | str) -> RunResult:
@@ -1074,37 +1171,65 @@ def project_commands(project: Path | str, directory: str = "") -> CommandList:
 
 
 def start_command(project: Path | str, command: str, directory: str = "") -> RunResult:
-    """Run one of the commands the project already has, and leave it running (P17.7).
+    """Run a command in the project, and leave it running (P17.7, amended by Q22).
 
-    Refused unless the project itself declares it: this verb runs `npm run <name>`, and the
-    name has to be one npm just said exists. A verb that ran an arbitrary string would be a
-    shell with a button on it, and nothing about the graph would be true of what it started.
+    **The restriction to declared commands is gone**, and the reasoning that put it there is
+    worth keeping straight rather than quietly dropping. It said: a verb that ran an arbitrary
+    string would be a shell with a button on it, and nothing about the graph would be true of
+    what it started. The first half was always true and is no longer an objection -- Q22 put a
+    real shell in this application on purpose, so refusing here bought nothing except a person
+    unable to run `pytest -k thing` from the panel that lists their commands. The second half
+    was never about the string: **nothing this verb starts goes on the graph at all** (Q20), so
+    there is no claim for a wrong command to falsify.
+
+    What is still enforced is containment and nothing else: `directory` must be inside the
+    project. That is not the arbitrary-string rule -- it is what keeps `command.*` a verb about
+    *this* project rather than a way to run npm in somebody's home directory.
+
+    **A name the project declares still means the project's own command.** If npm just said a
+    script by that name exists, this runs `npm run <name>` -- the vocabulary the project owns
+    wins over the shell's, so pressing `dev` in the list cannot be turned into something else
+    by a file appearing on the path. Anything else is handed to `sh -c` as written.
 
     No verdict attaches to what comes back, because 17.6 put nothing on the graph to colour.
     """
     root = Path(project).resolve()
+    text = command.strip()
+    if not text:
+        return RunResult(False, "there is no command here to run")
+
     existing = _read_state(root, COMMAND_STATE_PATH)
     if existing and _alive(existing.pid):
         return RunResult(True, f"{existing.target} is already running", existing)
     if existing:
         _forget(root, COMMAND_STATE_PATH)
 
-    listed = project_commands(root, directory)
-    if not listed.ok:
-        return RunResult(False, listed.detail)
-    if command not in {name for name, _ in listed.commands}:
-        offered = ", ".join(name for name, _ in listed.commands) or "none"
-        return RunResult(False, f"this project declares no command {command!r} (it has: {offered})")
-
     here = _within(root, directory)
-    assert here is not None  # `project_commands` already refused anything else
+    if here is None:
+        return RunResult(False, f"there is no directory {directory!r} in this project")
+
+    # Asked of npm rather than read out of a file (§5.8), and asked **first**, because a
+    # declared name is the project's own word for something and must not be shadowed. A
+    # project with no npm simply declares nothing, which is a list and not a failure here.
+    listed = project_commands(root, directory)
+    declared = {name for name, _ in listed.commands} if listed.ok else set()
+
+    if text in declared:
+        npm = shutil.which("npm") or "npm"
+        line: tuple[str, ...] = (npm, "run", text)
+        target = f"npm run {text}"
+    else:
+        # `sh -c` and not a split of our own: quoting, pipes and `&&` are the shell's
+        # grammar, and a toolchain that reimplemented a bit of it would be wrong in the
+        # ways half a parser is always wrong. What was typed is what runs.
+        line = ("/bin/sh", "-c", text)
+        target = text
+
     log = root / COMMAND_LOG_PATH
     log.parent.mkdir(parents=True, exist_ok=True)
-    npm = shutil.which("npm") or "npm"
-    line = (npm, "run", command)
 
     with log.open("wb") as sink:
-        process = subprocess.Popen(  # noqa: S603 -- the command is npm plus a name npm listed
+        process = subprocess.Popen(  # noqa: S603 -- a command a person typed or npm declared
             line,
             cwd=here,
             stdout=sink,
@@ -1115,16 +1240,23 @@ def start_command(project: Path | str, command: str, directory: str = "") -> Run
 
     time.sleep(COMMAND_SETTLE_S)
     if process.poll() is not None:
+        # It ended inside the settle window. **Ended, not failed**: `git status` is a command
+        # that is supposed to finish, and reporting a zero exit as a fall-over was the panel
+        # calling a successful command broken. The output is handed back either way, because
+        # a command that finished has nothing else left to say.
+        code = process.returncode
         return RunResult(
-            False,
-            f"{command} exited immediately ({process.returncode}); see the logs",
+            code == 0,
+            f"{target} finished"
+            if code == 0
+            else f"{target} exited immediately ({code}); see the logs",
             logs=_tail(log),
         )
 
     state = RunState(
         pid=process.pid,
         port=0,  # what it publishes is its own business, and asking a log would be parsing
-        target=f"npm run {command}",
+        target=target,
         command=line,
         started_at=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
     )

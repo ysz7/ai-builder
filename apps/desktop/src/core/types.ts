@@ -98,7 +98,16 @@ export type Observation = {
 export type Service = {
   name: string;
   ports: number[];
+  /** Something answers on the port it publishes — the question a caller cares about. */
   reachable: boolean;
+  /**
+   * Docker says its container is up.
+   *
+   * **A different claim from `reachable`**, and never a substitute for it: a container that
+   * runs and a program inside it that answers are two facts, and the gap between them is
+   * where "I started it and nothing works" lives.
+   */
+  running: boolean;
   dockerfile: string | null;
 };
 
@@ -106,6 +115,8 @@ export type Environment = {
   interpreter: string;
   interpreter_origin: string;
   compose_file: string | null;
+  /** Is anything running? What `env.up` started, and so what its button has to reflect. */
+  up: boolean;
   services: Service[];
   missing: string[];
   docker_unavailable: string | null;
@@ -298,6 +309,15 @@ export type NodeKindInfo = {
   converses: string;
   /** How documents are handed to it, or "" for the kinds that hold no index (P17.5). */
   indexes: string;
+  /**
+   * Which verb family starts and stops this kind — `run`, `work`, `env` — or "" for the
+   * kinds nothing starts.
+   *
+   * This is what tells a node whether it can be *running*, which is the one piece of state
+   * the graph itself cannot carry: the graph is a projection of code, and whether a process
+   * is alive is not in the code.
+   */
+  starts: string;
   description: string;
 };
 

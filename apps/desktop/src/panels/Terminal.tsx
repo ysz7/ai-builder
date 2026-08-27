@@ -1,104 +1,273 @@
 /**
- * What the processes this toolchain started have printed.
+ * The terminals, as tabs: what this toolchain started, and what the person opened.
  *
- * **Not a shell.** Nothing here runs a command somebody typed: the core spawns exactly three
- * kinds of process -- the application, a worker and the agent -- and this reads the output of
- * the first two. Running arbitrary commands would be a new capability in the core with its
- * own decisions to make, not a thing a panel may quietly acquire.
+ * Two kinds of tab, and the difference is not cosmetic:
  *
- * Output is **polled with an offset the caller keeps** (P13), and only while something is
- * running: a terminal that asked every second forever would be a push loop with extra steps.
+ *   - A **process tab** is the output of something the core started -- the application, a
+ *     worker. It is read-only, because nobody is on the other end to type at: uvicorn's stdin
+ *     is not a prompt. It **appears when the process does and goes when it goes**, so the tab
+ *     strip is a true statement about what is running rather than a pair of buttons that are
+ *     always there and usually say "not running".
+ *   - A **shell tab** is a terminal the person opened and types into. It is not a verb on any
+ *     node, which is exactly why it may run what `command.start` refuses: a shell makes no
+ *     claim about the graph, colours nothing and is read by nothing. See `shell.py`.
+ *
+ * Everything here is **polled with an offset the caller keeps** (P13), and only while there
+ * is something to read: a terminal that asked forever would be a push loop with extra steps.
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import { runLogs, workLogs } from "../core/client";
+import {
+  runLogs,
+  shellClose,
+  shellList,
+  shellOpen,
+  shellRead,
+  shellWrite,
+  workLogs,
+} from "../core/client";
 import type { RunState } from "../core/types";
+import type { ShellRef } from "../core/client";
 import { Notice } from "./Notice";
 
-const POLL_MS = 900;
+const POLL_MS = 700;
 
-type Source = "app" | "worker";
+/** The processes the core starts, and which log each of them reads. */
+const PROCESSES = [
+  { id: "app", label: "app", read: runLogs },
+  { id: "worker", label: "worker", read: workLogs },
+] as const;
 
-type Props = { project: string };
+type Props = {
+  project: string;
+  /**
+   * The processes this toolchain started, by the verb family that starts them — the same
+   * answer the canvas draws its live dots from, so a tab and a dot can never disagree.
+   *
+   * Only `run` and `work` appear: those are the two with a pid and a log of ours. Docker is
+   * not here on purpose — a compose project is several containers and no process of ours,
+   * and its output belongs to `docker compose logs` rather than to a file we keep.
+   */
+  processes: Record<string, RunState>;
+  /**
+   * A tab to bring to the front, set by whatever just happened elsewhere: starting a service
+   * opens its output rather than leaving the person to go and find it. Cleared by the panel
+   * once it has been honoured, so it is a request and not a mode.
+   */
+  focus: string;
+  onFocused: () => void;
+};
 
-export function Terminal({ project }: Props) {
-  const [source, setSource] = useState<Source>("app");
+export function Terminal({ project, processes, focus, onFocused }: Props) {
+  const [shells, setShells] = useState<ShellRef[]>([]);
+  const [tab, setTab] = useState("app");
   const [text, setText] = useState("");
-  const [state, setState] = useState<RunState>(null);
+  const [typed, setTyped] = useState("");
   const [failed, setFailed] = useState<string | null>(null);
+  const [opening, setOpening] = useState(false);
 
   const offset = useRef(0);
   const timer = useRef<number | null>(null);
+  /**
+   * A read is in flight.
+   *
+   * Two loops polling one log is not merely wasteful -- both advance the same offset, so
+   * each of them gets half the output and the panel prints an interleaving of the two. The
+   * nudge after typing is exactly when a second one would start.
+   */
+  const reading = useRef(false);
   const tail = useRef<HTMLPreElement | null>(null);
+  const field = useRef<HTMLInputElement | null>(null);
+
+  /** Which process tabs exist right now. A tab per thing that is actually running. */
+  const live = PROCESSES.filter((process) =>
+    process.id === "app" ? processes.run : processes.work,
+  );
+  const isShell = shells.some((shell) => shell.id === tab);
+  const state =
+    tab === "app" ? processes.run : tab === "worker" ? processes.work : null;
 
   const stop = useCallback(() => {
     if (timer.current !== null) window.clearTimeout(timer.current);
     timer.current = null;
   }, []);
 
+  // The shells this project has open. Asked for rather than remembered: they belong to the
+  // sidecar, and a panel that kept its own list would offer tabs for terminals that had
+  // gone when it reconnected.
+  useEffect(() => {
+    void shellList(project)
+      .then((answer) => setShells(answer.shells))
+      .catch(() => undefined);
+  }, [project]);
+
   const read = useCallback(async () => {
+    if (reading.current) return;
+    reading.current = true;
     try {
-      const answer =
-        source === "app"
-          ? await runLogs(project, offset.current)
-          : await workLogs(project, offset.current);
-      offset.current = answer.offset;
-      setState(answer.state);
-      if (answer.logs) setText((previous) => previous + answer.logs);
-      setFailed(null);
-      // Nothing running means nothing more will be printed, so the asking stops. It starts
-      // again when the panel is reopened or the source is switched.
-      if (answer.state === null) {
-        stop();
-        return;
+      if (shells.some((shell) => shell.id === tab)) {
+        const answer = await shellRead(project, tab, offset.current);
+        if (!answer.ok) {
+          // The shell has gone -- closed here, or exited on its own. Its tab goes with it.
+          setShells((previous) => previous.filter((shell) => shell.id !== tab));
+          stop();
+          return;
+        }
+        offset.current = answer.offset;
+        if (answer.output) setText((previous) => previous + answer.output);
+      } else {
+        const known = PROCESSES.find((candidate) => candidate.id === tab);
+        if (!known) {
+          stop();
+          return;
+        }
+        const answer = await known.read(project, offset.current);
+        offset.current = answer.offset;
+        if (answer.logs) setText((previous) => previous + answer.logs);
+        // Nothing running means nothing more will be printed, so the asking stops.
+        if (answer.state === null) {
+          stop();
+          return;
+        }
       }
+      setFailed(null);
     } catch (error) {
       setFailed(error instanceof Error ? error.message : String(error));
       stop();
       return;
+    } finally {
+      reading.current = false;
     }
     timer.current = window.setTimeout(() => void read(), POLL_MS);
-  }, [project, source, stop]);
+  }, [project, tab, shells, stop]);
 
-  // A different source is a different log: start it from the top rather than appending one
+  // A different tab is a different log: read it from the top rather than appending one
   // process's output to another's.
   useEffect(() => {
     offset.current = 0;
     setText("");
-    setState(null);
     void read();
     return stop;
-  }, [read, stop]);
+    // `read` changes with the tab, which is the whole trigger. Shells changing must not
+    // restart a read that is already going, so it is deliberately not in the list.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [project, tab]);
+
+  // A process that starts while its tab is open has a new log to read, and the poll for the
+  // old one stopped when it exited. This is what starts it again.
+  useEffect(() => {
+    if (state && timer.current === null) void read();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state]);
+
+  useEffect(() => {
+    if (!focus) return;
+    setTab(focus);
+    onFocused();
+  }, [focus, onFocused]);
+
+  // A tab that goes away takes the selection with it -- to another running process, or to
+  // the first shell, or to `app`, which is the one tab that is always offered.
+  useEffect(() => {
+    const known = [...live.map((process) => process.id), ...shells.map((s) => s.id)];
+    if (known.length > 0 && !known.includes(tab)) setTab(known[0]);
+  }, [live, shells, tab]);
 
   useEffect(() => {
     if (tail.current) tail.current.scrollTop = tail.current.scrollHeight;
   }, [text]);
 
+  async function openOne() {
+    setOpening(true);
+    try {
+      const answer = await shellOpen(project);
+      if (!answer.ok) {
+        setFailed(answer.detail);
+        return;
+      }
+      setShells(answer.shells);
+      setTab(answer.shell);
+      window.setTimeout(() => field.current?.focus(), 0);
+    } catch (error) {
+      setFailed(error instanceof Error ? error.message : String(error));
+    } finally {
+      setOpening(false);
+    }
+  }
+
+  async function closeOne(shell: string) {
+    try {
+      const answer = await shellClose(project, shell);
+      setShells(answer.shells);
+    } catch (error) {
+      setFailed(error instanceof Error ? error.message : String(error));
+    }
+  }
+
+  /** Type into the shell. **Verbatim**: the newline is ours to send, and so is `\x03`. */
+  async function send(line: string) {
+    try {
+      const answer = await shellWrite(project, tab, line);
+      if (!answer.ok) setFailed(answer.detail);
+      // The answer to a command arrives in the log like everything else, so the poll is
+      // nudged rather than waited on -- otherwise the line sits there for up to a tick.
+      if (timer.current === null) void read();
+    } catch (error) {
+      setFailed(error instanceof Error ? error.message : String(error));
+    }
+  }
+
   return (
     <div className="bp-term">
       <div className="bp-term-bar">
-        {(["app", "worker"] as Source[]).map((which) => (
+        {live.map((process) => (
           <button
-            key={which}
-            className={`bp-term-pick${source === which ? " is-on" : ""}`}
-            onClick={() => setSource(which)}
+            key={process.id}
+            className={`bp-term-pick${tab === process.id ? " is-on" : ""}`}
+            onClick={() => setTab(process.id)}
           >
-            {which}
+            <span className="bp-term-live" />
+            {process.label}
           </button>
         ))}
+
+        {shells.map((shell, index) => (
+          // A tab and its ✕ are two actions, so they are two buttons -- one nested in the
+          // other would make every close a switch as well.
+          <span
+            key={shell.id}
+            className={`bp-term-pick is-shell${tab === shell.id ? " is-on" : ""}`}
+          >
+            <button className="bp-term-open" onClick={() => setTab(shell.id)}>
+              {shell.name || `shell ${index + 1}`}
+            </button>
+            <button
+              className="bp-term-x"
+              title="Close this terminal, and what is running in it"
+              onClick={() => void closeOne(shell.id)}
+            >
+              ✕
+            </button>
+          </span>
+        ))}
+
+        <button
+          className="bp-term-pick bp-term-add"
+          disabled={opening}
+          onClick={() => void openOne()}
+          title="Open a terminal in the project's directory"
+        >
+          {opening ? "…" : "+"}
+        </button>
+
         <span className="bp-term-state">
           {state
             ? `pid ${state.pid}${state.port ? ` · port ${state.port}` : ""} · ${state.target}`
-            : "not running"}
+            : isShell
+              ? "your shell, in the project's directory"
+              : "not running"}
         </span>
-        <button
-          className="bp-term-pick"
-          onClick={() => void read()}
-          title="ask again"
-        >
-          ↻
-        </button>
       </div>
 
       {failed ? (
@@ -110,12 +279,47 @@ export function Terminal({ project }: Props) {
         />
       ) : null}
 
-      <pre className="bp-term-out" ref={tail}>
+      <pre className="bp-term-out" ref={tail} onClick={() => field.current?.focus()}>
         {text ||
           (state
             ? "Running, and it has printed nothing yet."
-            : "Nothing is running. Start the application from its node.")}
+            : isShell
+              ? ""
+              : "Nothing is running. Start the application from its node, or open a terminal with +.")}
       </pre>
+
+      {/* Only a shell has somewhere for this to go. A field over a process's log would be a
+          prompt for a program that is not reading one. */}
+      {isShell ? (
+        <div className="bp-term-in">
+          <span className="bp-term-caret">›</span>
+          <input
+            ref={field}
+            className="bp-term-field"
+            value={typed}
+            spellCheck={false}
+            autoCapitalize="off"
+            autoComplete="off"
+            placeholder="type a command"
+            onChange={(event) => setTyped(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") {
+                void send(`${typed}\n`);
+                setTyped("");
+              } else if (event.key === "c" && event.ctrlKey) {
+                // What ctrl-c means to a terminal, sent as what it is: a byte on the way in,
+                // not a verb of ours. It is the only way to stop what is running in there.
+                event.preventDefault();
+                void send("\x03");
+                setTyped("");
+              } else if (event.key === "d" && event.ctrlKey) {
+                event.preventDefault();
+                void send("\x04");
+              }
+            }}
+          />
+        </div>
+      ) : null}
     </div>
   );
 }

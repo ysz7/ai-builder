@@ -82,6 +82,22 @@ class NodeKind:
     #: a button on a node whose kind said it had one -- never as a consequence of drawing the
     #: graph, and never on a kind that was merely callable.
     indexes: str
+    #: Which process verb starts and stops this kind, or "" for the kinds nothing starts.
+    #:
+    #: The same opt-in as `converses` and `indexes`, and it exists for the same reason: the
+    #: interface was carrying its own list of which kinds get a Run button --
+    #: `fastapi.service`, `mcp.service`, `queue.workers` spelled out in a panel -- which is a
+    #: second opinion about the registry that goes stale the moment a kind is added to it.
+    #:
+    #: The value names the family of verbs, never a command: `run` is `run.start` / `run.stop`
+    #: (the application), `work` is `work.start` / `work.stop` (a worker), `env` is `env.up` /
+    #: `env.down` (the services a compose file declares). What each of those does is the
+    #: runner's business; what this says is only that pressing something here means something.
+    #:
+    #: It is also what lets a node say **whether it is running right now**, which is the one
+    #: piece of state a person looks for first and the graph itself cannot carry: the graph is
+    #: a projection of code, and whether a process is alive is not in the code.
+    starts: str
     #: The observable check this kind dispatches to (`observe.py`, `probe.py`).
     #:
     #: A check proves a node by running it with real input -- a call that needs nothing
@@ -102,6 +118,7 @@ def _kind(
     completeness: str = "",
     converses: str = "",
     indexes: str = "",
+    starts: str = "",
 ) -> NodeKind:
     return NodeKind(
         name=name,
@@ -111,6 +128,7 @@ def _kind(
         completeness=completeness,
         converses=converses,
         indexes=indexes,
+        starts=starts,
         check=check,
         description=description,
     )
@@ -126,6 +144,7 @@ REGISTRY: dict[str, NodeKind] = {
             "fastapi.service",
             CarrierType.GROUP,
             top_level=True,
+            starts="run",
             check="http.app_serves",
             description="The service as a whole: a group over its routers and settings.",
         ),
@@ -254,6 +273,7 @@ REGISTRY: dict[str, NodeKind] = {
             "queue.workers",
             CarrierType.GROUP,
             top_level=True,
+            starts="work",
             check="queue.assembles",
             description="The background work as a whole: the queue, its tasks and its schedule.",
         ),
@@ -261,6 +281,7 @@ REGISTRY: dict[str, NodeKind] = {
             "queue.app",
             CarrierType.CLASS,
             CarrierType.MODULE,
+            starts="work",
             check="queue.broker_answers",
             description="The queue itself: the broker it talks to, and a worker's knobs.",
         ),
@@ -287,6 +308,7 @@ REGISTRY: dict[str, NodeKind] = {
             "mcp.service",
             CarrierType.GROUP,
             top_level=True,
+            starts="run",
             check="mcp.service_serves",
             description="The MCP server this project exposes: a group over the tools on it.",
         ),
@@ -328,6 +350,7 @@ REGISTRY: dict[str, NodeKind] = {
                 "docker-compose.yaml",
                 "docker-compose.yml",
             ),
+            starts="env",
             check="docker.services_answer",
             description="The services this project declares, and the buttons that run them.",
         ),

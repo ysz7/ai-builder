@@ -83,3 +83,23 @@ def test_reading_a_nodes_code_is_a_method_in_the_core() -> None:
 
     assert answer["file"] == "app/api/health.py"
     assert answer["refused"] is None
+
+
+def test_a_node_carried_by_a_file_shows_its_file(tmp_path: Path) -> None:
+    """The Code panel answered "no node on this graph" about a node it was drawing.
+
+    `node_source` asked `parse_project`, which knows no file formats by design (§5.7) -- so
+    every `Dockerfile` and `compose.yaml` was missing from the graph it searched while being
+    on the canvas and clickable. The composition belongs here for the same reason it belongs
+    everywhere else: "the graph" has to mean one thing.
+    """
+    (tmp_path / "Dockerfile").write_text("FROM python:3.12-slim\nCOPY . /app\n", encoding="utf-8")
+
+    answer = node_source(tmp_path, "Dockerfile")
+
+    assert answer.refused is None
+    assert answer.file == "Dockerfile"
+    assert "FROM python" in answer.source
+    # No functions, and none possible: the parser never opened this file, and there are no
+    # zones to edit through because nothing here generated any part of it (Q10).
+    assert answer.functions == ()

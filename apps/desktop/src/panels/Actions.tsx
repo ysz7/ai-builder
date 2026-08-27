@@ -17,9 +17,9 @@
 import { useEffect, useState } from "react";
 
 import {
+  envCall,
   envDown,
   envUp,
-  graphKinds,
   mcpInspect,
   ragIndex,
   runCall,
@@ -28,26 +28,39 @@ import {
   workStart,
   workStop,
 } from "../core/client";
-import type { GraphNode, InspectResult, NodeKindInfo } from "../core/types";
+import { kindRegistry } from "../core/registry";
+import type {
+  Environment,
+  GraphNode,
+  InspectResult,
+  NodeKindInfo,
+} from "../core/types";
+import { Copy } from "./Copy";
 import { Notice } from "./Notice";
 import { Talk } from "./Talk";
 
-/**
- * The registry, asked once and kept for the window's lifetime.
- *
- * Which verbs a node has is the **registry's** answer (§5.6): a kind opts in by naming a way
- * in, and a kind that has not opted in shows no button at all rather than one that does
- * nothing. Keeping a list of kind names here instead would be a second opinion about the
- * registry, and it would go stale the first time somebody added a kind to it.
- */
-let registry: Promise<NodeKindInfo[]> | null = null;
-
-function kinds(): Promise<NodeKindInfo[]> {
-  registry ??= graphKinds().then((answer) => answer.kinds);
-  return registry;
-}
-
-type Props = { project: string; node: GraphNode; onActed: () => void };
+type Props = {
+  project: string;
+  node: GraphNode;
+  /**
+   * Is the process this node's kind starts alive right now?
+   *
+   * Asked of the core by the workspace and handed down, because it is not a fact about the
+   * node: the graph is a projection of code and a pid is not in the code. What it decides
+   * here is which verb the button offers — a Stop on a stopped service is a button that can
+   * only fail, and two buttons that never change are two buttons nobody reads.
+   */
+  running: boolean;
+  /**
+   * What the compose file declares, for the node that carries it.
+   *
+   * Handed down rather than asked for here, because the workspace already asks on a clock
+   * and two askers would mean two answers about the same docker. `null` until docker has
+   * been asked at all.
+   */
+  services: Environment | null;
+  onActed: () => void;
+};
 
 /** What came back, in the words the core used. Never re-worded, never turned into a verdict. */
 type Said = { ok: boolean; text: string } | null;
@@ -56,11 +69,92 @@ function say(ok: boolean, text: string): Said {
   return { ok, text };
 }
 
-export function Actions({ project, node, onActed }: Props) {
-  const [said, setSaid] = useState<Said>(null);
+/**
+ * The three families of process verb, keyed by what the registry calls them.
+ *
+ * A table and not a chain of `if`s about kind names: the registry decides which family a
+ * kind is in, and this decides what that family's two buttons do. Adding a kind touches
+ * neither -- which is the whole reason `starts` was put in the registry.
+ */
+const PROCESS_VERBS: Record<
+  string,
+  {
+    go: string;
+    halt: string;
+    start: (project: string) => Promise<Said>;
+    stop: (project: string) => Promise<Said>;
+  }
+> = {
+  run: {
+    go: "Run",
+    halt: "Stop",
+    start: async (project) => {
+      const answer = await runStart(project);
+      return say(
+        answer.ok,
+        answer.state ? `running on port ${answer.state.port}` : answer.detail,
+      );
+    },
+    stop: async (project) => {
+      const answer = await runStop(project);
+      return say(answer.ok, answer.detail);
+    },
+  },
+  work: {
+    go: "Start worker",
+    halt: "Stop worker",
+    start: async (project) => {
+      const answer = await workStart(project);
+      return say(answer.ok, answer.detail);
+    },
+    stop: async (project) => {
+      const answer = await workStop(project);
+      return say(answer.ok, answer.detail);
+    },
+  },
+  env: {
+    go: "Up",
+    halt: "Down",
+    start: async (project) => {
+      const answer = await envUp(project);
+      return say(answer.ok, answer.detail || answer.services.join(", "));
+    },
+    stop: async (project) => {
+      const answer = await envDown(project);
+      return say(answer.ok, answer.detail);
+    },
+  },
+};
+
+/** One line of the log under the buttons: what was pressed, and what answered. */
+type Line = { at: string; label: string; ok: boolean; text: string };
+
+/**
+ * How many answers are kept.
+ *
+ * A short log rather than one line, because these questions come in runs -- start it, call
+ * it, call it again with a different path -- and the useful thing is almost always the
+ * comparison with the previous answer. Long enough to hold a session's worth of pressing,
+ * short enough that it never becomes a place to scroll.
+ */
+const KEPT = 12;
+
+export function Actions({ project, node, running, services, onActed }: Props) {
+  /**
+   * What each press answered, newest last, **under the buttons**.
+   *
+   * It used to be one notice at the bottom of the pane, which is why pressing Call read as
+   * nothing happening: the answer appeared below the fold, was replaced by the next press,
+   * and went away with the re-read that followed. A log says what happened, in order, where
+   * the button that did it is.
+   */
+  const [log, setLog] = useState<Line[]>([]);
   const [busy, setBusy] = useState("");
   const [path, setPath] = useState("/");
   const [method, setMethod] = useState("GET");
+  /** Which service's row is open for a call, if any. One at a time: it is one panel. */
+  const [calling, setCalling] = useState("");
+  const [servicePath, setServicePath] = useState("/");
   const [offered, setOffered] = useState<InspectResult | null>(null);
   const [kind, setKind] = useState<NodeKindInfo | null>(null);
 
@@ -68,7 +162,7 @@ export function Actions({ project, node, onActed }: Props) {
     let current = true;
     // A registry that cannot be read costs the extra verbs, never the panel: a node with no
     // entry simply has no way in, which is the same answer as a kind that did not opt in.
-    void kinds()
+    void kindRegistry()
       .then((all) => {
         if (current) setKind(all.find((entry) => entry.name === node.kind) ?? null);
       })
@@ -78,26 +172,41 @@ export function Actions({ project, node, onActed }: Props) {
     };
   }, [node.kind]);
 
+  // A different node is a different subject: the log belongs to it, not to the pane.
+  useEffect(() => setLog([]), [node.id]);
+
+  function note(label: string, answer: Said) {
+    if (!answer) return;
+    setLog((previous) =>
+      [
+        ...previous,
+        {
+          at: new Date().toLocaleTimeString(),
+          label,
+          ok: answer.ok,
+          text: answer.text,
+        },
+      ].slice(-KEPT),
+    );
+  }
+
   async function act(label: string, run: () => Promise<Said>) {
     setBusy(label);
-    setSaid(null);
     try {
-      setSaid(await run());
+      note(label, await run());
       // An action that changed something changes the graph's evidence too, so the picture
       // is asked for again rather than left showing what was true before the press.
       onActed();
     } catch (error) {
-      setSaid(
-        say(false, error instanceof Error ? error.message : String(error)),
-      );
+      note(label, say(false, error instanceof Error ? error.message : String(error)));
     } finally {
       setBusy("");
     }
   }
 
-  const button = (label: string, run: () => Promise<Said>) => (
+  const button = (label: string, run: () => Promise<Said>, tone = "") => (
     <button
-      className="bp-btn"
+      className={`bp-btn${tone ? ` ${tone}` : ""}`}
       disabled={busy !== ""}
       onClick={() => void act(label, run)}
     >
@@ -107,35 +216,116 @@ export function Actions({ project, node, onActed }: Props) {
 
   const rows: React.ReactNode[] = [];
 
-  if (node.kind === "docker.compose") {
-    rows.push(
-      <div className="bp-acts" key="compose">
-        {button("Up", async () => {
-          const answer = await envUp(project);
-          return say(answer.ok, answer.detail || answer.services.join(", "));
-        })}
-        {button("Down", async () => {
-          const answer = await envDown(project);
-          return say(answer.ok, answer.detail);
-        })}
-      </div>,
-    );
+  /**
+   * Start and stop, and **only the one that can happen next.**
+   *
+   * Which verb family a kind belongs to comes from the registry (`starts`), never from a
+   * list of kind names here -- that list was a second opinion about the registry, and it
+   * went stale the moment a kind was added to one and not the other. Whether it is up comes
+   * from the core, asked on a clock.
+   *
+   * One button and not two: a Stop beside a stopped service is a button whose only outcome
+   * is a refusal, and a pair that looks the same in both states tells a person nothing about
+   * which state they are in. Green starts, red stops, and the word beside it says which.
+   */
+  const family = kind?.starts ?? "";
+  if (family) {
+    const verb = PROCESS_VERBS[family];
+    if (verb) {
+      rows.push(
+        <div className="bp-acts" key="process">
+          {running
+            ? button(verb.halt, () => verb.stop(project), "bp-btn-stop")
+            : button(verb.go, () => verb.start(project), "bp-btn-go")}
+          <span className={`bp-acts-state${running ? " is-on" : ""}`}>
+            {running ? "running" : "stopped"}
+          </span>
+        </div>,
+      );
+    }
   }
 
-  if (node.kind === "fastapi.service" || node.kind === "mcp.service") {
+
+  // What the compose file declares, and how to reach it. The node used to be two buttons
+  // and nothing else: the containers came up and the panel said nothing about where they
+  // were, so the next question -- "how do I talk to it?" -- had to be answered somewhere
+  // else entirely (Q24). Ports are docker's answer about docker's file (§5.8), never read
+  // here and never guessed.
+  if (node.kind === "docker.compose" && services) {
     rows.push(
-      <div className="bp-acts" key="run">
-        {button("Run", async () => {
-          const answer = await runStart(project);
-          return say(
-            answer.ok,
-            answer.state ? `port ${answer.state.port}` : answer.detail,
-          );
-        })}
-        {button("Stop", async () => {
-          const answer = await runStop(project);
-          return say(answer.ok, answer.detail);
-        })}
+      <div className="bp-services" key="services">
+        {services.docker_unavailable ? (
+          <div className="bp-empty">{services.docker_unavailable}</div>
+        ) : null}
+        {services.services.map((service) => (
+          <div className="bp-service" key={service.name}>
+            <div className="bp-service-head">
+              {/* Two facts, two marks. A filled dot is docker saying the container is up; a
+                  ring is a port that answered. A container that runs while nothing answers
+                  on it is the most common state there is, and one dot could not say it. */}
+              <span
+                className={`bp-service-dot${service.running ? " is-up" : ""}`}
+                title={service.running ? "the container is running" : "not running"}
+              />
+              <span className="bp-service-name">{service.name}</span>
+              <span className="bp-service-ports">
+                {service.ports.length > 0
+                  ? service.ports.map((port) => `:${port}`).join(" ")
+                  : "publishes nothing"}
+              </span>
+              <span
+                className={`bp-service-answer${service.reachable ? " is-on" : ""}`}
+              >
+                {service.reachable
+                  ? "answers"
+                  : service.ports.length > 0
+                    ? "silent"
+                    : "—"}
+              </span>
+              {service.ports.length > 0 ? (
+                <button
+                  className="bp-btn bp-btn-slim"
+                  onClick={() =>
+                    setCalling(calling === service.name ? "" : service.name)
+                  }
+                >
+                  {calling === service.name ? "Close" : "Call"}
+                </button>
+              ) : null}
+            </div>
+
+            {calling === service.name ? (
+              // The path is typed, like a route's: what a container answers on is its own
+              // business, and inventing one would synthesize the request as well as the
+              // answer (I-5).
+              <div className="bp-acts">
+                <input
+                  className="bp-field"
+                  value={servicePath}
+                  spellCheck={false}
+                  onChange={(event) => setServicePath(event.target.value)}
+                />
+                {button(`GET ${service.name}`, async () => {
+                  const answer = await envCall(
+                    project,
+                    service.name,
+                    servicePath,
+                    "GET",
+                  );
+                  return say(
+                    answer.ok,
+                    answer.status
+                      ? `${answer.status} · ${answer.body}`
+                      : answer.detail,
+                  );
+                })}
+              </div>
+            ) : null}
+          </div>
+        ))}
+        {services.services.length === 0 && !services.docker_unavailable ? (
+          <div className="bp-empty">this file declares no services</div>
+        ) : null}
       </div>,
     );
   }
@@ -166,21 +356,6 @@ export function Actions({ project, node, onActed }: Props) {
             answer.ok,
             answer.status ? `${answer.status} · ${answer.body}` : answer.detail,
           );
-        })}
-      </div>,
-    );
-  }
-
-  if (node.kind === "queue.workers" || node.kind === "queue.app") {
-    rows.push(
-      <div className="bp-acts" key="work">
-        {button("Start worker", async () => {
-          const answer = await workStart(project);
-          return say(answer.ok, answer.detail);
-        })}
-        {button("Stop worker", async () => {
-          const answer = await workStop(project);
-          return say(answer.ok, answer.detail);
         })}
       </div>,
     );
@@ -257,12 +432,37 @@ export function Actions({ project, node, onActed }: Props) {
         </div>
       ) : null}
 
-      {said ? (
-        <Notice
-          tone={said.ok ? "said" : "refused"}
-          text={said.text}
-          onClose={() => setSaid(null)}
-        />
+      {/* What each press answered, where the press was. A log rather than one notice: the
+          answers come in runs -- start it, call it, call it again -- and the useful thing is
+          almost always the comparison with the one before. */}
+      {log.length > 0 ? (
+        <div className="bp-acts-log">
+          <div className="bp-cap">
+            Log
+            <button
+              className="bp-icon bp-acts-clear"
+              onClick={() => setLog([])}
+              title="Clear"
+            >
+              ✕
+            </button>
+          </div>
+          {log.map((line, index) => (
+            <div
+              key={index}
+              className={`bp-acts-line${line.ok ? "" : " is-refused"}`}
+            >
+              <span className="bp-acts-when">{line.at}</span>
+              <span className="bp-acts-what">{line.label}</span>
+              <span className="bp-acts-said">{line.text || "—"}</span>
+              {/* Per line, because a line is what anybody wants: the docker daemon's
+                  complaint goes to a search or to the agent below, and retyping it out of a
+                  panel is not work a person should be doing. What is copied is what the
+                  answer said -- not the time and not the button that asked. */}
+              {line.text ? <Copy text={line.text} what="what this answered" /> : null}
+            </div>
+          ))}
+        </div>
       ) : null}
     </>
   );

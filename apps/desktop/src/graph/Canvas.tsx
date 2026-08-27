@@ -42,6 +42,15 @@ type Props = {
   graph: GraphRead;
   layout: Layout;
   litFiles: Set<string>;
+  /**
+   * The kinds whose process is alive right now.
+   *
+   * Passed in rather than read here, and it is **not part of the graph**: the graph is a
+   * projection of code (I-1) and whether a pid is alive is not in the code. A node wears it
+   * as a live dot beside its verdict, never instead of one — a service can be up and still
+   * have nothing proven about it.
+   */
+  runningKinds: Set<string>;
   selected: string | null;
   onSelect: (id: string | null) => void;
   onMove: (positions: Record<string, Placement>) => void;
@@ -52,6 +61,7 @@ export function Canvas({
   graph,
   layout,
   litFiles,
+  runningKinds,
   selected,
   onSelect,
   onMove,
@@ -75,6 +85,32 @@ export function Canvas({
     [graph],
   );
 
+  /**
+   * Which pins each node actually needs, from the edges that will be drawn.
+   *
+   * Computed here because this is where both relations are known, and computed **before**
+   * the nodes rather than inside them: a pin that exists because an edge lands on it has to
+   * be decided by the edge. A node nothing connects to gets none, which is the whole point.
+   */
+  const pinsOf = useCallback(
+    (id: string) => {
+      const drawn = (other: string) => !hidden.has(other) && Boolean(placed[other]);
+      const contract = graph.graph.edges.filter(
+        (edge) => drawn(edge.source) && drawn(edge.target),
+      );
+      const flow = graph.flow.filter(
+        (arrow) => drawn(arrow.source) && drawn(arrow.target),
+      );
+      return {
+        dataIn: contract.some((edge) => edge.target === id),
+        dataOut: contract.some((edge) => edge.source === id),
+        execIn: flow.some((arrow) => arrow.target === id),
+        execOut: flow.some((arrow) => arrow.source === id),
+      };
+    },
+    [graph, hidden, placed],
+  );
+
   const flowNodes = useMemo<Node[]>(() => {
     const groups = new Set(topLevel(nodes).filter((n) => n.members.length > 0).map((n) => n.id));
     const result: Node[] = [];
@@ -95,6 +131,8 @@ export function Canvas({
         position: { x: box.x, y: box.y },
         style: { width: box.width, height: box.height },
         draggable: false,
+        // Not React Flow's own selection: the frame is behind everything and must not
+        // swallow a click meant for a member. Its **bar** selects, and that is a button.
         selectable: false,
         zIndex: 0,
         data: {
@@ -103,7 +141,10 @@ export function Canvas({
           reason: reasonFor(group.id),
           collapsed,
           memberCount: group.members.length,
+          selected: group.id === selected,
+          running: runningKinds.has(group.kind),
           onToggle: onToggleCollapse,
+          onSelect,
         },
       });
     }
@@ -123,11 +164,26 @@ export function Canvas({
           verdict: (graph.verdicts[node.id] ?? "unproven") as never,
           reason: reasonFor(node.id),
           lit: litFiles.has(node.location.file),
+          running: runningKinds.has(node.kind),
+          pins: pinsOf(node.id),
         },
       });
     }
     return result;
-  }, [nodes, placed, layout, hidden, graph, selected, litFiles, reasonFor, onToggleCollapse]);
+  }, [
+    nodes,
+    placed,
+    layout,
+    hidden,
+    graph,
+    selected,
+    litFiles,
+    runningKinds,
+    reasonFor,
+    pinsOf,
+    onSelect,
+    onToggleCollapse,
+  ]);
 
   const flowEdges = useMemo<Edge[]>(() => {
     const drawn = (id: string) => !hidden.has(id) && Boolean(placed[id]);

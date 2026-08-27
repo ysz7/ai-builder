@@ -39,10 +39,18 @@
   --noise-blend: overlay;
   --glow-opacity: 1;
 
-  /* status -- a mark, never a fill */
-  --ok: #f5f5f5;
-  --unknown: #c08a3e;
+  /* status -- a mark, never a fill.
+     Green **is** green now, and unproven is not amber. The first rule here was "proven has no
+     hue": a working graph should be quiet, and forty green badges colour the screen where
+     nobody needs to look. It was right about the quiet and wrong about which state gets it.
+     What a person opening a project sees is a graph nothing has been run on yet, and in amber
+     that reads as a screen full of warnings about a project that is fine -- so the quiet state
+     is the unproven one, in grey, and green is spent on the thing that was actually earned. */
+  --ok: #4ade80;
+  --ok-rgb: 74, 222, 128;
+  --unknown: #7d7d84;
   --bad: #e5484d;
+  --bad-rgb: 229, 72, 77;
 
   /* kind -- three families: application code, runs elsewhere, carried by a file */
   --k-fastapi: #4a8fd0;
@@ -100,9 +108,11 @@
   --noise-blend: normal;
   --glow-opacity: 0.55;
 
-  --ok: #0c0c0c;
-  --unknown: #a3671a;
+  --ok: #15803d;
+  --ok-rgb: 21, 128, 61;
+  --unknown: #8b8b86;
   --bad: #c62828;
+  --bad-rgb: 198, 40, 40;
 
   /* derived against the light ground, not the same hues dimmed */
   --k-fastapi: #2f6ea8;

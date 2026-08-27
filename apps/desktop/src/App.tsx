@@ -32,11 +32,37 @@ import { Welcome } from "./panels/Welcome";
 import { Details } from "./panels/Details";
 import { Problems } from "./panels/Problems";
 import { Tree } from "./panels/Tree";
-import { graphRead, knobSet, layoutRead, layoutWrite } from "./core/client";
-import type { GraphRead, Layout, Placement } from "./core/types";
+import {
+  envStatus,
+  graphRead,
+  knobSet,
+  layoutRead,
+  layoutWrite,
+  runStatus,
+  workStatus,
+} from "./core/client";
+import { kindRegistry, startsByKind } from "./core/registry";
+import type {
+  Environment,
+  GraphRead,
+  Layout,
+  Placement,
+  RunState,
+} from "./core/types";
 
 /** How long a drag has to be over before the layout is stored. */
 const SETTLE_MS = 400;
+
+/**
+ * How often the workspace asks which processes are alive.
+ *
+ * **Asked, never assumed, and never pushed** (P13). Whether the application is up is not in
+ * the code, so the graph cannot carry it — and it changes for reasons that have nothing to do
+ * with this window: a person's own terminal, a crash, a port already taken. Both reads are a
+ * state file and a `kill(pid, 0)`, which is cheap enough to ask for on a clock and honest
+ * enough to draw a node's colour from.
+ */
+const ALIVE_MS = 2000;
 
 /**
  * The last project, remembered per machine.
@@ -72,6 +98,21 @@ type Load =
   | { status: "failed"; message: string };
 
 /**
+ * Why a re-read no longer clears the picture.
+ *
+ * Every action here ends with `open(project, observed)` — a knob written, a service started,
+ * a route called, a repair applied — because what is on screen is a claim about older code.
+ * That is right. What was wrong is that the re-read went through `loading`, so `graph` became
+ * null for the length of a subprocess and **the whole workspace unmounted**: the canvas, the
+ * panes, and the dock with whichever face the person was reading. It came back with the dock
+ * on its first tab and the screen flashing once per press.
+ *
+ * So the previous answer is kept until the next one arrives. `busy` says a read is in flight;
+ * nothing disappears while it is. The first read of a project is the one exception — there is
+ * nothing to keep — and that one still says "Reading…".
+ */
+
+/**
  * The agent reports absolute paths; a node's address is project-relative, so one has to be
  * turned into the other or the canvas lights nothing.
  */
@@ -89,6 +130,8 @@ export default function App() {
   const [selected, setSelected] = useState<string | null>(null);
   const [observed, setObserved] = useState(false);
   const [busy, setBusy] = useState(false);
+  /** A `graph.read` is in flight. The picture stays; this is what says it is being checked. */
+  const [reading, setReading] = useState(false);
   const [refused, setRefused] = useState<string | null>(null);
   const [theme, setTheme] = useState<"dark" | "light">("dark");
   /** Files the agent is touching right now. The canvas lights the nodes in them. */
@@ -100,6 +143,39 @@ export default function App() {
   const [rightWidth, setRightWidth] = useState(() => widthOf(PANES.right, 258));
   /** A repair the toolchain cannot carry out, on its way to the chat's field. */
   const [handOver, setHandOver] = useState<string | null>(null);
+  /**
+   * Which processes are alive, by the verb family that starts them.
+   *
+   * The one fact on this screen that is **not** a projection of the code (I-1 is untouched):
+   * a graph says what a project is, and a pid says what is happening on this machine right
+   * now. Kept apart from the graph for exactly that reason, and asked for on a clock rather
+   * than inferred from having pressed a button — the person's own terminal can stop a server
+   * this window started.
+   */
+  const [alive, setAlive] = useState<Record<string, boolean>>({});
+  /**
+   * The two processes this toolchain started, with their pid and port.
+   *
+   * Kept apart from `alive` because they answer different questions: `alive` is "is this
+   * kind of node running", which the canvas draws and the buttons switch on, and this is
+   * "which process, where", which the terminal prints in its status line. Docker has no
+   * entry here on purpose — a compose project is several containers and no pid of ours.
+   */
+  const [processes, setProcesses] = useState<Record<string, RunState>>({});
+  /** Which verb family starts each kind, from the registry. Never a list of our own. */
+  const [starts, setStarts] = useState<Record<string, string>>({});
+  /** What the compose file declares and where it stands. Null until docker has been asked. */
+  const [services, setServices] = useState<Environment | null>(null);
+  /**
+   * A dock face, and a terminal tab inside it, asked for by something that just happened.
+   *
+   * Starting a service opens its output: a person who pressed Run is asking "did it come
+   * up?", and making them go and find the answer is making them ask twice. Requests rather
+   * than modes -- each is cleared the moment it has been honoured, so nothing here takes the
+   * choice of panel away from the person for longer than one event.
+   */
+  const [face, setFace] = useState("");
+  const [terminalTab, setTerminalTab] = useState("");
 
   const pending = useRef<number | null>(null);
   const opened = useRef(false);
@@ -116,7 +192,12 @@ export default function App() {
   const open = useCallback(async (path: string, observe: boolean) => {
     if (!path) return;
     localStorage.setItem(LAST_PROJECT, path);
-    setLoad({ status: "loading" });
+    // Kept, not cleared: see the note on `Load`. A re-read that emptied the workspace is
+    // what made every action flash and reset the dock.
+    setLoad((previous) =>
+      previous.status === "ready" ? previous : { status: "loading" },
+    );
+    setReading(true);
     setRefused(null);
     try {
       // The layout is asked for beside the graph, never derived from it: the graph says
@@ -130,10 +211,19 @@ export default function App() {
       setLoad({ status: "ready", graph });
       setObserved(observe);
     } catch (error) {
-      setLoad({
-        status: "failed",
-        message: error instanceof Error ? error.message : String(error),
-      });
+      // A failed re-read is a notice, never an empty screen: what is drawn was true a moment
+      // ago, and throwing it away tells the person less than keeping it and saying so.
+      setLoad((previous) =>
+        previous.status === "ready"
+          ? previous
+          : {
+              status: "failed",
+              message: error instanceof Error ? error.message : String(error),
+            },
+      );
+      setRefused(error instanceof Error ? error.message : String(error));
+    } finally {
+      setReading(false);
     }
   }, []);
 
@@ -199,6 +289,69 @@ export default function App() {
     [project, observed, open],
   );
 
+  // The registry, once. A canvas that cannot read it draws no running state at all, which
+  // is the same answer as a project whose kinds start nothing.
+  useEffect(() => {
+    void kindRegistry()
+      .then((kinds) => setStarts(startsByKind(kinds)))
+      .catch(() => undefined);
+  }, []);
+
+  const readAlive = useCallback(async () => {
+    if (!project) return;
+    // All three, together, and failures cost the colour rather than the workspace: this is a
+    // decoration on a node, and a core that cannot answer must not empty the screen.
+    const [application, worker, environment] = await Promise.all([
+      runStatus(project).catch(() => null),
+      workStatus(project).catch(() => null),
+      envStatus(project).catch(() => null),
+    ]);
+    setProcesses({
+      run: application?.state ?? null,
+      work: worker?.state ?? null,
+    });
+    setServices(environment?.environment ?? null);
+    setAlive({
+      run: Boolean(application?.state),
+      work: Boolean(worker?.state),
+      // **Docker's own answer, not a port that responds.** A compose project is up when its
+      // containers are, which is what the button started; reachability is a different claim
+      // and belongs to the service rows, where it can be said about one service at a time.
+      env: Boolean(environment?.environment.up),
+    });
+  }, [project]);
+
+  useEffect(() => {
+    void readAlive();
+    const clock = window.setInterval(() => void readAlive(), ALIVE_MS);
+    return () => window.clearInterval(clock);
+  }, [readAlive]);
+
+  // A process that has just appeared brings its log forward -- **once**, on the edge. A
+  // check on every tick would drag the person back to the terminal each time they went
+  // somewhere else while a server was up.
+  const wasAlive = useRef<Record<string, boolean>>({});
+  useEffect(() => {
+    for (const [family, tab] of [
+      ["run", "app"],
+      ["work", "worker"],
+    ] as const) {
+      const up = Boolean(alive[family]);
+      if (up && !wasAlive.current[family]) {
+        setFace("terminal");
+        setTerminalTab(tab);
+      }
+      wasAlive.current[family] = up;
+    }
+  }, [alive]);
+
+  /** Is this node's kind the sort of thing that starts, and is that thing up right now? */
+  const runningKinds = new Set(
+    Object.entries(starts)
+      .filter(([, family]) => alive[family])
+      .map(([kind]) => kind),
+  );
+
   const graph = load.status === "ready" ? load.graph : null;
 
   // No project, no workspace. The path field it replaces was a developer's affordance --
@@ -234,9 +387,20 @@ export default function App() {
             buttons to press and forget, so they are faces of the dock. What stays is the one
             thing that is true of the whole workspace: whether anything has been run. */}
         {graph ? (
-          <span className="bp-live">
+          // Said as a fact about what has happened rather than as a state a project is in:
+          // "not observed" reads like a fault, and a project that has just been opened has
+          // nothing wrong with it -- nobody has run anything yet, which is different.
+          <span
+            className="bp-live"
+            title={
+              observed
+                ? "the project's tests were run for this picture"
+                : "nothing has been run yet -- Observe is where green comes from"
+            }
+          >
             <span className={`bp-livedot${observed ? "" : " is-off"}`} />
-            {observed ? "observed" : "not observed"}
+            {observed ? "observed" : "nothing run yet"}
+            {reading ? " · reading…" : ""}
           </span>
         ) : null}
 
@@ -279,7 +443,11 @@ export default function App() {
       {graph ? (
         <div
           className="bp-grid"
-          style={{ gridTemplateColumns: `${leftWidth}px 1fr ${rightWidth}px` }}
+          style={{
+            gridTemplateColumns: node
+              ? `${leftWidth}px 1fr ${rightWidth}px`
+              : `${leftWidth}px 1fr`,
+          }}
         >
           <aside className="bp-pane bp-pane-left">
             <Grip
@@ -301,65 +469,75 @@ export default function App() {
             graph={graph}
             layout={layout}
             litFiles={touched}
+            runningKinds={runningKinds}
             selected={selected}
             onSelect={setSelected}
             onMove={onMove}
             onToggleCollapse={onToggleCollapse}
           />
 
-          <aside className="bp-pane bp-pane-right">
-            <Grip
-              side="right"
-              min={190}
-              max={() => window.innerWidth - leftWidth - CANVAS_FLOOR}
-              onSize={setRightWidth}
-            />
-            <div className="bp-pane-scroll">
-              <div className="bp-tabs">
-                <button
-                  className={`bp-tab${tab === "details" ? " is-on" : ""}`}
-                  onClick={() => setTab("details")}
-                >
-                  Details
-                </button>
-                <button
-                  className={`bp-tab${tab === "code" ? " is-on" : ""}`}
-                  onClick={() => setTab("code")}
-                  disabled={!node}
-                >
-                  Code
-                </button>
-              </div>
+          {/* No selection, no pane. It held two dead tabs and the words "Select a node." --
+              a column of nothing, taking a fifth of the window away from the canvas. The
+              canvas takes the space back until there is something to say. */}
+          {node ? (
+            <aside className="bp-pane bp-pane-right">
+              <Grip
+                side="right"
+                min={190}
+                max={() => window.innerWidth - leftWidth - CANVAS_FLOOR}
+                onSize={setRightWidth}
+              />
+              <div className="bp-pane-scroll">
+                <div className="bp-tabs">
+                  <button
+                    className={`bp-tab${tab === "details" ? " is-on" : ""}`}
+                    onClick={() => setTab("details")}
+                  >
+                    Details
+                  </button>
+                  <button
+                    className={`bp-tab${tab === "code" ? " is-on" : ""}`}
+                    onClick={() => setTab("code")}
+                  >
+                    Code
+                  </button>
+                </div>
 
-              {tab === "code" && node ? (
-                <Code
-                  project={project}
-                  node={node.id}
-                  onWritten={() => void open(project, observed)}
-                />
-              ) : (
-                <>
-                  <Details
-                    node={node}
-                    reason={reasonFor(selected)}
-                    busy={busy}
-                    refused={refused}
-                    onKnob={onKnob}
-                    onDismiss={() => setRefused(null)}
+                {tab === "code" ? (
+                  <Code
+                    project={project}
+                    node={node.id}
+                    onWritten={() => void open(project, observed)}
                   />
-                  {node ? (
+                ) : (
+                  <>
+                    <Details
+                      node={node}
+                      reason={reasonFor(selected)}
+                      busy={busy}
+                      refused={refused}
+                      onKnob={onKnob}
+                      onDismiss={() => setRefused(null)}
+                    />
                     <Actions
                       project={project}
                       node={node}
-                      onActed={() => void open(project, observed)}
+                      running={Boolean(alive[starts[node.kind] ?? ""])}
+                      services={services}
+                      onActed={() => {
+                        void readAlive();
+                        void open(project, observed);
+                      }}
                     />
-                  ) : null}
-                </>
-              )}
-            </div>
-          </aside>
+                  </>
+                )}
+              </div>
+            </aside>
+          ) : null}
 
           <Dock
+            face={face}
+            onFace={setFace}
             faces={[
               {
                 id: "problems",
@@ -377,7 +555,7 @@ export default function App() {
                   <Observe
                     graph={graph}
                     observed={observed}
-                    busy={load.status === "loading"}
+                    busy={reading}
                     onRun={() => void open(project, true)}
                     onSelect={setSelected}
                   />
@@ -397,7 +575,14 @@ export default function App() {
               {
                 id: "terminal",
                 label: "Terminal",
-                content: <Terminal project={project} />,
+                content: (
+                  <Terminal
+                    project={project}
+                    processes={processes}
+                    focus={terminalTab}
+                    onFocused={() => setTerminalTab("")}
+                  />
+                ),
               },
               {
                 // The commands the project already has (P17.6). A face and not a node:

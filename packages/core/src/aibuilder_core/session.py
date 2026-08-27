@@ -51,6 +51,7 @@ __all__ = [
     "SessionResult",
     "agent_available",
     "agent_binary",
+    "answer_permission",
     "close_everything_started_here",
     "configure_session",
     "interrupt",
@@ -88,25 +89,35 @@ COMMANDS_PATH = Path(".aibuilder") / "commands.json"
 #: what was said lives in the agent's own store, and this is only how to ask for it again.
 SESSIONS_PATH = Path(".aibuilder") / "sessions.json"
 
-#: Ways out of the project, refused by name. Denials are checked before permissions.
+#: Where a permission request is answered from. **A flag, and it is the whole of Q21.**
 #:
-#: Absolute paths only: `cat app/main.py` is the project's own file and is nobody's business
-#: but the agent's, while `cat /Users/...` is a machine somebody else lives on.
-OUTSIDE = (
-    "Bash(cat /*)",
-    "Bash(cd /*)",
-    "Bash(ls /*)",
-    "Bash(find /*)",
-    "Bash(cp /*)",
-    "Bash(mv /*)",
-    "Bash(rm /*)",
-    "Bash(head /*)",
-    "Bash(tail /*)",
-    "Bash(grep * /*)",
-)
+#: Q17 measured this transport and found no way to say yes: a tool that needed approval was
+#: auto-denied, and "requires approval" reached the person as a refusal about a dialogue
+#: nothing could show. That was true of the invocation it was measured on, and it is not true
+#: of this one. `--permission-prompt-tool stdio` turns the same stream two-way: the agent
+#: sends a `control_request` of subtype `can_use_tool`, and it **waits** for a
+#: `control_response` on its stdin -- the pipe a turn is already sent on, the pipe `interrupt`
+#: already writes to.
+#:
+#: Measured before being relied on, exactly as Q17 was and for the same reason (§5.8): the
+#: flag is undocumented in `--help`, so it was run, the request was read off the stream and
+#: the answer was sent back, and the command ran. Nothing here is taken from a manual.
+PERMISSION_PROMPT = ("--permission-prompt-tool", "stdio")
 
 #: What the agent may not touch. Its own evidence about itself is in there (Q16).
-DENIED = ("Edit(.aibuilder/**)", "Write(.aibuilder/**)", *OUTSIDE)
+#:
+#: **Only that, now.** This list used to carry ten absolute-path patterns -- `Bash(cat /*)`,
+#: `Bash(ls /*)` -- as a boundary around the project, because a refusal was the only answer
+#: this application could give and a denial by name was at least an honest one. With a person
+#: on the other end of every request, a denial by name is the one answer they *cannot*
+#: overrule: a denied tool never asks, so `ls /tmp/uvicorn.log` -- a log the agent had just
+#: written -- came back refused with no way to say yes. What was a boundary became a wall
+#: across the middle of ordinary work.
+#:
+#: So the boundary is the question now, and `.aibuilder/` stays denied because it is not a
+#: question: an agent that could edit the snapshot would be forging evidence about itself,
+#: and there is nobody to ask about that.
+DENIED = ("Edit(.aibuilder/**)", "Write(.aibuilder/**)")
 
 #: How a session is set up, kept because the flags that set it are **flags at spawn**.
 #:
@@ -139,35 +150,33 @@ EFFORTS = ("", "low", "medium", "high", "xhigh", "max")
 #: writes to `.aibuilder/` because its own evidence about itself is in there, and a mode whose
 #: whole purpose is to skip permission checks is not a switch this application offers over
 #: that. A person who wants it has the agent's own terminal.
-MODES = ("acceptEdits", "plan", "dontAsk", "auto")
+#:
+#: `default` is offered now that there is somewhere for a question to go. Under it every
+#: tool asks; under `acceptEdits` an edit goes through and a command still asks, which is
+#: the arrangement a person editing code with an agent actually wants and the reason it
+#: stays the default here.
+MODES = ("acceptEdits", "default", "plan", "dontAsk", "auto")
 
-#: Whether the agent may run commands, and this is **not** the permission mode (measured).
+#: Whether commands run **without being asked about**, which is not the permission mode.
 #:
-#: Neither mode lets it: under `acceptEdits` a command asks for approval, and there is no
-#: message shape to approve it with (Q17); under `dontAsk` the agent is told outright that
-#: "permission to use Bash has been denied because Claude Code is running in don't ask mode".
-#: So the mode was never the switch -- what decides is the tool policy, the same mechanism
-#: `--disallowed-tools` already uses to keep the agent out of `.aibuilder/`.
+#: Measured, twice, and the answer changed between the measurements. Under Q17 no mode let a
+#: command through at all -- `acceptEdits` asked for an approval nothing could carry and
+#: `dontAsk` refused outright -- so this setting existed to grant `Bash` wholesale through the
+#: tool policy, because a node cannot be proven by tests nobody may run.
 #:
-#: `""` leaves that policy alone and is the default: a builder that shipped shell access
-#: turned on would be deciding, on everybody's behalf, that an agent may run anything in
-#: their project. `"bash"` is a person saying otherwise, once, for this project -- and it is
-#: what makes I-5 reachable at all, because a node cannot be proven by tests nobody may run.
+#: With Q21 the question reaches a person, so the wholesale grant is no longer what makes I-5
+#: reachable: pressing "Allow" does. What it is now is the standing answer for somebody who
+#: does not want to be asked -- `""` asks every time and is the default, `"bash"` is a person
+#: saying "not about commands, not in this project" once.
 COMMANDS = ("", "bash")
 
-#: What "may run commands" grants: commands, and the ones that leave the project denied.
+#: What "never ask about commands" grants. The tool, and nothing narrower.
 #:
-#: The first attempt at this was a list of prefixes -- `Bash(python3*)`, `Bash(pip*)` -- and
-#: it was wrong in the way prefix rules are always wrong: a project's own interpreter is
-#: `/usr/bin/python3`, its pip is `.venv/bin/pip`, and a person's `cd build && make` starts
-#: with neither. Every one of those was refused while the person had already said yes, which
-#: is worse than not asking at all.
-#:
-#: So the grant is the tool, and the **boundary is a denial**: the obvious ways out of the
-#: project are refused by name. It is not airtight and is not offered as such -- `python3 -c`
-#: opens any file on the machine -- but it stops the ordinary drift outward, which is what
-#: actually happened: the agent read the builder's own `pyproject.toml` with `cat`.
-#: The real boundary is an OS sandbox, which this transport does not provide.
+#: Prefixes were tried here -- `Bash(python3*)`, `Bash(pip*)` -- and are the wrong shape for a
+#: grant: a project's interpreter is `/usr/bin/python3`, its pip is `.venv/bin/pip`, and
+#: `cd build && make` starts with neither, so a person who had said yes watched every command
+#: refused anyway. The narrowing that does work is per-request and belongs to the person:
+#: "Allow" answers this command, "Always" writes the rule the agent itself suggested.
 COMMANDS_GRANTED = ("Bash",)
 
 
@@ -800,12 +809,16 @@ def start_session(
         "--output-format",
         "stream-json",
         "--verbose",
-        # Edits are accepted because the person asked for a change; everything the policy
-        # denies comes back as a refused tool result, which is the whole permission surface
-        # the transport gives us (Q17). A person can widen or narrow it in the session's
-        # settings -- and because this is a flag at spawn, changing it restarts the process.
+        # Edits are accepted because the person asked for a change; everything else is asked
+        # about, one request at a time, through the prompt tool below (Q21). The mode is what
+        # decides which half a tool falls in, and because it is a flag at spawn, changing it
+        # restarts the process onto the same conversation.
         "--permission-mode",
         settings["mode"],
+        # Where "may I?" goes. Without this the agent auto-denies whatever the mode does not
+        # already allow and the person hears about it afterwards, which is what Q17 recorded
+        # and what Q21 replaced. With it, the agent stops and waits for `agent.permission`.
+        *PERMISSION_PROMPT,
         # An answer arrives as deltas as it is written, instead of whole at the end -- which
         # is the difference between silence and a wall of text, and a wall of text.
         #
@@ -821,9 +834,8 @@ def start_session(
         "--append-system-prompt-file",
         str(prompt_path()),
     ]
-    # What the agent may run, and only because a person said so. The mode is not this switch
-    # -- neither `acceptEdits` nor `dontAsk` lets a command through -- so a project where the
-    # tests are meant to be run says so here, once, and the flag is simply absent otherwise.
+    # A standing yes about commands, for somebody who does not want to be asked about every
+    # one of them. Absent by default: being asked is the arrangement, and this is the opt-out.
     if settings.get("commands") == "bash":
         command += ["--allowed-tools", *COMMANDS_GRANTED]
     # Asked for by alias and by name, never with a default of ours put in the agent's mouth:
@@ -854,6 +866,18 @@ def start_session(
         return SessionResult(False, f"the agent could not be started: {exc}", available=True)
 
     _LIVE[str(root)] = process
+    # **The handshake that makes the prompt tool real.** The flag says where a request goes;
+    # this line says somebody is there. Sent unconditionally and never waited on -- the
+    # agent's answer to it comes back through the log like everything else (P13), and a
+    # session that failed to send it would simply be one where every request hangs.
+    _write_line(
+        process,
+        {
+            "type": "control_request",
+            "request_id": f"init-{uuid.uuid4()}",
+            "request": {"subtype": "initialize"},
+        },
+    )
     # `invented` is the one fact `_correct_identity` cannot work out later: whether this id is
     # ours (a uuid the agent may replace, and then it was never a conversation) or a real
     # conversation we asked to resume (which a fork must keep, since going back to it is the
@@ -886,6 +910,24 @@ def start_session(
         commands=read_commands(root),
         settings=settings,
     )
+
+
+def _write_line(process: subprocess.Popen[bytes], message: dict[str, Any]) -> str:
+    """Put one line on the agent's stdin. Returns "" when it went, else why it did not.
+
+    One function because there are now four kinds of line -- a turn, an interrupt, the
+    permission handshake and an answer to a request -- and they are one act: a JSON object,
+    a newline, a flush. A pipe that has closed is a result, never an exception that reaches
+    the wire.
+    """
+    if process.stdin is None:
+        return "the agent has no pipe to write to"
+    try:
+        process.stdin.write((json.dumps(message) + "\n").encode("utf-8"))
+        process.stdin.flush()
+    except (OSError, ValueError) as exc:
+        return f"the agent stopped listening: {exc}"
+    return ""
 
 
 def _label(resume: str | None, fork: bool) -> str:
@@ -935,12 +977,9 @@ def say(
         "type": "user",
         "message": {"role": "user", "content": blocks},
     }
-    try:
-        assert process.stdin is not None
-        process.stdin.write((json.dumps(message) + "\n").encode("utf-8"))
-        process.stdin.flush()
-    except (OSError, ValueError) as exc:
-        return SessionResult(False, f"the agent stopped listening: {exc}")
+    failed = _write_line(process, message)
+    if failed:
+        return SessionResult(False, failed)
 
     # What was said is kept beside the stream, because the agent echoes none of it. A picture
     # is noted rather than stored: without the note the person's turn reads as a question
@@ -973,13 +1012,153 @@ def interrupt(project: Path | str) -> SessionResult:
         "request_id": f"stop-{uuid.uuid4()}",
         "request": {"subtype": "interrupt"},
     }
-    try:
-        assert process.stdin is not None
-        process.stdin.write((json.dumps(message) + "\n").encode("utf-8"))
-        process.stdin.flush()
-    except (OSError, ValueError) as exc:
-        return SessionResult(False, f"the agent stopped listening: {exc}")
+    failed = _write_line(process, message)
+    if failed:
+        return SessionResult(False, failed)
     return SessionResult(True, "stopping", running=True)
+
+
+def answer_permission(
+    project: Path | str,
+    request: str,
+    allow: bool,
+    always: bool = False,
+) -> SessionResult:
+    """Answer one standing request for permission. **The turn is waiting on this.**
+
+    Q21. The agent asked with a `control_request` of subtype `can_use_tool` and stopped where
+    it stood; this writes the `control_response` it is blocked on, and the turn carries on
+    from the same place rather than being retried as a new one. That is the whole difference
+    from Q17: there, approval changed a setting and the agent had to be asked again, so a
+    person's "yes" and the thing it was a yes *to* were two turns apart.
+
+    **What is sent back is read out of the log, never rebuilt here.** `updatedInput` has to be
+    the input the agent asked about -- a response carrying anything else would be this
+    application editing a command on its way to a shell -- and `always` sends back the rules
+    the agent itself suggested. Neither is ours to invent, so both are taken from the request
+    as it was written down.
+
+    `always` is the agent's own suggestion and the agent's own store: the rule lands in the
+    project's `.claude/settings.local.json`, where the same person's terminal will find it.
+    Nothing about permission is kept in `.aibuilder/` except which requests were answered,
+    because that is a fact about our transcript rather than about their policy.
+    """
+    root = Path(project).resolve()
+    process = _LIVE.get(str(root))
+    if process is None or process.poll() is not None:
+        _LIVE.pop(str(root), None)
+        return SessionResult(False, "no session is open here -- nothing is waiting")
+
+    asked = _request_in_log(root, request)
+    if asked is None:
+        # Not "unknown id": a request that is not in the log is one this session never saw,
+        # and answering it would be writing to a turn that is not waiting.
+        return SessionResult(False, "nothing here asked for that")
+    if _answers(root).get(request):
+        # A double press, not an error. The agent has moved on and a second response to a
+        # request it has finished with is a line it cannot match to anything.
+        return SessionResult(True, "already answered", running=True)
+
+    if allow:
+        answer: dict[str, Any] = {
+            "behavior": "allow",
+            "updatedInput": asked.get("input", {}),
+        }
+        if always:
+            suggestions = asked.get("permission_suggestions") or []
+            if isinstance(suggestions, list) and suggestions:
+                answer["updatedPermissions"] = suggestions
+    else:
+        # Said in the person's name, because it is the person's decision and the agent is
+        # about to explain it to them. A bare "denied" reads as the tool having failed.
+        answer = {"behavior": "deny", "message": "the person declined this"}
+
+    failed = _write_line(
+        process,
+        {
+            "type": "control_response",
+            "response": {"subtype": "success", "request_id": request, "response": answer},
+        },
+    )
+    if failed:
+        return SessionResult(False, failed)
+
+    _remember_answer(root, request, "allowed" if allow else "denied")
+    return SessionResult(True, "allowed" if allow else "denied", running=True)
+
+
+def _request_in_log(project: Path, request: str) -> dict[str, Any] | None:
+    """The request as the agent wrote it, found in the stream by its id.
+
+    Read back rather than held in memory: the log is what survives a sidecar restart, and a
+    request in flight when one happens is still a turn waiting to be answered.
+    """
+    log = _current_log(project)
+    if log is None or not log.is_file():
+        return None
+    try:
+        lines = log.read_text(encoding="utf-8", errors="replace").splitlines()
+    except OSError:
+        return None
+    for line in reversed(lines):
+        if '"can_use_tool"' not in line or request not in line:
+            continue
+        try:
+            raw = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if raw.get("type") != "control_request" or raw.get("request_id") != request:
+            continue
+        asked = raw.get("request")
+        return asked if isinstance(asked, dict) else None
+    return None
+
+
+def _answers_path(project: Path, key: str) -> Path:
+    return project / LOGS_PATH / f"{key}.answers.json"
+
+
+def _current_answers(project: Path) -> Path | None:
+    """Beside the transcript the answers are about, and it falls back where the log does.
+
+    A stream written by something other than `agent.start` is still a stream `poll_session`
+    reads, so a request in it is still a question somebody can answer -- and an answer store
+    that went missing exactly there would let the same request be answered twice.
+    """
+    state = _read_state(project)
+    key = str(state.get("log") or "") if state else ""
+    if key:
+        return _answers_path(project, key)
+    return project / LOGS_PATH / "session.answers.json" if _current_log(project) else None
+
+
+def _answers(project: Path) -> dict[str, str]:
+    """Which requests have been answered, and how.
+
+    Kept because **the stream does not say.** The agent's own record of a permission answer
+    is the tool result that follows it, and that arrives seconds later or not at all -- so a
+    panel reading the log alone would offer the buttons again to somebody who had already
+    pressed one, and every re-read from offset zero would resurrect a decision.
+    """
+    path = _current_answers(project)
+    if path is None or not path.is_file():
+        return {}
+    try:
+        stored = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    return {str(k): str(v) for k, v in stored.items()} if isinstance(stored, dict) else {}
+
+
+def _remember_answer(project: Path, request: str, answer: str) -> None:
+    path = _current_answers(project)
+    if path is None:
+        return
+    known = _answers(project)
+    known[request] = answer
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with contextlib.suppress(OSError):
+        path.write_text(json.dumps(known, indent=2), encoding="utf-8")
 
 
 def _said_path(project: Path, key: str) -> Path:
@@ -1102,6 +1281,13 @@ def poll_session(project: Path | str, offset: int = 0) -> SessionResult:
 
     for _, text in said:
         events.append(_event("you", text))
+
+    # What was decided about each standing request, put back on it. Read once per poll
+    # rather than per event: it is one small file and a transcript can hold a dozen asks.
+    decided = _answers(root)
+    for event in events:
+        if event["kind"] == "asking":
+            event["answer"] = decided.get(event["id"], "")
 
     # Written only when this chunk carried an `init`, and returned only then: forty-nine
     # names on every poll would be the same answer several times a second to a question
@@ -1302,26 +1488,39 @@ def _read_event(raw: dict[str, Any]) -> list[dict[str, Any]]:
         for block in _blocks_of(raw):
             if block.get("type") != "tool_result":
                 continue
-            # A refusal has to be visible because there is no permission round-trip to
-            # intercept (Q17); an ordinary result is shown because a chain without its
-            # answers is a list of intentions.
-            said = _cut(_text_of(block))
-            waiting = _is_waiting_for_approval(said)
+            # A refusal is shown because a chain without its answers is a list of
+            # intentions, and an ordinary result for the same reason. Nothing is added to
+            # either: under Q17 a refusal that was really a request for permission had a
+            # sentence appended saying nobody could answer it, and that sentence is now
+            # false -- the request arrives as a request (Q21), with its own buttons.
             events.append(
                 _event(
                     "blocked" if block.get("is_error") else "did",
-                    # Cut first, then explained: the explanation is the part that must
-                    # survive, and an excerpt that dropped it would be the old silence again.
-                    _unanswerable(said),
-                    # Marked rather than left to be recognised by its wording: an interface
-                    # that matched on "requires approval" would be reading the agent's prose
-                    # to decide what to offer, and prose is not an interface (§5.8, one level
-                    # up). This is the one refusal a person can act on from here.
-                    detail="approval" if waiting else "",
+                    _cut(_text_of(block)),
                     identifier=str(block.get("tool_use_id", "")),
                 )
             )
         return events
+
+    if kind == "control_request":
+        # **A question, and the turn is stopped until it is answered** (Q21). Everything else
+        # in this stream is a report of something that already happened; this one is the
+        # agent waiting. It carries the agent's own `request_id`, which is what an answer is
+        # addressed by -- not the `tool_use_id`, which names the call rather than the ask.
+        asked = raw.get("request") or {}
+        if not isinstance(asked, dict) or asked.get("subtype") != "can_use_tool":
+            return []
+        block = {"name": asked.get("tool_name", "?"), "input": asked.get("input", {})}
+        return [
+            _event(
+                "asking",
+                _doing(block),
+                file=str((asked.get("input") or {}).get("file_path", "")),
+                detail=_given(block),
+                identifier=str(raw.get("request_id", "")),
+                tool=str(asked.get("tool_name", "")),
+            )
+        ]
 
     if kind == "stream_event":
         # A piece of the answer as it is written. The complete `assistant` message still
@@ -1350,10 +1549,15 @@ def _event(
     detail: str = "",
     identifier: str = "",
     tool: str = "",
+    answer: str = "",
 ) -> dict[str, Any]:
     # `tool` is the agent's own name for what it called -- `Bash`, `Read`, `Edit` -- kept
     # beside the readable phrase rather than instead of it. A transcript wants to say
     # "running pytest -q"; a block around it wants to be labelled with the tool.
+    # `answer` is filled in by the poll rather than by the line: whether a request was
+    # allowed is a fact about what a person did afterwards, and the stream carries no line
+    # for it. Empty everywhere else, and empty on a request still waiting -- which is
+    # precisely the state a panel has to be able to tell apart from "denied".
     return {
         "kind": kind,
         "text": text,
@@ -1361,48 +1565,8 @@ def _event(
         "detail": detail,
         "id": identifier,
         "tool": tool,
+        "answer": answer,
     }
-
-
-#: What a refusal says when it is waiting for an answer nobody can give.
-#:
-#: The agent asks for approval the only way the transport allows -- by refusing and saying
-#: so -- and there is **no message shape to say yes with** (Q17). So "requires approval"
-#: read, correctly and uselessly, as a prompt that never arrived: the person waited for a
-#: dialogue this application cannot show them.
-#:
-#: Matched on the agent's own words, and added to rather than replacing them: what a tool
-#: said is the tool's, and this application only says what it knows that the tool does not --
-#: which of *our* settings ends the wait.
-_WAITING_FOR_APPROVAL = (
-    "requires approval",
-    "requires permission",
-    "permission to use",
-    # The agent words this differently depending on what it wanted -- a command, a file
-    # outside the project -- and every wording is the same question. Collected from what the
-    # running CLI actually said, which is why the list grows rather than being predicted.
-    "haven't granted",
-    "have not granted",
-    "requested permissions",
-)
-
-_NO_ONE_TO_ASK = (
-    "\n\n— nothing here can approve this: the panel has no way to answer a request for"
-    " permission. Set the session's mode to \"Don't ask\" to let commands run."
-)
-
-
-def _is_waiting_for_approval(text: str) -> bool:
-    """Is this refusal one that a permission setting would have prevented?"""
-    lowered = text.lower()
-    return any(phrase in lowered for phrase in _WAITING_FOR_APPROVAL)
-
-
-def _unanswerable(text: str) -> str:
-    """A refusal that is waiting for approval, told what would end the wait."""
-    if _is_waiting_for_approval(text):
-        return f"{text}{_NO_ONE_TO_ASK}"
-    return text
 
 
 def _cut(text: str) -> str:

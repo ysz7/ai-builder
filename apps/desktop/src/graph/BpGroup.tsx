@@ -20,24 +20,56 @@ export type BpGroupData = {
   reason: string;
   collapsed: boolean;
   memberCount: number;
+  selected: boolean;
+  /** A process this group's kind starts is alive right now. */
+  running: boolean;
   onToggle: (id: string) => void;
+  onSelect: (id: string) => void;
 };
 
 export function BpGroup({ data }: NodeProps) {
-  const { node, verdict, reason, collapsed, memberCount, onToggle } =
-    data as unknown as BpGroupData;
+  const {
+    node,
+    verdict,
+    reason,
+    collapsed,
+    memberCount,
+    selected,
+    running,
+    onToggle,
+    onSelect,
+  } = data as unknown as BpGroupData;
 
   return (
     <div
-      className={`bp-frame${collapsed ? " is-collapsed" : ""}`}
+      className={`bp-frame${collapsed ? " is-collapsed" : ""}${
+        selected ? " is-selected" : ""
+      }${running ? " is-running" : ""}`}
       style={{ ["--tint" as string]: tintOf(node.kind) }}
     >
+      {/* **The bar is the node.** A group is a node like any other -- it has a kind, a
+          verdict, knobs and the buttons that start it -- and drawing it as nothing but a
+          region around its members left the one node a person most wants (the service) with
+          no way to select it on the canvas at all. So the bar selects, and the chevron
+          beside it folds: two actions, two buttons, rather than one that guesses. */}
       <button
         className="bp-frame-bar"
-        onClick={() => onToggle(node.id)}
-        title={collapsed ? "Expand" : "Collapse"}
+        onClick={() => onSelect(node.id)}
+        title={node.title ?? node.id}
       >
-        <span className="bp-chev">{collapsed ? "▸" : "▾"}</span>
+        <span
+          className="bp-chev"
+          role="button"
+          tabIndex={-1}
+          title={collapsed ? "Expand" : "Collapse"}
+          onClick={(event) => {
+            event.stopPropagation();
+            onToggle(node.id);
+          }}
+        >
+          {collapsed ? "▸" : "▾"}
+        </span>
+        {running ? <span className="bp-node-live" title="running" /> : null}
         {node.title ?? node.id}
         <span className="bp-count">{memberCount}</span>
         <span className={`bp-mark is-${verdict}`} title={reason}>

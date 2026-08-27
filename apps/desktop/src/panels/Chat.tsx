@@ -27,6 +27,7 @@ import {
   agentRename,
   agentSay,
   agentInterrupt,
+  agentPermission,
   agentSession,
   agentSignIn,
   agentStart,
@@ -105,7 +106,15 @@ const PENDING = "pending";
 
 /** What the person said, as a line of the transcript. Marked pending until the core has it. */
 function yours(text: string): AgentEvent {
-  return { kind: "you", text, file: "", detail: "", id: PENDING, tool: "" };
+  return {
+    kind: "you",
+    text,
+    file: "",
+    detail: "",
+    id: PENDING,
+    tool: "",
+    answer: "",
+  };
 }
 
 function absorbTurns(
@@ -196,22 +205,13 @@ export function Chat({
   const [status, setStatus] = useState("");
   const [blocked, setBlocked] = useState<string | null>(null);
   /**
-   * Whether the standing refusal is one a permission setting would have prevented.
+   * Which request is being answered right now, if any.
    *
-   * **Marked by the core, never recognised here.** The transport carries no "may I?" to
-   * answer (Q17) and this CLI has no permission-prompt channel at all, so a dialogue above
-   * the field would be a button wired to nothing. What can honestly be offered is the
-   * setting that stops the asking — one press instead of a trip through the menu.
+   * **The turn is stopped on the answer** (Q21), so the press has to look pressed: without
+   * this the buttons sit unchanged while the core writes the response and the agent picks
+   * the work back up, and a button that looks unpressed gets pressed again.
    */
-  const [allowing, setAllowing] = useState(false);
-  /**
-   * "Keep denied" — the answer that leaves things exactly as they are.
-   *
-   * Kept for the panel's lifetime rather than written anywhere: it is an answer to *this*
-   * question, not a policy. The next session asks again, because refusing once is not a
-   * decision about every command a person will ever be asked about.
-   */
-  const [refusedToAllow, setRefusedToAllow] = useState(false);
+  const [answering, setAnswering] = useState<string | null>(null);
   /**
    * How long the turn in flight has been going, in seconds.
    *
@@ -270,7 +270,8 @@ export function Chat({
     model: "",
     effort: "",
     mode: "acceptEdits",
-    // Off until a person says otherwise: shell access is theirs to grant, not ours to ship.
+    // Asking is the arrangement; running without being asked is the opt-out, and it is
+    // theirs to choose rather than ours to ship.
     commands: "",
   });
   /**
@@ -499,11 +500,14 @@ export function Chat({
       // The working line says what the agent is *doing*, so only a tool call writes to it.
       // Letting `says` through put a whole answer on one line, and letting `ready` through
       // left the session's own startup sitting there for the rest of it.
-      // A refusal that is waiting on a permission is **not an alarm**: it is a question, and
-      // it is answered where it was asked -- as a card in the conversation, next to the
-      // command it is about. The red bar stays for what it was for: things that went wrong.
-      if (event.kind === "blocked") {
-        if (event.detail !== "approval") setBlocked(event.text);
+      if (event.kind === "blocked") setBlocked(event.text);
+      else if (event.kind === "asking") {
+        // Not an alarm and not work: the agent is stopped. The line says so, because a
+        // panel that went on saying "thinking…" while nothing was happening is how a person
+        // sits waiting for an answer that is waiting for them (Q21).
+        setStatus("waiting for you");
+        setWriting("");
+        setMusing("");
       } else if (event.kind === "doing") setStatus(event.text);
       else if (event.kind === "delta") {
         if (event.detail === "thinking")
@@ -582,12 +586,16 @@ export function Chat({
             : absorbTurns(previous, answer.events),
         );
         for (const event of answer.events) {
-          if (event.kind !== "blocked") continue;
-          if (event.detail !== "approval") setBlocked(event.text);
+          if (event.kind === "blocked") setBlocked(event.text);
         }
         if (
           answer.events.some(
-            (event) => event.kind === "ready" || event.kind === "blocked",
+            (event) =>
+              event.kind === "ready" ||
+              event.kind === "blocked" ||
+              // A session that opens straight into a question has said something, and
+              // waiting past it for a `ready` that is not coming is the wait Q21 removed.
+              event.kind === "asking",
           )
         )
           return;
@@ -710,8 +718,6 @@ export function Chat({
       // Sending is the person choosing the bottom again: their own line is the one they
       // want to see, whatever they were reading a moment ago.
       following.current = true;
-      // A dismissal answered the question that was on screen, not every question after it.
-      setRefusedToAllow(false);
       setTranscript((previous) => [...previous, yours(said)]);
 
       const answer = await attempt(() => agentSay(project, said, images));
@@ -885,21 +891,23 @@ export function Chat({
   const MODE_NAMES: Record<string, string> = {
     acceptEdits: "Edit automatically",
     plan: "Plan only — no changes",
+    default: "Ask about everything",
     dontAsk: "Don't ask",
     auto: "Auto",
   };
   const OWN_CHOICE = "The agent's own";
 
   /*
-   * Whether the agent may run commands, spelled as what it means rather than as its value.
+   * Whether commands are asked about, spelled as what it means rather than as its value.
    *
    * A setting of its own because it is a different mechanism from the mode -- measured, not
-   * assumed: no permission mode grants Bash. And it is the setting that makes I-5 reachable,
-   * because a node cannot be proven by tests nobody may run.
+   * assumed. It is no longer what makes commands *possible*, though: pressing "Allow" on the
+   * request does that (Q21). What is left is the standing answer of somebody who does not
+   * want to be asked about commands in this project.
    */
   const COMMAND_NAMES: Record<string, string> = {
-    "": "Nothing — no commands",
-    bash: "Run commands (tests, installs)",
+    "": "Ask before running commands",
+    bash: "Run commands without asking",
   };
 
   function settingItems(
@@ -925,34 +933,52 @@ export function Chat({
   }
 
   /**
-   * Grant the agent commands, and hand it back the turn.
+   * Answer one standing request. **The turn resumes from where it stopped.**
    *
-   * **There is no permission round-trip in this transport** — measured against the running
-   * CLI, not assumed: with `Bash` on the ask list the agent is handed a failed tool result
-   * ("you haven't granted it yet") and no request ever reaches us. So the agent cannot be
-   * left hanging mid-tool; what it does instead is stop and wait for the next turn, which is
-   * the same thing from where the person sits.
-   *
-   * Granting is a flag at spawn, so the session restarts onto it and keeps its thread. The
-   * turn that follows is **shown in the transcript like any other**: this application asked
-   * the agent to carry on, and hiding that would be it speaking without leaving a trace.
+   * The transcript is corrected here rather than waited for: the answer is a fact about what
+   * this person just did, the core records it, and the poll that would carry it back only
+   * re-reads a chunk it has already passed. Waiting for it would leave the buttons live for
+   * a second after the decision was made.
    */
-  const allowCommands = useCallback(async () => {
-    setAllowing(true);
-    try {
-      const answer = await attempt(() => agentConfigure(project, { commands: "bash" }));
-      if (answer === null || !answer.ok) return;
-      if (answer.settings) setSettings(answer.settings);
-      deliverRef.current?.("Commands are allowed now — go ahead.", []);
-    } finally {
-      setAllowing(false);
-    }
-  }, [attempt, project]);
+  const answer = useCallback(
+    async (request: string, allow: boolean, always = false) => {
+      if (answering !== null) return;
+      setAnswering(request);
+      try {
+        const told = await attempt(() =>
+          agentPermission(project, request, allow, always),
+        );
+        if (told === null || !told.ok) return;
+        setTranscript((previous) =>
+          previous.map((event) =>
+            event.kind === "asking" && event.id === request
+              ? { ...event, answer: allow ? "allowed" : "denied" }
+              : event,
+          ),
+        );
+        // The agent was stopped on this and is now working again -- and the poll loop may
+        // have wound down while nothing was happening. Nudging it here is what makes the
+        // reply arrive without the person having to type something to wake it up.
+        setStatus("");
+        if (!busy) setBusy(true);
+        void poll();
+      } finally {
+        setAnswering(null);
+      }
+    },
+    [answering, attempt, project, busy, poll],
+  );
 
-  /** Where the standing request is, or -1. Computed, never stored: the transcript is it. */
-  const lastAsk = transcript.reduce(
+  /**
+   * The request still waiting, or -1. Computed, never stored: the transcript is it.
+   *
+   * Only the **last** one gets buttons. An agent asked about three commands in a row would
+   * otherwise put three live cards on screen, and the one it is actually stopped on is the
+   * last of them.
+   */
+  const standing = transcript.reduce(
     (found, event, index) =>
-      event.kind === "blocked" && event.detail === "approval" ? index : found,
+      event.kind === "asking" && !event.answer ? index : found,
     -1,
   );
 
@@ -1081,26 +1107,18 @@ export function Chat({
             }}
           >
             {transcript.map((event, index) => {
-              // Only the **last** standing request gets a card. The agent retries a refused
-              // command two or three times inside one turn, and three cards asking the same
-              // question would make the person answer it three times.
-              // Shown for **every** standing request, granted or not. The first version hid
-              // it once commands were allowed -- and then a refusal that got past the grant
-              // (a path outside the project, a denied pattern) left the person staring at a
-              // red word with no explanation and nothing to press. What changes with the
-              // grant is what the card offers, never whether it appears.
-              const asking =
-                event.kind === "blocked" &&
-                event.detail === "approval" &&
-                !refusedToAllow &&
-                index === lastAsk;
-              const grantable = settings.commands !== "bash";
               // A `did` is not a line of its own: it is the answer to the call above it,
               // and it is drawn there. Pairing is by the agent's `tool_use_id`, because
               // "the next one" stops being true as soon as two tools are in flight.
               if (event.kind === "did" || event.kind === "delta") return null;
 
-              const answer =
+              // The one card in this panel that is a question rather than a report. It gets
+              // buttons only while it is **the** standing request: an answered one stays in
+              // the transcript, because what was allowed is part of the story, and a request
+              // the agent has since been asked about again is not the one it is stopped on.
+              const waiting = event.kind === "asking" && index === standing;
+
+              const answered =
                 event.kind === "doing"
                   ? (transcript.find(
                       (later) =>
@@ -1119,45 +1137,58 @@ export function Chat({
                     </div>
                   ) : event.kind === "you" ? (
                     <div className="bp-turn-text">{event.text}</div>
-                  ) : asking ? (
-                    <div className="bp-ask">
-                      <div className="bp-ask-h">Permission</div>
+                  ) : event.kind === "asking" ? (
+                    <div className={`bp-ask${waiting ? " is-waiting" : ""}`}>
+                      <div className="bp-ask-h">
+                        {waiting
+                          ? "Permission"
+                          : event.answer === "allowed"
+                            ? "Allowed"
+                            : "Denied"}
+                      </div>
                       <div className="bp-ask-what">
-                        The agent was refused —{" "}
-                        {/* Named, so the person is answering about *this* request rather
-                            than about the idea of permissions in general. */}
-                        <code>
-                          {transcript.find(
-                            (call) => call.kind === "doing" && call.id === event.id,
-                          )?.detail || "a command"}
-                        </code>
+                        {/* What it asked for, in full and unedited. A person answering
+                            about a command has to be able to read the command. */}
+                        <span className="bp-ask-tool">
+                          {event.tool || "a tool"}
+                        </span>
+                        <code>{event.detail || event.text}</code>
                       </div>
-                      <div className="bp-ask-why">
-                        {grantable
-                          ? "Nothing was run. Allowing this lets it run the project's tests and installs — which is what a node needs to turn green."
-                          : "Commands are already allowed, so this one was refused for what it reaches: the builder's own files, or a path outside the project. Ask the agent to work inside the project instead."}
-                      </div>
-                      <div className="bp-ask-acts">
-                        {grantable ? (
-                          <button
-                            className="bp-btn"
-                            disabled={allowing}
-                            onClick={() => void allowCommands()}
-                          >
-                            {allowing ? "…" : "Allow"}
-                          </button>
-                        ) : null}
-                        <button
-                          className="bp-btn"
-                          disabled={allowing}
-                          onClick={() => setRefusedToAllow(true)}
-                        >
-                          {grantable ? "Keep denied" : "Dismiss"}
-                        </button>
-                      </div>
+                      {waiting ? (
+                        <>
+                          <div className="bp-ask-why">
+                            Nothing has run yet — the agent is stopped here, waiting for
+                            you. <b>Always</b> writes the rule into this project's own
+                            settings, where its terminal reads them too.
+                          </div>
+                          <div className="bp-ask-acts">
+                            <button
+                              className="bp-btn bp-btn-go"
+                              disabled={answering !== null || !running}
+                              onClick={() => void answer(event.id, true)}
+                            >
+                              {answering === event.id ? "…" : "Allow"}
+                            </button>
+                            <button
+                              className="bp-btn"
+                              disabled={answering !== null || !running}
+                              onClick={() => void answer(event.id, true, true)}
+                            >
+                              Always
+                            </button>
+                            <button
+                              className="bp-btn"
+                              disabled={answering !== null || !running}
+                              onClick={() => void answer(event.id, false)}
+                            >
+                              Deny
+                            </button>
+                          </div>
+                        </>
+                      ) : null}
                     </div>
                   ) : event.kind === "blocked" && event.id ? null : (
-                    <Step event={event} answer={answer} />
+                    <Step event={event} answer={answered} />
                   )}
                 </div>
               );

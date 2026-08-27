@@ -33,10 +33,18 @@ or it does not.
 
 A service that publishes no port is not checked, and deliberately: nothing on this side of
 the compose network can reach it either, so there is no claim to make about it.
+
+**Docker's own status answers a different question, and only that one** (Q24). `running` says
+a container is up, which is what `env.up` started and therefore what the button on that node
+has to reflect; `reachable` says something answers on the port, which is what a caller cares
+about. Reading `State` for the *first* is asking the thing that owns the fact; using it for
+the second is what the paragraph above refuses, and nothing here does. The two are kept apart
+because the gap between them is exactly where "I started it and nothing works" lives.
 """
 
 from __future__ import annotations
 
+import contextlib
 import json
 import shutil
 import socket
@@ -89,6 +97,12 @@ class Service:
     name: str
     ports: tuple[int, ...] = ()
     reachable: bool = False
+    #: Docker says this service's container is up. **Not the same claim as `reachable`**,
+    #: and the two must never stand in for each other: a container that is running and a
+    #: program inside it that answers are different facts, and the gap between them is
+    #: exactly where "I started it and nothing works" lives. `running` is asked of
+    #: `docker compose ps`; `reachable` is a connection to the port it publishes.
+    running: bool = False
     #: The Dockerfile this service builds from, when it builds rather than pulls. Asked of
     #: docker like everything else here; it is what lets a `Dockerfile` node say which
     #: service builds it.
@@ -99,6 +113,7 @@ class Service:
             "name": self.name,
             "ports": list(self.ports),
             "reachable": self.reachable,
+            "running": self.running,
             "dockerfile": self.dockerfile,
         }
 
@@ -117,6 +132,19 @@ class Environment:
     services: tuple[Service, ...] = ()
     #: Why docker could not be consulted, when it could not. `None` means it was.
     docker_unavailable: str | None = None
+
+    @property
+    def up(self) -> bool:
+        """Is anything this project declares actually running?
+
+        **Asked of docker, not inferred from a port.** The first version of this answered by
+        reachability, and a person who had pressed Up watched the button go on saying "Up":
+        their container was running and the program in it published nothing we could connect
+        to, so by that measure nothing had happened. What the button reflects has to be the
+        same question the button asked -- `docker compose up` starts containers, so whether
+        containers are up is what says it worked.
+        """
+        return any(service.running for service in self.services)
 
     @property
     def services_missing(self) -> tuple[str, ...]:
@@ -151,6 +179,7 @@ class Environment:
             "interpreter": self.interpreter,
             "interpreter_origin": self.interpreter_origin,
             "compose_file": self.compose_file,
+            "up": self.up,
             "services": [service.as_dict() for service in self.services],
             "missing": list(self.services_missing),
             "docker_unavailable": self.docker_unavailable,
@@ -260,6 +289,8 @@ def _declared(project: Path, file: Path) -> tuple[tuple[Service, ...], str | Non
     if not isinstance(services, dict):
         return (), None
 
+    up = _running(project, file)
+
     declared = []
     for name in sorted(services):
         definition = services[name] if isinstance(services[name], dict) else {}
@@ -271,10 +302,42 @@ def _declared(project: Path, file: Path) -> tuple[tuple[Service, ...], str | Non
                 name=name,
                 ports=ports,
                 reachable=_answers(ports),
+                running=name in up,
                 dockerfile=None if dockerfile is None else str(dockerfile),
             )
         )
     return tuple(declared), None
+
+
+def _running(project: Path, file: Path) -> frozenset[str]:
+    """Which services docker says are up right now -- asked of docker, like everything here.
+
+    `docker compose ps` and not `docker ps` plus a guess at the naming: which containers
+    belong to this project is compose's own question, and the answer includes the project
+    name it derived from the directory, which is not ours to reconstruct.
+    """
+    code, out, _ = _docker(project, "compose", "-f", str(file), "ps", "--format", "json")
+    if code != 0:
+        return frozenset()
+
+    # One object per line in current versions, a list in older ones. Both are docker's own
+    # answer about its own state; neither is a file of somebody else's that we are parsing.
+    entries: list[Any] = []
+    text = (out or "").strip()
+    if text.startswith("["):
+        with contextlib.suppress(json.JSONDecodeError):
+            loaded = json.loads(text)
+            entries = loaded if isinstance(loaded, list) else []
+    else:
+        for line in text.splitlines():
+            with contextlib.suppress(json.JSONDecodeError):
+                entries.append(json.loads(line))
+
+    return frozenset(
+        str(entry.get("Service", ""))
+        for entry in entries
+        if isinstance(entry, dict) and str(entry.get("State", "")).lower() == "running"
+    )
 
 
 def _answers(ports: tuple[int, ...]) -> bool:

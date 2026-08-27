@@ -25,6 +25,7 @@ from aibuilder_core.api import (
     agent_forget,
     agent_interrupt,
     agent_open,
+    agent_permission,
     agent_poll,
     agent_record,
     agent_rename,
@@ -40,6 +41,7 @@ from aibuilder_core.api import (
     command_stop,
     create_new_project,
     describe_kinds,
+    env_call,
     environment_status,
     layout_get,
     layout_put,
@@ -58,6 +60,12 @@ from aibuilder_core.api import (
     run_stop,
     services_start,
     services_stop,
+    shell_close,
+    shell_list,
+    shell_open,
+    shell_read,
+    shell_resize,
+    shell_write,
     snapshot_status,
     take_project_snapshot,
     talk_close,
@@ -524,6 +532,40 @@ def agent_configure_method(params: dict[str, Any]) -> dict[str, Any]:
     )
 
 
+def env_call_method(params: dict[str, Any]) -> dict[str, Any]:
+    """Call a declared service on the port it publishes.
+
+    The path is typed by the person, like a route's is: what a container answers on is its
+    own business, and inventing one would be synthesizing the request as well as the answer.
+    """
+    port = params.get("port", 0)
+    if not isinstance(port, int) or isinstance(port, bool) or port < 0:
+        raise ProtocolError("invalid_params", "'port' must be a number")
+    return env_call(
+        _project_of(params),
+        _required_str(params, "service"),
+        _optional_str(params, "path") or "/",
+        _optional_str(params, "method") or "GET",
+        port,
+    )
+
+
+def agent_permission_method(params: dict[str, Any]) -> dict[str, Any]:
+    """Answer one standing request for permission (Q21).
+
+    Three parameters and no default for `allow`: a verb that decided for itself what an
+    unanswered press meant would be answering on the person's behalf, and this is the one
+    call in the session surface where the whole point is that a person answered.
+    """
+    allow = params.get("allow")
+    if not isinstance(allow, bool):
+        raise ProtocolError("invalid_params", "'allow' must be true or false")
+    always = params.get("always", False)
+    if not isinstance(always, bool):
+        raise ProtocolError("invalid_params", "'always' must be true or false")
+    return agent_permission(_project_of(params), _required_str(params, "request"), allow, always)
+
+
 def agent_interrupt_method(params: dict[str, Any]) -> dict[str, Any]:
     """Stop the running turn. Not the session -- see `interrupt`."""
     return agent_interrupt(_project_of(params))
@@ -612,6 +654,53 @@ def command_logs_method(params: dict[str, Any]) -> dict[str, Any]:
     return command_logs(_project_of(params), offset)
 
 
+def shell_open_method(params: dict[str, Any]) -> dict[str, Any]:
+    """Open a terminal. A method of its own, for the reason `run.start` is one: starting a
+    process is not something a caller should do by accident (P11)."""
+    name = params.get("name", "")
+    if not isinstance(name, str):
+        raise ProtocolError("invalid_params", "'name' must be a string")
+    return shell_open(_project_of(params), name)
+
+
+def shell_write_method(params: dict[str, Any]) -> dict[str, Any]:
+    """Type into one. `text` is sent verbatim -- the newline is the caller's to send, and so
+    is the `\x03` that interrupts what is running."""
+    return shell_write(
+        _project_of(params),
+        _required_str(params, "shell"),
+        _required_str(params, "text"),
+    )
+
+
+def shell_read_method(params: dict[str, Any]) -> dict[str, Any]:
+    """Poll one. The caller keeps the offset it was last given (P13)."""
+    offset = params.get("offset", 0)
+    if not isinstance(offset, int) or isinstance(offset, bool):
+        raise ProtocolError("invalid_params", "'offset' must be a number")
+    return shell_read(_project_of(params), _required_str(params, "shell"), offset)
+
+
+def shell_resize_method(params: dict[str, Any]) -> dict[str, Any]:
+    """Tell one how wide its window is."""
+    size = []
+    for name in ("columns", "rows"):
+        value = params.get(name)
+        if not isinstance(value, int) or isinstance(value, bool) or value <= 0:
+            raise ProtocolError("invalid_params", f"'{name}' must be a positive number")
+        size.append(value)
+    return shell_resize(_project_of(params), _required_str(params, "shell"), size[0], size[1])
+
+
+def shell_close_method(params: dict[str, Any]) -> dict[str, Any]:
+    return shell_close(_project_of(params), _required_str(params, "shell"))
+
+
+def shell_list_method(params: dict[str, Any]) -> dict[str, Any]:
+    """Which terminals are open here. A read: it opens nothing."""
+    return shell_list(_project_of(params))
+
+
 def command_stop_method(params: dict[str, Any]) -> dict[str, Any]:
     """Stop it -- this session's, or one a crashed session left behind."""
     return command_stop(_project_of(params))
@@ -648,6 +737,7 @@ HANDLERS: dict[str, Handler] = {
     "env.status": env_status,
     "env.up": env_up,
     "env.down": env_down,
+    "env.call": env_call_method,
     "run.start": run_start_method,
     "run.stop": run_stop_method,
     "run.status": run_status_method,
@@ -669,6 +759,7 @@ HANDLERS: dict[str, Handler] = {
     "agent.poll": agent_poll_method,
     "agent.stop": agent_stop_method,
     "agent.interrupt": agent_interrupt_method,
+    "agent.permission": agent_permission_method,
     "agent.choices": agent_choices_method,
     "agent.configure": agent_configure_method,
     "agent.forget": agent_forget_method,
@@ -687,6 +778,12 @@ HANDLERS: dict[str, Handler] = {
     "command.state": command_state_method,
     "command.logs": command_logs_method,
     "command.stop": command_stop_method,
+    "shell.open": shell_open_method,
+    "shell.write": shell_write_method,
+    "shell.read": shell_read_method,
+    "shell.resize": shell_resize_method,
+    "shell.close": shell_close_method,
+    "shell.list": shell_list_method,
 }
 
 

@@ -65,6 +65,7 @@ import type {
   BodyWrite,
   CallResult,
   CommandList,
+  Environment,
   GraphKinds,
   GraphRead,
   IndexResult,
@@ -134,6 +135,13 @@ export type AgentEvent = {
   id: string;
   /** The agent's own name for the tool it called — `Bash`, `Read`. Empty where none applies. */
   tool: string;
+  /**
+   * What was decided about an `asking`, and only about one: `""`, `"allowed"` or `"denied"`.
+   *
+   * `""` is a request **still waiting** — the turn is stopped on it — and that is a different
+   * state from denied, which is why it is a word rather than a boolean.
+   */
+  answer: string;
 };
 export type AgentSessionRef = { id: string; label: string; at: string };
 export type AgentSession = {
@@ -181,10 +189,11 @@ export type AgentSession = {
     effort: string;
     mode: string;
     /**
-     * Whether the agent may run commands — `""` (no) or `"bash"`.
+     * Whether commands run **without being asked about** — `""` (ask) or `"bash"`.
      *
-     * **Not the permission mode**, which was measured and does not grant it: `acceptEdits`
-     * asks for an approval this transport cannot carry, and `dontAsk` refuses outright.
+     * Not the permission mode, and not what makes commands possible: pressing "Allow" on the
+     * request does that (Q21). This is the standing answer of somebody who does not want to
+     * be asked about commands in this project.
      */
     commands: string;
   } | null;
@@ -277,6 +286,37 @@ export function repairApply(
     target,
     resolution,
     observe,
+  });
+}
+
+/** What the project runs in, and what is up. A read: describing an environment changes it not. */
+export function envStatus(project: string): Promise<{
+  api_version: number;
+  environment: Environment;
+}> {
+  return coreRequest("env.status", { project });
+}
+
+/**
+ * Call a declared service on the port it publishes.
+ *
+ * **The port is asked of docker, never assumed** — which host port a service publishes is
+ * the compose file's business, and guessing 8000 because it is usually 8000 would be
+ * inventing the address of somebody else's program.
+ */
+export function envCall(
+  project: string,
+  service: string,
+  path: string,
+  method: string,
+  port = 0,
+): Promise<CallResult> {
+  return coreRequest<CallResult>("env.call", {
+    project,
+    service,
+    path,
+    method,
+    port,
   });
 }
 
@@ -449,6 +489,85 @@ export function workLogs(project: string, offset: number): Promise<RunResult> {
   return coreRequest<RunResult>("work.logs", { project, offset });
 }
 
+/** Is a worker running? A read: it starts nothing (P11). */
+export function workStatus(project: string): Promise<RunResult> {
+  return coreRequest<RunResult>("work.status", { project });
+}
+
+// -- terminals ---------------------------------------------------------------
+
+/**
+ * One terminal the person types into.
+ *
+ * **Not a verb on a node** — which is exactly why it may run what `command.start` refuses.
+ * A shell colours nothing, proves nothing and is read by nothing; it is somebody's own shell,
+ * opened on purpose, in the project's directory. See `shell.py`.
+ */
+export type ShellRef = {
+  id: string;
+  name: string;
+  running: boolean;
+  pid: number;
+};
+
+export type ShellResult = {
+  api_version: number;
+  ok: boolean;
+  detail: string;
+  shell: string;
+  running: boolean;
+  output: string;
+  offset: number;
+  shells: ShellRef[];
+};
+
+export function shellOpen(project: string, name = ""): Promise<ShellResult> {
+  return coreRequest<ShellResult>("shell.open", { project, name });
+}
+
+/** Type into one. **Verbatim** — the newline is the caller's to send, and so is `\x03`. */
+export function shellWrite(
+  project: string,
+  shell: string,
+  text: string,
+): Promise<ShellResult> {
+  return coreRequest<ShellResult>("shell.write", { project, shell, text });
+}
+
+/** What it printed since `offset`. Polled, never pushed (P13). */
+export function shellRead(
+  project: string,
+  shell: string,
+  offset: number,
+): Promise<ShellResult> {
+  return coreRequest<ShellResult>("shell.read", { project, shell, offset });
+}
+
+/** How wide its window is — the one thing wrapping programs read. */
+export function shellResize(
+  project: string,
+  shell: string,
+  columns: number,
+  rows: number,
+): Promise<ShellResult> {
+  return coreRequest<ShellResult>("shell.resize", {
+    project,
+    shell,
+    columns,
+    rows,
+  });
+}
+
+/** Close it, and the process group it started with it. */
+export function shellClose(project: string, shell: string): Promise<ShellResult> {
+  return coreRequest<ShellResult>("shell.close", { project, shell });
+}
+
+/** Which terminals are open here. A read: it opens nothing. */
+export function shellList(project: string): Promise<ShellResult> {
+  return coreRequest<ShellResult>("shell.list", { project });
+}
+
 /**
  * Drop one conversation from this project's list.
  *
@@ -517,6 +636,31 @@ export function agentSignOut(): Promise<Account> {
  */
 export function agentInterrupt(project: string): Promise<AgentSession> {
   return coreRequest<AgentSession>("agent.interrupt", { project });
+}
+
+/**
+ * Answer one standing request for permission.
+ *
+ * **The turn is blocked on this call.** The agent asked with a control request and stopped
+ * where it stood; the answer resumes it from that point rather than starting the work again,
+ * which is what makes this a dialogue instead of a setting change followed by a retry.
+ *
+ * `always` sends back the rule the agent itself suggested, and the agent writes it into the
+ * project's own `.claude/settings.local.json` — the same store its terminal reads. Nothing
+ * about somebody's policy is kept on this side.
+ */
+export function agentPermission(
+  project: string,
+  request: string,
+  allow: boolean,
+  always = false,
+): Promise<AgentSession> {
+  return coreRequest<AgentSession>("agent.permission", {
+    project,
+    request,
+    allow,
+    always,
+  });
 }
 
 /**

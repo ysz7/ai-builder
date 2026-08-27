@@ -171,12 +171,61 @@ def test_a_command_that_fell_over_is_reported_with_its_output(with_commands: Pat
 
 
 @needs_npm
-def test_only_a_command_the_project_declares_can_be_run(with_commands: Path) -> None:
-    """Not a shell with a button on it: the name has to be one npm just said exists."""
-    refused = command_start(with_commands, "rm -rf /")
+def test_a_declared_name_still_means_the_projects_own_command(with_commands: Path) -> None:
+    """The project's vocabulary wins over the shell's.
+
+    P17.7 refused everything else; Q22 lifted that, and this is the half of it that stays: a
+    name npm just said exists runs `npm run <name>`, so pressing `serve` in the list cannot
+    be turned into something else by a file of that name appearing on the path.
+    """
+    started = command_start(with_commands, "serve")
+
+    assert started["ok"] is True, started["detail"]
+    assert started["state"]["target"] == "npm run serve"
+    command_stop(with_commands)
+
+
+def test_a_command_the_project_never_declared_runs(tmp_path: Path) -> None:
+    """P17.7's rule, removed deliberately (Q22).
+
+    It said a verb that ran an arbitrary string would be a shell with a button on it. True,
+    and no longer an objection: this application has a real shell in it on purpose, and
+    **nothing this verb starts goes on the graph** (Q20), so there is no claim for a command
+    nobody declared to falsify. What it bought instead was a person unable to run their own
+    test suite from the panel that lists their commands.
+    """
+    ran = command_start(tmp_path, "echo not-declared-anywhere")
+
+    assert ran["ok"] is True, ran["detail"]
+    assert "not-declared-anywhere" in ran["logs"]
+
+
+def test_a_command_that_finishes_is_not_a_command_that_failed(tmp_path: Path) -> None:
+    """`git status` is supposed to end. Reporting a zero exit as a fall-over was the panel
+    calling a successful command broken."""
+    finished = command_start(tmp_path, "true")
+    fell_over = command_start(tmp_path, "exit 3")
+
+    assert finished["ok"] is True
+    assert "finished" in finished["detail"]
+    assert fell_over["ok"] is False
+    assert "exited immediately (3)" in fell_over["detail"]
+
+
+def test_a_command_still_cannot_reach_outside_the_project(tmp_path: Path) -> None:
+    """The one rule that stays, and it is a different rule: containment, not vocabulary.
+
+    `command.*` is a verb about *this* project, and a directory outside it would make it a
+    way to run things in somebody's home directory instead.
+    """
+    refused = command_start(tmp_path, "echo hello", "../..")
 
     assert refused["ok"] is False
-    assert "declares no command" in refused["detail"]
+    assert "no directory" in refused["detail"]
+
+
+def test_an_empty_command_is_refused_rather_than_run(tmp_path: Path) -> None:
+    assert command_start(tmp_path, "   ")["ok"] is False
 
 
 @needs_npm

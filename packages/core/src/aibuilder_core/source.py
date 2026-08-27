@@ -17,7 +17,7 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 
 from .ir import Graph, Location, Node
-from .parser import parse_project
+from .project import read_project
 
 
 @dataclass(frozen=True)
@@ -106,12 +106,21 @@ def node_source(project: Path | str, node_id: str) -> NodeSource:
     is a question with no answer, not a fault in the call.
     """
     root = Path(project).resolve()
-    graph = parse_project(root)
+    # **The whole graph, not only the Python one.** This asked `parse_project`, which knows
+    # no file formats by design (§5.7) -- so a node carried by a file was not on the graph it
+    # searched, and every `Dockerfile` and `compose.yaml` answered "no node on this graph"
+    # while sitting on the canvas being clicked. The composition belongs here for the same
+    # reason it belongs everywhere else: "the graph" has to mean one thing.
+    graph = read_project(root)
 
     node = next((candidate for candidate in graph.nodes if candidate.id == node_id), None)
     if node is None:
         return _refused(node_id, f"no node {node_id!r} on this graph")
 
+    # A file-carried node has no functions and cannot have any: `graph.functions` comes from
+    # the parser, and the parser never opened this file. What it has is its text, which is
+    # the whole of what a panel can offer -- there are no zones to edit through, because the
+    # file *is* the source of truth and nothing here generated any part of it (Q10).
     functions = tuple(
         FunctionSource(
             path=function.path,

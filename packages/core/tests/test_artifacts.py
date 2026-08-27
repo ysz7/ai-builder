@@ -215,6 +215,42 @@ def test_a_dockerfile_is_proven_by_something_building_from_it() -> None:
     assert run.observations["Dockerfile"].passed is True
 
 
+def test_the_relation_between_the_two_docker_nodes_is_drawn(tmp_path: Path) -> None:
+    """The arrow the canvas was missing (Q24).
+
+    "built by the service(s): api" was the whole of what tied these two nodes together, and
+    it was a sentence in a panel -- so on the canvas a Dockerfile and the compose file that
+    builds it looked like two unrelated things near each other. It is **flow, and `wiring`**:
+    the compose file holds the edge by declaring it and nothing ran through it, which is the
+    same rank as an edge read off a compiled LangGraph. And it appears only after an observe,
+    because the only way to know is to ask docker -- no ask, no arrow.
+    """
+    run = check_artifacts(
+        graph_of(
+            artifact("docker.image", "Dockerfile"),  # type: ignore[arg-type]
+            artifact("docker.compose", "compose.yaml"),  # type: ignore[arg-type]
+        ),
+        tmp_path,
+        environment(services=(Service(name="api", dockerfile="Dockerfile"),)),
+    )
+
+    assert run.flow == [{"source": "Dockerfile", "target": "compose.yaml", "origin": "wiring"}]
+
+
+def test_no_arrow_where_nothing_builds_from_the_file(tmp_path: Path) -> None:
+    """The relation is a fact about the compose file, not about the two nodes existing."""
+    run = check_artifacts(
+        graph_of(
+            artifact("docker.image", "Dockerfile"),  # type: ignore[arg-type]
+            artifact("docker.compose", "compose.yaml"),  # type: ignore[arg-type]
+        ),
+        tmp_path,
+        environment(services=(Service(name="api", dockerfile=None),)),
+    )
+
+    assert run.flow == []
+
+
 def test_a_dockerfile_nothing_builds_from_is_unproven_not_wrong() -> None:
     """Built by hand or by CI is normal; this project simply has nothing that says so."""
     run = check_artifacts(

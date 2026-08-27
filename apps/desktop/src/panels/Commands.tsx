@@ -1,5 +1,6 @@
 /**
- * The commands the project already has, and one of them running (P17.6, P17.7).
+ * The commands the project already has, one the person wrote, and one of them running
+ * (P17.6, P17.7 as amended by Q22).
  *
  * **Nothing here is on the graph** (Q20). A front end is run, not modelled: it has no claim
  * this toolchain could prove, and a node that cannot be red is decoration. So there are no
@@ -8,6 +9,13 @@
  * **The list is npm's own answer** about npm's own file. Nothing here reads `package.json`:
  * a parser for somebody else's format is a second opinion about a thing that already has a
  * first one (§5.8), and the core asks `npm pkg get scripts` instead.
+ *
+ * **The field beside it runs what is typed.** P17.7 refused that — a verb running an
+ * arbitrary string would be a shell with a button on it — and Q22 removed the rule: this
+ * application has a real shell in it on purpose, nothing this verb starts goes on the graph,
+ * and the refusal only ever stopped a person running their own test suite from the panel
+ * listing their commands. A declared name still means the project's command, so the list and
+ * the field cannot be made to disagree.
  *
  * **Each process is started on its own.** There is no button that brings the application up:
  * the order and the readiness of somebody else's topology is knowledge we do not have, and
@@ -35,6 +43,8 @@ type Props = { project: string };
 export function Commands({ project }: Props) {
   const [listed, setListed] = useState<CommandList | null>(null);
   const [directory, setDirectory] = useState("");
+  /** A command of the person's own. Never remembered: it is a thing they are doing now. */
+  const [own, setOwn] = useState("");
   const [state, setState] = useState<RunState>(null);
   const [text, setText] = useState("");
   const [busy, setBusy] = useState("");
@@ -159,6 +169,32 @@ export function Commands({ project }: Props) {
         />
       ) : null}
 
+      {/* One line, and it is the same verb as the buttons below it: what the project
+          declares and what the person wants are two ways to name a command, not two
+          mechanisms. */}
+      <div className="bp-cmd-own">
+        <span className="bp-term-caret">›</span>
+        <input
+          className="bp-term-field"
+          value={own}
+          spellCheck={false}
+          autoCapitalize="off"
+          autoComplete="off"
+          placeholder="a command to run here — pytest -q, make build, git status"
+          onChange={(event) => setOwn(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === "Enter" && own.trim() && state === null) void start(own);
+          }}
+        />
+        <button
+          className="bp-btn bp-btn-go"
+          disabled={busy !== "" || state !== null || own.trim() === ""}
+          onClick={() => void start(own)}
+        >
+          {busy === own ? "…" : "Run"}
+        </button>
+      </div>
+
       <div className="bp-cmds">
         {(listed?.commands ?? []).map((entry) => (
           <div className="bp-cmd" key={entry.name}>
@@ -181,7 +217,7 @@ export function Commands({ project }: Props) {
         {text ||
           (state
             ? "Running, and it has printed nothing yet."
-            : "Nothing is running. Start one of the project's own commands.")}
+            : "Nothing is running. Press one of the project's own commands, or type one.")}
       </pre>
     </div>
   );

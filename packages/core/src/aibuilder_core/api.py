@@ -38,6 +38,7 @@ from aibuilder_core.runner import (
     build_image,
     call_endpoint,
     call_server_tool,
+    call_service,
     command_status,
     index_pipeline,
     inspect_server,
@@ -60,6 +61,7 @@ from aibuilder_core.session import (
     MODELS,
     MODES,
     account,
+    answer_permission,
     configure_session,
     forget_session,
     interrupt,
@@ -71,6 +73,14 @@ from aibuilder_core.session import (
     sign_out,
     start_session,
     stop_session,
+)
+from aibuilder_core.shell import (
+    close_shell,
+    list_shells,
+    open_shell,
+    read_shell,
+    resize_shell,
+    write_shell,
 )
 from aibuilder_core.snapshot import load_snapshot, save_snapshot, take_snapshot
 from aibuilder_core.source import node_source
@@ -87,8 +97,10 @@ __all__ = [
     "ENVIRONMENT_SCHEMA",
     "GRAPH_API_VERSION",
     "RUN_CALL_SCHEMA",
+    "env_call",
     "TALK_SCHEMA",
     "RUN_SCHEMA",
+    "SHELL_SCHEMA",
     "SERVICE_SCHEMA",
     "GRAPH_KINDS_SCHEMA",
     "GRAPH_READ_SCHEMA",
@@ -126,6 +138,7 @@ __all__ = [
     "agent_session",
     "agent_shut",
     "agent_interrupt",
+    "agent_permission",
     "agent_forget",
     "agent_rename",
     "agent_account",
@@ -140,6 +153,12 @@ __all__ = [
     "layout_put",
     "command_list",
     "command_logs",
+    "shell_close",
+    "shell_list",
+    "shell_open",
+    "shell_read",
+    "shell_resize",
+    "shell_write",
     "command_start",
     "command_state",
     "command_stop",
@@ -246,9 +265,23 @@ _ENVIRONMENT = {
     "interpreter": "str",
     "interpreter_origin": "str",
     "compose_file": "str?",
-    # Each declared service, and whether anything answers where it publishes. Readiness is
-    # a connection rather than a status field: it is the question the application asks.
-    "services": [{"name": "str", "ports": ["int"], "reachable": "bool", "dockerfile": "str?"}],
+    # Whether **anything is running**, which is what `env.up` started and therefore what the
+    # button on the compose node reflects. Not the same as everything being reachable (Q24).
+    "up": "bool",
+    # Each declared service. `reachable` is a connection to the port it publishes -- the
+    # question the application asks, and readiness is a connection rather than a status
+    # field. `running` is docker's answer about the container, which is a different claim
+    # and must never stand in for the first: the gap between them is where "I started it and
+    # nothing works" lives.
+    "services": [
+        {
+            "name": "str",
+            "ports": ["int"],
+            "reachable": "bool",
+            "running": "bool",
+            "dockerfile": "str?",
+        }
+    ],
     "missing": ["str"],
     "docker_unavailable": "str?",
     "incomplete": "str?",
@@ -306,6 +339,23 @@ TALK_SCHEMA = {
     "offset": "int",
     # Which nodes have a conversation open here.
     "open": ["str"],
+}
+
+#: The `shell.*` payload: one terminal the person types into.
+#:
+#: The sixth instance of the P13 shape, and the only one that is **not a claim about the
+#: graph**: a shell colours no node and proves no check, which is exactly why it may run what
+#: `command.start` refuses (see `shell.py`). Output is polled with an offset the caller keeps.
+SHELL_SCHEMA = {
+    "api_version": "int",
+    "ok": "bool",
+    "detail": "str",
+    "shell": "str",
+    "running": "bool",
+    "output": "str",
+    "offset": "int",
+    # Every terminal open for this project, so a panel draws its tabs from one answer.
+    "shells": [{"id": "str", "name": "str", "running": "bool", "pid": "int"}],
 }
 
 #: The `run.call` payload: what the running application answered when it was called.
@@ -506,6 +556,11 @@ GRAPH_KINDS_SCHEMA = {
             # And whether it holds an index somebody can hand documents to (P17.5). Same
             # rule as `converses`: the button exists because the registry named a way in.
             "indexes": "str",
+            # Which family of process verb starts and stops it -- `run`, `work`, `env` -- or
+            # "" for the kinds nothing starts. The same opt-in again, and it answers the one
+            # question the graph cannot: a graph is a projection of code, and whether a pid
+            # is alive is not in the code.
+            "starts": "str",
             "description": "str",
         }
     ],
@@ -600,6 +655,11 @@ AGENT_SESSION_SCHEMA = {
             "detail": "str",
             "id": "str",
             "tool": "str",
+            # Only an `asking` carries this, and only once somebody has pressed something:
+            # `""` is a request still waiting, and it is a different state from "denied"
+            # (Q21). `id` on an `asking` is the agent's `request_id` -- what an answer is
+            # addressed by -- rather than a `tool_use_id`.
+            "answer": "str",
         }
     ],
     # Where the reader got to. Events are polled, never pushed (P13).
@@ -801,6 +861,20 @@ def talk_close(project: Path | str, node: str) -> dict[str, Any]:
     return {"api_version": GRAPH_API_VERSION, **stop_talk(project, node).as_dict()}
 
 
+def env_call(
+    project: Path | str,
+    service: str,
+    path: str = "/",
+    method: str = "GET",
+    port: int = 0,
+) -> dict[str, Any]:
+    """Call a declared service on the port it publishes. The port is asked of docker (Q24)."""
+    return {
+        "api_version": GRAPH_API_VERSION,
+        **call_service(project, service, path, method, port).as_dict(),
+    }
+
+
 def run_call(project: Path | str, path: str = "/", method: str = "GET") -> dict[str, Any]:
     """Call the running application: the verb a person pressing a route node wants."""
     return {"api_version": GRAPH_API_VERSION, **call_endpoint(project, path, method).as_dict()}
@@ -874,6 +948,39 @@ def command_start(project: Path | str, command: str, directory: str = "") -> dic
 def command_state(project: Path | str) -> dict[str, Any]:
     """Is it still running? That question and no other -- readiness is not ours to claim."""
     return {"api_version": GRAPH_API_VERSION, **command_status(project).as_dict()}
+
+
+def shell_open(project: Path | str, name: str = "") -> dict[str, Any]:
+    """Open one terminal in the project's directory. Never implicit (P11)."""
+    return {"api_version": GRAPH_API_VERSION, **open_shell(project, name).as_dict()}
+
+
+def shell_write(project: Path | str, shell: str, text: str) -> dict[str, Any]:
+    """Type into it. What is sent is what was typed -- not even a newline is added."""
+    return {"api_version": GRAPH_API_VERSION, **write_shell(project, shell, text).as_dict()}
+
+
+def shell_read(project: Path | str, shell: str, offset: int = 0) -> dict[str, Any]:
+    """What it printed since `offset`. The caller keeps the offset it was given (P13)."""
+    return {"api_version": GRAPH_API_VERSION, **read_shell(project, shell, offset).as_dict()}
+
+
+def shell_resize(project: Path | str, shell: str, columns: int, rows: int) -> dict[str, Any]:
+    """Tell it how wide its window is -- the one thing wrapping programs read."""
+    return {
+        "api_version": GRAPH_API_VERSION,
+        **resize_shell(project, shell, columns, rows).as_dict(),
+    }
+
+
+def shell_close(project: Path | str, shell: str) -> dict[str, Any]:
+    """Close it, and the process group it started with it."""
+    return {"api_version": GRAPH_API_VERSION, **close_shell(project, shell).as_dict()}
+
+
+def shell_list(project: Path | str) -> dict[str, Any]:
+    """The terminals open here. A read: it opens nothing."""
+    return {"api_version": GRAPH_API_VERSION, **list_shells(project).as_dict()}
 
 
 def command_logs(project: Path | str, offset: int = 0) -> dict[str, Any]:
@@ -1081,6 +1188,19 @@ def agent_poll(project: Path | str, offset: int = 0) -> dict[str, Any]:
     return {"api_version": GRAPH_API_VERSION, **poll_session(project, offset).as_dict()}
 
 
+def agent_permission(
+    project: Path | str,
+    request: str,
+    allow: bool,
+    always: bool = False,
+) -> dict[str, Any]:
+    """Answer one standing request for permission. The turn resumes from where it stopped."""
+    return {
+        "api_version": GRAPH_API_VERSION,
+        **answer_permission(project, request, allow, always).as_dict(),
+    }
+
+
 def agent_interrupt(project: Path | str) -> dict[str, Any]:
     """Stop the turn that is running. The conversation and its process both survive."""
     return {"api_version": GRAPH_API_VERSION, **interrupt(project).as_dict()}
@@ -1194,6 +1314,7 @@ def describe_kinds() -> dict[str, Any]:
                 "check": kind.check,
                 "converses": kind.converses,
                 "indexes": kind.indexes,
+                "starts": kind.starts,
                 "description": kind.description,
             }
             for kind in sorted(REGISTRY.values(), key=lambda kind: kind.name)

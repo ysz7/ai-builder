@@ -95,6 +95,17 @@ client to a model and no SDK, and every decision about what to ask and what to d
 stays in the application. The agent is denied writes to `.aibuilder/`, because an agent that could
 edit the snapshot would be forging evidence about itself.
 
+**A permission is a question with an answer** (Q21, amending Q17). `--permission-prompt-tool stdio`
+makes the agent's stream two-way: it sends a `can_use_tool` control request and **stops**, and
+`agent.permission` writes the `control_response` the turn is blocked on, so the same turn carries on
+rather than being retried after a settings change. `updatedInput` is echoed back and never rebuilt —
+a response carrying anything else would be this toolchain editing a command on its way to a shell —
+and "Always" sends back **the rules the agent itself suggested**, which it writes into the project's
+own `.claude/settings.local.json`. Because a person is on the other end, the deny-list is only
+`.aibuilder/`: a denied tool never asks, so anything refused by name is the one thing they cannot
+overrule. What is stored on this side is which requests were answered and nothing about policy —
+the stream carries no line for an answer, so without it every re-read would resurrect a decision.
+
 **Talking to what the project built is an action on a node, never a node of its own** (Q18, P17). A
 chat surface has no carrier, so by I-3 it is not a node, and a node the canvas draws rather than the
 code declares is the second source of truth I-1 forbids — the precedent is P15's `mcp.inspect` and
@@ -118,13 +129,28 @@ what comes back is **what the store said afterwards** — its type and what it a
 the documents that went in. `len` is Python's own question; reaching past it into a library's internals
 would need a `kinds.TECHNOLOGIES` entry, which RAG deliberately does not have.
 
+**A terminal is not a verb on a node, which is why it may run what a verb may not** (Q22).
+`shell.*` opens the person's own `$SHELL` on a **pty** in the project's directory and they type
+into it; `command.start` still refuses anything the project does not declare. The two are not in
+tension: `command.*` is a button whose result the graph is asked to mean something by, and a shell
+makes no claim about anything -- it colours no node, proves no check and is read by nothing. It is
+the sixth process of the P13 shape, `write` sends **verbatim** (the newline is the caller's, and so
+is `\x03`), closing a tab signals the **process group** so a server started in it cannot outlive it,
+and a shell is the sidecar's lifetime because a pty master cannot be reopened from a pid.
+
 **A front end is run, not modelled** (Q20, P17.6–17.7). No nodes, no knobs, no verdict: one verb to
 start it, one to stop it, and a node that cannot be red would be decoration. The commands are **asked
 of `npm pkg get scripts`**, never read out of `package.json` (§5.8), the directory to ask in is passed
-in rather than discovered, and only a command the project itself declares can be run — a verb that ran
-an arbitrary string would be a shell with a button on it. `command.*` is the fifth process of the P13
+in rather than discovered, and a **name the project declares still means the project's own command** —
+`npm run <name>`, so the vocabulary the project owns cannot be shadowed by a file appearing on the
+path. Anything else is run as typed: P17.7's rule against arbitrary strings was **removed** (Q22),
+because the objection it rested on — that would be a shell with a button on it — stopped being an
+objection when this application gained a real shell on purpose, and because nothing `command.*` starts
+goes on the graph, so there is no claim a stranger's command could falsify. What is still enforced is
+containment: the directory must be inside the project. `command.*` is the fifth process of the P13
 shape and it waits for nothing: a dev server picks its own port and announces it in prose, so the start
-proves only that it did not fall over, and the panel says "running", never "ready".
+proves only that it did not fall over, and the panel says "running", never "ready" — and a command that
+*finished* is reported as finished rather than as a fall-over, because `git status` is supposed to end.
 
 **A contract edge and a flow are different relations** (Q9). Edges are types crossing a boundary, read
 from signatures. Flow — a pipeline's order, an agent's wiring — is never parsed out of assembly code
@@ -243,7 +269,8 @@ diagnostic record and the closed catalogue of codes; `verdict.py` is the single 
 checks and `probe.py` contains them; `snapshot.py` records the outline of the last valid state and
 `reconcile.py` diffs against it; `writer.py` writes back through `libcst`; `repair.py` acts on
 divergences; `converse.py` talks to a node in the project's own interpreter;
-`environment.py` is the project's interpreter and the services it declares; `artifacts.py` finds the
+`shell.py` is the terminal the person types into; `environment.py` is the project's interpreter
+and the services it declares; `artifacts.py` finds the
 nodes carried by a file and `project.py` composes them with the parser's; `runner.py` checks them, runs
 the application and holds the verbs that act on it — including the two that reach a consumed MCP
 server, the one that hands a pipeline its documents, and the ones that list and run the project's own

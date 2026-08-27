@@ -90,6 +90,7 @@ from aibuilder_core.protocol import (
 )
 from aibuilder_core.runner import stop_everything_started_here
 from aibuilder_core.session import close_everything_started_here
+from aibuilder_core.shell import close_everything_opened_here
 from aibuilder_core.strip import strip_project
 from aibuilder_core.verdict import Observation
 
@@ -150,6 +151,10 @@ def serve_forever() -> int:
         # survivor could be stopped but never spoken to again (P17.1).
         close_everything_started_here()
         close_every_conversation_started_here()
+        # And the terminals, for the same reason and one more: a shell's master pty cannot
+        # be reopened from a pid, so one left running is a process nothing on this machine
+        # can ever type into again -- along with whatever server was running inside it.
+        close_everything_opened_here()
     log("stdin closed, exiting")
     return 0
 

@@ -991,6 +991,7 @@ def test_thinking_is_kept_rather_than_dropped(tmp_path: Path) -> None:
         "detail": "",
         "id": "",
         "tool": "",
+        "answer": "",
     }
 
 
@@ -1348,40 +1349,14 @@ def test_a_summary_sent_as_plain_text_does_not_break_the_stream(tmp_path: Path) 
     assert kinds(tmp_path) == [("says", "carrying on")]
 
 
-def test_a_refusal_waiting_for_approval_says_what_would_end_the_wait(tmp_path: Path) -> None:
-    """Q17 made visible rather than merely honest.
+def test_a_refusal_is_left_in_the_tools_own_words(tmp_path: Path) -> None:
+    """Nothing is added to a refusal any more, and that is Q21 rather than a simplification.
 
-    The agent asks for permission the only way the transport allows -- by refusing and saying
-    so -- and there is no message shape to answer with. "requires approval" therefore read as
-    a prompt that never arrived, and the person waited for a dialogue this application cannot
-    show. The tool's own words are kept; what is added is the one thing it does not know.
+    Under Q17 a refusal that was really a request for permission had a sentence appended
+    saying nobody here could answer it. That sentence was true of a transport with no way to
+    say yes and is false of this one: a request for permission now *arrives as a request*,
+    with an id and two buttons, and the only refusals left are refusals.
     """
-    log(
-        tmp_path,
-        {
-            "type": "user",
-            "message": {
-                "content": [
-                    {
-                        "type": "tool_result",
-                        "is_error": True,
-                        "content": "This command requires approval",
-                    }
-                ]
-            },
-        },
-    )
-
-    kind, text = kinds(tmp_path)[0]
-
-    assert kind == "blocked"
-    assert text.startswith("This command requires approval")
-    assert "Don't ask" in text
-
-
-def test_an_ordinary_refusal_is_not_dressed_up(tmp_path: Path) -> None:
-    """Only a refusal that is waiting for an answer gets one: everything else is the tool's
-    own words, and adding to them would be this application talking over the agent."""
     log(
         tmp_path,
         {
@@ -1401,38 +1376,201 @@ def test_an_ordinary_refusal_is_not_dressed_up(tmp_path: Path) -> None:
     assert kinds(tmp_path) == [("blocked", "File is in a directory denied by your permissions.")]
 
 
-def test_a_refusal_a_setting_would_have_prevented_is_marked_as_such(tmp_path: Path) -> None:
-    """Marked, so an interface never has to recognise it by its wording.
+# -- a request for permission, and an answer to it (Q21) ---------------------------
 
-    A panel that matched on "requires approval" would be reading the agent's prose to decide
-    what to offer, and prose is not an interface. The mark is the contract; the words stay
-    the tool's.
+
+def ask(request: str = "req-1", command: str = "ls /tmp/uvicorn.log") -> dict[str, object]:
+    """One `can_use_tool` control request, as the agent writes it."""
+    return {
+        "type": "control_request",
+        "request_id": request,
+        "request": {
+            "subtype": "can_use_tool",
+            "tool_name": "Bash",
+            "input": {"command": command, "description": "read the log"},
+            "permission_suggestions": [
+                {
+                    "type": "addRules",
+                    "rules": [{"toolName": "Bash", "ruleContent": command}],
+                    "behavior": "allow",
+                    "destination": "localSettings",
+                }
+            ],
+        },
+    }
+
+
+def test_a_request_for_permission_arrives_as_a_question(tmp_path: Path) -> None:
+    """The shape Q17 measured as absent, measured as present.
+
+    It is not a refusal and must not read as one: the agent is stopped where it stands and
+    the turn continues from that point once somebody answers. The event carries the agent's
+    own `request_id` -- what an answer is addressed by -- and an empty `answer`, which is the
+    state "still waiting" and is not the same as "denied".
     """
+    log(tmp_path, ask())
+
+    asked = poll_session(tmp_path).events[0]
+
+    assert asked["kind"] == "asking"
+    assert asked["id"] == "req-1"
+    assert asked["tool"] == "Bash"
+    assert "ls /tmp/uvicorn.log" in asked["text"]
+    assert asked["answer"] == ""
+
+
+def test_a_control_request_that_is_not_a_question_is_not_one(tmp_path: Path) -> None:
+    """The handshake and the interrupt travel the same way and are not asks."""
     log(
         tmp_path,
-        {
-            "type": "user",
-            "message": {
-                "content": [
-                    {
-                        "type": "tool_result",
-                        "is_error": True,
-                        "content": "This command requires approval",
-                    },
-                    {
-                        "type": "tool_result",
-                        "is_error": True,
-                        "content": "File is in a directory denied by your permissions.",
-                    },
-                ]
-            },
-        },
+        {"type": "control_request", "request_id": "init-1", "request": {"subtype": "initialize"}},
     )
 
-    waiting, denied = poll_session(tmp_path).events
+    assert kinds(tmp_path) == []
 
-    assert waiting["detail"] == "approval"
-    assert denied["detail"] == ""
+
+def test_answering_a_request_nobody_asked_is_refused(tmp_path: Path) -> None:
+    """A request that is not in this log is one this session never saw."""
+    from aibuilder_core import session
+    from aibuilder_core.session import answer_permission
+
+    session._LIVE[str(tmp_path.resolve())] = _Listening()
+    log(tmp_path, ask())
+    try:
+        refused = answer_permission(tmp_path, "req-elsewhere", allow=True)
+    finally:
+        session._LIVE.pop(str(tmp_path.resolve()), None)
+
+    assert refused.ok is False
+    assert "nothing here asked for that" in refused.detail
+
+
+def test_answering_writes_the_response_the_turn_is_blocked_on(tmp_path: Path) -> None:
+    """**The input is echoed back, never rebuilt.**
+
+    `updatedInput` is what the agent asked about; a response carrying anything else would be
+    this application editing a command on its way to a shell. Plain "Allow" sends no rules:
+    it answers this request and nothing beyond it.
+    """
+    from aibuilder_core import session
+    from aibuilder_core.session import answer_permission
+
+    listening = _Listening()
+    session._LIVE[str(tmp_path.resolve())] = listening
+    log(tmp_path, ask())
+    try:
+        answered = answer_permission(tmp_path, "req-1", allow=True)
+    finally:
+        session._LIVE.pop(str(tmp_path.resolve()), None)
+
+    assert answered.ok is True
+    sent = json.loads(listening.stdin.written[-1])
+    assert sent["type"] == "control_response"
+    assert sent["response"]["request_id"] == "req-1"
+    assert sent["response"]["response"]["behavior"] == "allow"
+    assert sent["response"]["response"]["updatedInput"]["command"] == "ls /tmp/uvicorn.log"
+    assert "updatedPermissions" not in sent["response"]["response"]
+
+
+def test_always_sends_back_the_rule_the_agent_itself_suggested(tmp_path: Path) -> None:
+    """The rule is the agent's, and so is the store it lands in.
+
+    A rule invented here would be this application guessing at another program's permission
+    vocabulary -- the thing §5.8 exists to stop. What the agent suggested is sent back
+    unchanged, and it writes it where its own terminal will find it.
+    """
+    from aibuilder_core import session
+    from aibuilder_core.session import answer_permission
+
+    listening = _Listening()
+    session._LIVE[str(tmp_path.resolve())] = listening
+    log(tmp_path, ask())
+    try:
+        answer_permission(tmp_path, "req-1", allow=True, always=True)
+    finally:
+        session._LIVE.pop(str(tmp_path.resolve()), None)
+
+    rules = json.loads(listening.stdin.written[-1])["response"]["response"]["updatedPermissions"]
+
+    assert rules[0]["rules"][0]["ruleContent"] == "ls /tmp/uvicorn.log"
+
+
+def test_a_denial_is_said_in_the_persons_name(tmp_path: Path) -> None:
+    """The agent explains this to the person next, and "denied" alone reads as a failure."""
+    from aibuilder_core import session
+    from aibuilder_core.session import answer_permission
+
+    listening = _Listening()
+    session._LIVE[str(tmp_path.resolve())] = listening
+    log(tmp_path, ask())
+    try:
+        answer_permission(tmp_path, "req-1", allow=False)
+    finally:
+        session._LIVE.pop(str(tmp_path.resolve()), None)
+
+    said = json.loads(listening.stdin.written[-1])["response"]["response"]
+
+    assert said["behavior"] == "deny"
+    assert "declined" in said["message"]
+
+
+def test_what_was_answered_is_remembered_because_the_stream_does_not_say(
+    tmp_path: Path,
+) -> None:
+    """Otherwise every re-read from offset zero resurrects a decision.
+
+    The agent's only record of an answer is the tool result that follows it -- seconds later,
+    or never, if the answer was no. So a panel reading the log alone would offer the buttons
+    again to somebody who had already pressed one.
+    """
+    from aibuilder_core import session
+    from aibuilder_core.session import answer_permission
+
+    session._LIVE[str(tmp_path.resolve())] = _Listening()
+    log(tmp_path, ask())
+    try:
+        answer_permission(tmp_path, "req-1", allow=True)
+        again = answer_permission(tmp_path, "req-1", allow=False)
+    finally:
+        session._LIVE.pop(str(tmp_path.resolve()), None)
+
+    # A second press is a result, not a fault: the agent has moved on.
+    assert again.ok is True
+    assert again.detail == "already answered"
+    assert poll_session(tmp_path).events[0]["answer"] == "allowed"
+
+
+def test_answering_without_a_session_is_refused_rather_than_pretended(tmp_path: Path) -> None:
+    from aibuilder_core.session import answer_permission
+
+    log(tmp_path, ask())
+    refused = answer_permission(tmp_path, "req-1", allow=True)
+
+    assert refused.ok is False
+    assert "nothing is waiting" in refused.detail
+
+
+class _Pipe:
+    def __init__(self) -> None:
+        self.written: list[str] = []
+
+    def write(self, line: bytes) -> None:
+        self.written.append(line.decode("utf-8"))
+
+    def flush(self) -> None:
+        return None
+
+
+class _Listening:
+    """A session that is open and can be written to, without an agent behind it."""
+
+    pid = 4321
+
+    def __init__(self) -> None:
+        self.stdin = _Pipe()
+
+    def poll(self) -> int | None:
+        return None
 
 
 # -- whether the agent may run commands (measured, not assumed) --------------------
@@ -1475,29 +1613,45 @@ def test_a_command_policy_the_agent_would_not_understand_is_refused(tmp_path: Pa
     assert "commands cannot be" in refused.detail
 
 
-def test_the_ways_out_of_the_project_are_denied_by_name(monkeypatch, tmp_path: Path) -> None:
-    """The grant is the tool; the boundary is a denial.
+def test_the_only_thing_denied_by_name_is_the_builders_own_directory(
+    monkeypatch, tmp_path: Path
+) -> None:
+    """The boundary is the question now, and a denial by name is the answer nobody can give.
 
-    Prefix rules were tried as the boundary and are the wrong shape for one: a project's
-    interpreter is `/usr/bin/python3`, its pip is `.venv/bin/pip`, and `cd build && make`
-    starts with neither -- so a person who had said yes watched every command refused. What
-    is refused instead is the way *out*: an absolute path is somebody else's machine, and
-    `cat app/main.py` is the project's own business.
+    Ten absolute-path patterns used to sit here as a fence around the project, because a
+    refusal was the only answer this application could produce. With a person on the other
+    end of every request that fence became the one thing they could *not* overrule -- a
+    denied tool never asks -- and `ls /tmp/uvicorn.log`, a log the agent had written a moment
+    earlier, came back refused with no way to say yes.
 
-    Not airtight, and not offered as such -- `python3 -c` opens any file there is. It stops
-    the drift that actually happened: the agent read the builder's own pyproject.toml.
+    `.aibuilder/` stays denied because it is not a question: an agent that could edit the
+    snapshot would be forging evidence about itself, and there is nobody to ask about that.
     """
-    from aibuilder_core.session import DENIED, configure_session, start_session
+    from aibuilder_core.session import DENIED, start_session
 
-    assert "Bash(cat /*)" in DENIED
-    assert "Bash(cd /*)" in DENIED
+    assert DENIED == ("Edit(.aibuilder/**)", "Write(.aibuilder/**)")
 
     seen = spawn(monkeypatch, tmp_path)
-    configure_session(tmp_path, commands="bash")
     start_session(tmp_path)
 
     line = seen[-1]
     refused = line[line.index("--disallowed-tools") + 1 : line.index("--append-system-prompt-file")]
-    assert "Bash(cat /*)" in refused
-    # The builder's own directory stays denied whatever else is granted (Q16).
     assert "Write(.aibuilder/**)" in refused
+    assert not any(rule.startswith("Bash(") for rule in refused)
+
+
+def test_a_request_for_permission_has_somewhere_to_go(monkeypatch, tmp_path: Path) -> None:
+    """Q21, at the only place it can be asserted without spending somebody's tokens.
+
+    The flag is the whole mechanism: without it the agent auto-denies whatever the mode does
+    not already allow and the person hears about it afterwards (Q17). It is undocumented in
+    `--help`, so it was measured against the running CLI before being relied on -- and this
+    test is what stops it being dropped by somebody tidying the command line.
+    """
+    from aibuilder_core.session import start_session
+
+    seen = spawn(monkeypatch, tmp_path)
+    start_session(tmp_path)
+
+    line = seen[-1]
+    assert line[line.index("--permission-prompt-tool") + 1] == "stdio"

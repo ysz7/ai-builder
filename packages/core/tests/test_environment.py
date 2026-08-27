@@ -14,6 +14,7 @@ Three claims carry this phase, and the third is the one that would be easiest to
 
 from __future__ import annotations
 
+import contextlib
 import json
 import shutil
 import socket
@@ -265,19 +266,93 @@ def test_an_environment_describes_itself_as_data() -> None:
 # -- readiness, without a daemon to produce it ------------------------------------
 
 
-def compose_declares(monkeypatch: pytest.MonkeyPatch, services: dict[str, Any]) -> None:
-    """Feed the reader exactly what `docker compose config` would have said.
+def compose_declares(
+    monkeypatch: pytest.MonkeyPatch,
+    services: dict[str, Any],
+    running: tuple[str, ...] = (),
+) -> None:
+    """Feed the reader exactly what docker would have said -- about the file, and about itself.
 
     The daemon-dependent path is one skipped test on a laptop, so what it depends on is
     pinned here instead: an unproven code path is not made proven by being hard to reach.
+
+    `running` is the second answer: `docker compose ps` naming the containers that are up,
+    which is a different question from what the file declares and from what answers on a port.
     """
 
     def answer(project: Path, *arguments: str, timeout: int = 20) -> tuple[int, str, str]:
         if "config" in arguments:
             return 0, json.dumps({"services": services}), ""
+        if "ps" in arguments:
+            lines = [json.dumps({"Service": name, "State": "running"}) for name in running]
+            return 0, "\n".join(lines), ""
         return 0, "", ""
 
     monkeypatch.setattr("aibuilder_core.environment._docker", answer)
+
+
+# -- running is docker's answer, and it is not reachability (Q24) -----------------
+
+
+def test_up_is_what_docker_says_not_what_a_port_says(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The complaint that produced this: "I started docker and the button still says Up".
+
+    Their container was running and nothing on this side could connect to it, so by
+    reachability nothing had happened. What a button reflects has to be the question the
+    button asked -- `env.up` starts containers, so containers being up is what says it worked.
+    """
+    # A port nothing is listening on, asked of the OS rather than picked: a number written
+    # here is a number somebody's own redis is eventually running on, and the test would
+    # then pass for a reason that has nothing to do with what it is testing.
+    silent = free_port()
+    compose_declares(
+        monkeypatch,
+        {"cache": {"ports": [{"published": str(silent)}]}},
+        running=("cache",),
+    )
+
+    environment = describe_environment(CACHED)
+
+    assert environment.up is True
+    assert environment.services[0].running is True
+    # And the other claim is untouched: nothing answered, so it is still not reachable.
+    assert environment.services[0].reachable is False
+    assert environment.incomplete is not None
+
+
+def test_a_container_that_is_not_up_is_not_up(monkeypatch: pytest.MonkeyPatch) -> None:
+    compose_declares(monkeypatch, {"cache": {"ports": [{"published": str(free_port())}]}})
+
+    environment = describe_environment(CACHED)
+
+    assert environment.up is False
+    assert environment.services[0].running is False
+
+
+def test_docker_answering_in_a_list_is_read_the_same_way(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """One object per line in current versions, a list in older ones. Both are docker's own
+    answer about its own state -- neither is somebody's file that we are parsing."""
+
+    def answer(project: Path, *arguments: str, timeout: int = 20) -> tuple[int, str, str]:
+        if "config" in arguments:
+            return 0, json.dumps({"services": {"cache": {}}}), ""
+        if "ps" in arguments:
+            return 0, json.dumps([{"Service": "cache", "State": "running"}]), ""
+        return 0, "", ""
+
+    monkeypatch.setattr("aibuilder_core.environment._docker", answer)
+
+    assert describe_environment(CACHED).up is True
+
+
+def free_port() -> int:
+    """A port nothing is on, asked of the OS. Bound and released, so it is free by the time
+    anything looks -- which is what "nothing answers here" needs to mean."""
+    with socket.socket() as probe:
+        probe.bind(("127.0.0.1", 0))
+        return int(probe.getsockname()[1])
 
 
 def listening_port() -> Any:
@@ -403,3 +478,104 @@ def test_the_loop_closes_on_a_project_with_a_database(tmp_path: Path) -> None:
     finally:
         stopped = services_stop(root)
         assert stopped["ok"] is True, stopped["detail"]
+
+
+# -- calling a service on the port it publishes (Q24) -----------------------------
+
+
+def test_calling_a_service_the_project_never_declared_is_refused(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A refusal is a result, and it names what there is instead of failing silently."""
+    from aibuilder_core.runner import call_service
+
+    compose_declares(monkeypatch, {"cache": {}})
+
+    refused = call_service(CACHED, "api")
+
+    assert refused.ok is False
+    assert "declares no service 'api'" in refused.detail
+    assert "cache" in refused.detail
+
+
+def test_a_service_that_publishes_nothing_cannot_be_called(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Not a failure of the call: nothing on this side of the compose network can reach it,
+    so there is no address to fail to reach."""
+    from aibuilder_core.runner import call_service
+
+    compose_declares(monkeypatch, {"worker": {}})
+
+    refused = call_service(CACHED, "worker")
+
+    assert refused.ok is False
+    assert "publishes no port" in refused.detail
+
+
+def test_a_port_the_service_does_not_publish_is_refused(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The port is docker's answer, not a number this side may pick. Guessing 8000 because
+    it is usually 8000 would be inventing the address of somebody else's program."""
+    from aibuilder_core.runner import call_service
+
+    compose_declares(monkeypatch, {"api": {"ports": [{"published": "8080"}]}})
+
+    refused = call_service(CACHED, "api", port=9999)
+
+    assert refused.ok is False
+    assert "does not publish 9999" in refused.detail
+
+
+def test_a_service_that_is_not_up_says_so_in_the_reason(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Two facts in one sentence, because the second explains the first: nothing answered,
+    and its container is not running."""
+    from aibuilder_core.runner import call_service
+
+    compose_declares(monkeypatch, {"api": {"ports": [{"published": str(free_port())}]}})
+
+    refused = call_service(CACHED, "api")
+
+    assert refused.ok is False
+    assert "its container is not running" in refused.detail
+
+
+def test_calling_something_that_does_not_speak_http_is_an_answer_about_it(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """redis, postgres and a queue all accept the connection and then say something that is
+    not a response. That is an answer about the service -- it is up, and this is not how you
+    talk to it -- and saying so is more use than a stack trace about a disconnected remote."""
+    import threading
+
+    from aibuilder_core.runner import call_service
+
+    server = listening_port()
+
+    def accept_and_hang_up() -> None:
+        # What redis does to an HTTP request, near enough: the connection is accepted and
+        # then it is not an HTTP conversation. A socket that merely listens would time out
+        # instead, which is the other branch and a different sentence.
+        with contextlib.suppress(OSError):
+            connection, _ = server.accept()
+            connection.close()
+
+    listener = threading.Thread(target=accept_and_hang_up, daemon=True)
+    listener.start()
+    try:
+        port = server.getsockname()[1]
+        compose_declares(
+            monkeypatch,
+            {"cache": {"ports": [{"published": str(port)}]}},
+            running=("cache",),
+        )
+
+        answer = call_service(CACHED, "cache")
+    finally:
+        server.close()
+
+    assert answer.ok is False
+    assert "did not answer in HTTP" in answer.detail
