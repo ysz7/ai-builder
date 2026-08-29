@@ -1,0 +1,24 @@
+{
+  "items": [
+    {
+      "id": "fastapi-service",
+      "title": "FastAPI service",
+      "description": "A service, its routers, its routes and its settings, with tests."
+    },
+    {
+      "id": "langgraph-agent",
+      "title": "LangGraph agent",
+      "description": "An agent as a group over its state, steps and routers, with tests."
+    },
+    {
+      "id": "rag-pipeline",
+      "title": "RAG pipeline",
+      "description": "Four stages with their knobs on the stages themselves, with tests."
+    },
+    {
+      "id": "mcp-agent",
+      "title": "MCP agent and server",
+      "description": "All three MCP roles at once: a server exposed, consumed, and bound."
+    }
+  ]
+}

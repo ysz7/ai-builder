@@ -37,7 +37,11 @@ from pathlib import Path
 __all__ = [
     "BLUEPRINT_FILE",
     "CATALOG_ENV",
+    "CODE_DIR",
     "Blueprint",
+    "all_blueprints",
+    "blueprint_files",
+    "bundled_catalog",
     "carries_markup",
     "find_catalog",
     "list_blueprints",
@@ -46,6 +50,11 @@ __all__ = [
 
 #: The one file a blueprint is read from. `architecture.mmd` beside it is deliberately not.
 BLUEPRINT_FILE = "blueprint.md"
+
+#: The subtree an entry's code lives in, when it carries any (P20). Everything under it is
+#: copied into the project keeping its relative path, and **nothing outside it is** -- which
+#: is what stops `blueprint.md` and the diagram beside it from landing in somebody's source.
+CODE_DIR = "files"
 
 #: How the location is given when it is not passed in directly -- the frozen sidecar has no
 #: repository around it, and there is nothing else for it to fall back on.
@@ -80,6 +89,20 @@ class Blueprint:
     #: Whether the text mentions the markup layer. Reported so the catalog can be cleaned;
     #: never a reason to take annotation rules from the blueprint (§3).
     carries_markup: bool = False
+    #: Where this entry came from: "bundled" or "named" (Q28.1). **Two sources and no
+    #: third.** Bundled is the catalog shipped inside the application -- the same artifact
+    #: the person already decided to install, so the trust decision was made once, at
+    #: install. Named is a local path they passed in or pointed `CATALOG_ENV` at, reached by
+    #: a `git clone` they ran themselves, outside this application. There is no remote
+    #: registry, no install-from-URL and no self-updating catalog.
+    #:
+    #: It decides one thing and one thing only: whether inserting shows a dialog first
+    #: (Q28.2). It is **never written into the project** -- see `blueprints.py` on why an
+    #: origin marker would be a manifest (Q28.6).
+    origin: str = "named"
+    #: How many files this entry would write, or 0 for one that is specification text only.
+    #: A count rather than the files: listing a catalog must not read every entry's subtree.
+    carries_code: int = 0
 
 
 def find_catalog(explicit: Path | str | None = None) -> Path | None:
@@ -99,6 +122,21 @@ def find_catalog(explicit: Path | str | None = None) -> Path | None:
     return _catalog_or_none(Path(from_env)) if from_env else None
 
 
+def bundled_catalog() -> Path | None:
+    """The catalog shipped inside the application, or `None` if this build has none.
+
+    Package data, found by `__file__` and by nothing else -- the same rule the system prompt
+    follows, and for the same reason: the core reads it at runtime and the frozen sidecar has
+    no repository around it to look in.
+
+    This is **not** discovery. Q28 forbids opening a directory because it happens to sit next
+    to something; locating our own package's data is not that, and the trust question a
+    stranger's catalog raises does not arise here at all -- it is the artifact they installed.
+    """
+    root = Path(__file__).resolve().parent / "blueprints"
+    return root if _is_catalog(root) else None
+
+
 def _catalog_or_none(path: Path) -> Path | None:
     return path.resolve() if _is_catalog(path) else None
 
@@ -108,13 +146,34 @@ def _is_catalog(path: Path) -> bool:
 
 
 def list_blueprints(catalog: Path | str | None = None) -> list[Blueprint]:
-    """Every blueprint the catalog offers, without its text.
+    """Every blueprint the **named** catalog offers, without its text.
 
     Titles and summaries come from `catalogue.json` when the catalog publishes one, and
     from the document itself when it does not -- the index is a convenience, and a catalog
     without one is still readable.
+
+    Deliberately still only the named catalog: this is what `find_catalog` answered before
+    P20 and what "input B is unavailable here" means. `all_blueprints` is the one that also
+    offers what the application shipped with.
     """
     root = find_catalog(catalog)
+    return [] if root is None else _entries(root, origin="named")
+
+
+def all_blueprints(catalog: Path | str | None = None) -> list[Blueprint]:
+    """What may be inserted: the bundled catalog first, then the named one (Q28.1).
+
+    Two sources and no third. Bundled first because an id collision should resolve to the
+    entry the application shipped -- the one whose trust decision was made at install --
+    rather than to whatever a pointer happened to name.
+    """
+    found = _entries(bundled_catalog(), origin="bundled")
+    seen = {blueprint.id for blueprint in found}
+    return found + [entry for entry in list_blueprints(catalog) if entry.id not in seen]
+
+
+def _entries(root: Path | None, *, origin: str) -> list[Blueprint]:
+    """The entries under one catalog root. Keyword-only origin: it is never inferred."""
     if root is None:
         return []
 
@@ -136,9 +195,24 @@ def list_blueprints(catalog: Path | str | None = None) -> list[Blueprint]:
                     summary=meta.get("description") or "",
                     path=str(document),
                     section=section,
+                    origin=origin,
+                    carries_code=len(blueprint_files(entry)),
                 )
             )
     return found
+
+
+def blueprint_files(entry: Path) -> list[Path]:
+    """The files an entry carries, as paths under its own `files/` subtree.
+
+    Sorted, so a plan and a dialog and an insert all present them in one order. A directory
+    with no `files/` carries nothing and is specification text, which is what every entry was
+    before P20 -- the two kinds live side by side and neither is the deprecated one.
+    """
+    root = entry / CODE_DIR
+    if not root.is_dir():
+        return []
+    return sorted(path for path in root.rglob("*") if path.is_file())
 
 
 def load_blueprint(blueprint_id: str, catalog: Path | str | None = None) -> Blueprint | None:
@@ -147,7 +221,7 @@ def load_blueprint(blueprint_id: str, catalog: Path | str | None = None) -> Blue
     Only `BLUEPRINT_FILE` is read. Whatever else the directory holds -- the diagram above
     all -- stays where it is.
     """
-    for blueprint in list_blueprints(catalog):
+    for blueprint in all_blueprints(catalog):
         if blueprint.id != blueprint_id:
             continue
         text = Path(blueprint.path).read_text(encoding="utf-8")
@@ -159,6 +233,8 @@ def load_blueprint(blueprint_id: str, catalog: Path | str | None = None) -> Blue
             section=blueprint.section,
             text=text,
             carries_markup=carries_markup(text),
+            origin=blueprint.origin,
+            carries_code=blueprint.carries_code,
         )
     return None
 

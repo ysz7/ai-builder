@@ -16,7 +16,8 @@ from pathlib import Path
 from typing import Any
 
 from framestack_core.agent import build_brief, failure_modes, record_outcome
-from framestack_core.catalog import find_catalog, list_blueprints
+from framestack_core.blueprint import insert_blueprint, plan_blueprint
+from framestack_core.catalog import all_blueprints, find_catalog
 from framestack_core.converse import (
     poll_talk,
     say_to,
@@ -89,6 +90,8 @@ from framestack_core.writer import set_body, set_knob, set_node_title
 
 __all__ = [
     "AGENT_BLUEPRINTS_SCHEMA",
+    "BLUEPRINT_INSERT_SCHEMA",
+    "BLUEPRINT_PLAN_SCHEMA",
     "AGENT_BRIEF_SCHEMA",
     "AGENT_CHOICES_SCHEMA",
     "AGENT_SESSION_SCHEMA",
@@ -116,6 +119,8 @@ __all__ = [
     "REPAIR_LIST_SCHEMA",
     "WRITE_SCHEMA",
     "agent_blueprints",
+    "blueprint_insert",
+    "blueprint_plan",
     "environment_status",
     "run_build",
     "run_call",
@@ -587,6 +592,13 @@ _BLUEPRINT_ENTRY = {
     "summary": "str",
     "path": "str",
     "section": "str",
+    # "bundled" or "named" (Q28.1). It decides one thing: whether a client shows the diff and
+    # waits before inserting. A bundled entry's trust decision was made at install, and
+    # asking again is ceremony that trains people to click through.
+    "origin": "str",
+    # How many files inserting it would write, or 0 for an entry that is specification text
+    # only. A count, because listing a catalog must not read every entry's subtree.
+    "carries_code": "int",
 }
 
 #: The `agent.blueprints` payload. `catalog` is null when there is no catalog to read --
@@ -595,6 +607,37 @@ AGENT_BLUEPRINTS_SCHEMA = {
     "api_version": "int",
     "catalog": "str?",
     "blueprints": [_BLUEPRINT_ENTRY],
+}
+
+#: The `blueprint.plan` payload: everything inserting an entry would do, and nothing done.
+BLUEPRINT_PLAN_SCHEMA = {
+    "api_version": "int",
+    "blueprint": "str",
+    "title": "str",
+    "origin": "str",
+    "refused": "str?",
+    # Every file, with its **full contents**: a person deciding whether to accept a
+    # stranger's code is owed the code, not a list of filenames (Q28.2).
+    "files": [{"path": "str", "contents": "str", "collides": "bool"}],
+    # What is already in the way. A collision is a refusal with an address, never a merge.
+    "collisions": ["str"],
+    # Third-party modules the entry imports, and the subset of those this interpreter cannot
+    # find. **Facts, not a verdict**: there is no allowlist and no scanner here, because
+    # either would be bypassed trivially and would read as a guarantee (Q28.4).
+    "imports": ["str"],
+    "requires": ["str"],
+    # The identity of exactly this plan, over the entry and every byte it would write.
+    # `blueprint.insert` is handed it back and refuses if the entry has changed since.
+    "identity": "str",
+}
+
+#: The `blueprint.insert` payload. An insert that broke the gate is undone and says so.
+BLUEPRINT_INSERT_SCHEMA = {
+    "api_version": "int",
+    "inserted": "bool",
+    "files": ["str"],
+    "refused": "str?",
+    "diagnostics": [_DIAGNOSTIC],
 }
 
 #: The `agent.brief` payload: one request to the code-generation agent, whichever input
@@ -1109,12 +1152,66 @@ def repair_divergence(
     return {"api_version": GRAPH_API_VERSION, **result.as_dict()}
 
 
+def blueprint_plan(
+    project: Path | str, blueprint_id: str, catalog: Path | str | None = None
+) -> dict[str, Any]:
+    """What inserting this entry would do. A read: it writes nothing and runs nothing."""
+    plan = plan_blueprint(project, blueprint_id, catalog)
+    return {
+        "api_version": GRAPH_API_VERSION,
+        "blueprint": plan.blueprint,
+        "title": plan.title,
+        "origin": plan.origin,
+        "refused": plan.refused,
+        "files": [
+            {"path": one.path, "contents": one.contents, "collides": one.collides}
+            for one in plan.files
+        ],
+        "collisions": list(plan.collisions),
+        "imports": list(plan.imports),
+        "requires": list(plan.requires),
+        "identity": plan.identity,
+    }
+
+
+def blueprint_insert(
+    project: Path | str,
+    blueprint_id: str,
+    plan: str,
+    catalog: Path | str | None = None,
+) -> dict[str, Any]:
+    """Write the entry's files, or refuse and write nothing.
+
+    `plan` has no default here either. It is the identity `blueprint.plan` returned, and it
+    is checked rather than trusted: an entry that changed between the plan and the press no
+    longer matches, and the insert is refused rather than quietly writing the new thing.
+    """
+    result = insert_blueprint(project, blueprint_id, plan=plan, catalog=catalog)
+    return {
+        "api_version": GRAPH_API_VERSION,
+        "inserted": result.inserted,
+        "files": list(result.files),
+        "refused": result.refused,
+        "diagnostics": [asdict(diagnostic) for diagnostic in result.diagnostics],
+    }
+
+
 def agent_blueprints(catalog: Path | str | None = None) -> dict[str, Any]:
-    """What input B can be given: the catalog's entries, without their texts."""
+    """What may be asked for: the bundled catalog's entries, then the named one's (Q28.1).
+
+    `catalog` is the **named** one, and it is still never discovered -- it is passed in or it
+    comes from `CATALOG_ENV`, and with neither there simply is none. What changed in P20 is
+    that there is now a second source that raises no such question at all: the catalog
+    shipped inside the application, which is the same artifact the person installed.
+
+    So `catalog` in the answer keeps meaning what it meant -- **the named one, or null** --
+    and the entries are both sources with each one saying where it came from. A client
+    deciding whether to ask before inserting reads `origin`, never this field.
+    """
     root = find_catalog(catalog)
     # Resolved first, and listed only from what was resolved: `None` means "look for one"
     # further down, so passing it through would answer with a catalog nobody asked for.
-    entries = list_blueprints(root) if root is not None else []
+    entries = all_blueprints(root) if root is not None else all_blueprints()
     return {
         "api_version": GRAPH_API_VERSION,
         "catalog": None if root is None else str(root),
@@ -1125,6 +1222,8 @@ def agent_blueprints(catalog: Path | str | None = None) -> dict[str, Any]:
                 "summary": blueprint.summary,
                 "path": blueprint.path,
                 "section": blueprint.section,
+                "origin": blueprint.origin,
+                "carries_code": blueprint.carries_code,
             }
             for blueprint in entries
         ],

@@ -10,7 +10,7 @@ AST-addressable markup layer (`bp`); a parser projects that into a graph; edits 
 written back through the syntax tree with `libcst`. Assembled applications deploy as plain Python
 projects with no runtime dependency on the builder.
 
-Current state: **P0–P19 done.** Window opens, React Flow renders a
+Current state: **P0–P20 done.** Window opens, React Flow renders a
 scaffold canvas, Rust reaches the Python core over NDJSON, the five `bp` primitives exist and are proven inert, and
 `strip` removes the markup with the example service answering identically before and after. The parser
 turns an annotated project into a graph IR, the static gate judges it into addressed diagnostics, and
@@ -97,6 +97,23 @@ version of that panel had its families hard-coded and silently omitted `db` and 
 that appeared nowhere -- which is what `test_every_kind_belongs_to_a_family_the_registry_reports`
 exists to prevent. A blueprint catalog joins the same panel when one is **named** (`FRAMESTACK_BLUEPRINTS`
 or a caller), and never when one merely happens to be on the disk.
+
+**An insert produces code and nothing else** (P20, Q28). A catalog entry may carry real annotated
+working code under `files/`; `blueprint.plan` says what it would write and `blueprint.insert` writes
+it, taking **the plan's identity as a required keyword with no default** — `apply_repair`'s shape, so
+there is no call that writes a stranger's Python without having been handed the description of it, and
+it is checked rather than trusted. Downstream nothing can tell an inserted node from a written one,
+because there is nothing to tell: the gate, the checks, the snapshot and the writer only ever see
+files. **The inserted node is not green** — it proves itself by a run, or I-5 has a back door.
+A collision is a **refusal with an address, never a merge**; containment denies `.framestack/` exactly
+as the agent is denied it; and **arriving is not running** — no import, no install, **no post-insert
+hook, ever**. Two sources and no third: the catalog bundled in the package
+(`framestack_core/blueprints/`, which is data — the module beside it is `blueprint.py`), and a path
+somebody named. **Nothing about an entry's origin is written down**, so upstream drift cannot exist;
+the git diff is the record. A bundled entry is **authored, not copied** from `examples/` (Q30) — an
+example is a whole project and collides on its first path — and what holds the two in step is that
+every bundled entry is planned and inserted into an empty project in the test suite, with the gate
+having to accept the result.
 
 **The person owns the layout; the code owns the graph** (Q13). Node positions live in
 `.framestack/layout.json` — and, since P18, whether a card shows all of its knobs or the first few,
@@ -340,15 +357,20 @@ and the services it declares; `artifacts.py` finds the
 nodes carried by a file and `project.py` composes them with the parser's; `runner.py` checks them, runs
 the application and holds the verbs that act on it — including the two that reach a consumed MCP
 server, the one that hands a pipeline its documents, and the ones that list and run the project's own
-commands; `agent.py` assembles the agent's brief and records its failure modes and `catalog.py`
-reads the blueprint catalog; `strip.py` removes the markup.
+commands; `agent.py` assembles the agent's brief and records its failure modes, `catalog.py`
+reads the two blueprint catalogs and `blueprint.py` plans and inserts an entry that carries code;
+`strip.py` removes the markup.
 
 `apply_repair` takes `resolution` as a required keyword with no default. That is not style: §9 case 2
 has two non-equivalent answers and the toolchain is not entitled to either, so there must be no call
 that resolves a generated-zone divergence while leaving the decision implicit. Never add a default,
 an "auto" mode, or a convenience wrapper that picks one.
 
-There are three write verbs and no more: `set_knob`, `set_node_title`, `set_body`. The third (Q15) is
+There are three write verbs and no more: `set_knob`, `set_node_title`, `set_body`. **An insert is not
+a fourth** (P20): those three edit code that is already there, through a syntax node, and an insert
+writes whole files that were not there at all — which is why it cannot go through `libcst`, refuses a
+collision instead of merging, and is judged afterwards by the gate rather than validated against a
+knob's declaration. The third (Q15) is
 what makes the node's code panel an editor rather than a viewer, and it loosens nothing — a generated
 zone is refused, a locked signature is refused against `parser.signature_of` (module level so the lock
 and the parser cannot drift), decorators are refused outright because a body edit that could move one
@@ -465,12 +487,12 @@ agent's system prompt used to and was moved into the package for exactly that re
 
 - [architecture.md](docs/architecture.md) — the v0 spec. Sections 2 (invariants) and 7 (the parser as
   a gate) carry everything load-bearing.
-- [roadmap.md](docs/roadmap.md) — **P20–P22 only**, plus a roll-call of what is done. P0–P19 are
+- [roadmap.md](docs/roadmap.md) — **P21–P22 only**, plus a roll-call of what is done. P0–P20 are
   finished and their detailed record was cleared from the file deliberately, so what is left is the
   work in front of us; the reasoning behind the decisions those phases settled is in
   open-questions.md, which is where it belonged anyway. It opens with the direction the remaining
-  phases serve (Q25), and P20 — a blueprint that carries code, and inserting it — is the one in
-  front of us.
+  phases serve (Q25), and P21 — connecting two nodes as a write into the generated zone — is the
+  one in front of us.
 - [design.md](docs/design.md) — the plan for the UI: what the design has to answer, which method sits
   behind each surface, and what it may not invent. Written before the design, so the design can be
   judged against it. **Its layout sections (§3, §5, §6, §8) were superseded by P18** and describe a

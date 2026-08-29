@@ -375,13 +375,63 @@ export type GraphKinds = {
   kinds: NodeKindInfo[];
 };
 
-/** One entry of a blueprint catalog. Absent entirely when no catalog is configured. */
+/** One entry of a blueprint catalog. */
 export type BlueprintEntry = {
   id: string;
   title: string;
   summary: string;
   path: string;
   section: string;
+  /**
+   * "bundled" or "named" (Q28.1) — two sources and no third.
+   *
+   * It decides one thing: whether inserting shows the diff and waits. A bundled entry ships
+   * inside the application, so its trust decision was made once, at install, and asking
+   * again is ceremony that trains people to click through. A named one is a stranger's code
+   * from a path this person passed in, and it shows everything first.
+   */
+  origin: string;
+  /** How many files inserting it would write, or 0 for specification text only. */
+  carries_code: number;
+};
+
+/** One file an insert would write, with its full contents — a diff, not a filename list. */
+export type PlannedFile = {
+  path: string;
+  contents: string;
+  /** Something is already here. A collision refuses the whole insert; it never merges. */
+  collides: boolean;
+};
+
+/**
+ * What inserting an entry would do, and nothing done (P20).
+ *
+ * `identity` is a digest over the entry and every byte it would write, and `blueprint.insert`
+ * is handed it back: an entry edited between the plan and the press no longer matches, so
+ * nothing can be written that was not the thing described.
+ */
+export type BlueprintPlan = {
+  api_version: number;
+  blueprint: string;
+  title: string;
+  origin: string;
+  refused: string | null;
+  files: PlannedFile[];
+  collisions: string[];
+  /** Third-party modules it imports, and the ones this interpreter cannot find. Facts, not
+   *  a verdict: there is no allowlist and no scanner here, on purpose (Q28.4). */
+  imports: string[];
+  requires: string[];
+  identity: string;
+};
+
+/** What an insert did. One that broke the gate is undone and says so. */
+export type BlueprintInsert = {
+  api_version: number;
+  inserted: boolean;
+  files: string[];
+  refused: string | null;
+  diagnostics: Diagnostic[];
 };
 
 /**

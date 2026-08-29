@@ -471,7 +471,19 @@ export default function App() {
 
   const flyout = (() => {
     if (!rail) return null;
-    if (rail === "library") return { title: "Library", body: <Library /> };
+    if (rail === "library")
+      return {
+        title: "Library",
+        body: (
+          <Library
+            project={project}
+            // An insert wrote files into the project, so the picture is a claim about code
+            // that has changed. Re-read, and never observe: the new node is unproven until
+            // somebody runs something, which is the whole of I-5 through this gesture.
+            onInserted={() => void open(project, observed)}
+          />
+        ),
+      };
     if (!graph) return null;
     if (rail === "outline")
       return {

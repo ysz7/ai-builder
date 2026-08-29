@@ -62,6 +62,8 @@ export function ping(echo?: string): Promise<PingResult> {
 // -- the graph ---------------------------------------------------------------
 
 import type {
+  BlueprintInsert,
+  BlueprintPlan,
   Blueprints,
   BodyWrite,
   CallResult,
@@ -388,6 +390,40 @@ export function workStop(project: string): Promise<RunResult> {
  */
 export function agentBlueprints(): Promise<Blueprints> {
   return coreRequest<Blueprints>("agent.blueprints", {});
+}
+
+/**
+ * What inserting an entry would do. A read: it writes nothing and runs nothing.
+ *
+ * Always called before an insert, whichever origin the entry has -- what differs between a
+ * bundled entry and a third-party one is whether a person is shown the answer, not whether
+ * it is asked for.
+ */
+export function blueprintPlan(
+  project: string,
+  blueprint: string,
+): Promise<BlueprintPlan> {
+  return coreRequest<BlueprintPlan>("blueprint.plan", { project, blueprint });
+}
+
+/**
+ * Write the entry's files into the project.
+ *
+ * `plan` is the identity the plan returned and it has no default anywhere in this stack --
+ * there must be no way to insert a stranger's code without having been handed the
+ * description of what was going to be inserted (Q28.2). Copying executes nothing: no
+ * import, no install, no post-insert hook.
+ */
+export function blueprintInsert(
+  project: string,
+  blueprint: string,
+  plan: string,
+): Promise<BlueprintInsert> {
+  return coreRequest<BlueprintInsert>("blueprint.insert", {
+    project,
+    blueprint,
+    plan,
+  });
 }
 
 export function graphKinds(): Promise<GraphKinds> {

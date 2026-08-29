@@ -210,10 +210,18 @@ def test_a_pointer_that_is_not_a_catalog_answers_nothing(tmp_path: Path) -> None
     assert load_blueprint("cursor-pagination", tmp_path / "empty") is None
 
 
-def test_no_catalog_is_an_answer_not_an_error(tmp_path: Path) -> None:
+def test_no_named_catalog_is_an_answer_not_an_error(tmp_path: Path) -> None:
+    """A pointer that holds no catalog answers `None`, and never a different catalog.
+
+    What P20 changed is that the application now **ships** one (Q28.1), so the entries are
+    not empty any more -- but `catalog` still means the *named* one, which is the field a
+    caller asks "is input B configured here?" with. The bundled entries say where they came
+    from, and a client deciding whether to ask before inserting reads that, never this.
+    """
     payload = agent_blueprints(str(tmp_path / "empty"))
 
-    assert payload["catalog"] is None and payload["blueprints"] == []
+    assert payload["catalog"] is None
+    assert {entry["origin"] for entry in payload["blueprints"]} == {"bundled"}
 
 
 # -- the failure log -------------------------------------------------------------------

@@ -577,6 +577,29 @@ textarea {
   font-family: var(--mono);
   font-size: 10.5px;
 }
+/* One file of a plan, in the dialog a third-party entry shows before anything is written.
+   The whole contents, because a filename is not a diff. */
+.bp-diff {
+  margin-top: 12px;
+}
+.bp-diff-path {
+  font-family: var(--mono);
+  font-size: 11.5px;
+  color: var(--muted);
+  margin-bottom: 4px;
+}
+.bp-diff .bp-src {
+  max-height: 260px;
+  overflow: auto;
+}
+/* The insert button on a library row: a control beside a row, not above it. */
+.bp-btn-slim {
+  flex: 0 0 auto;
+  height: 28px;
+  padding: 0 11px;
+  font-size: 12.5px;
+}
+
 .bp-lib-note {
   margin-top: 8px;
   font-size: 12px;

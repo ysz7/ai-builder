@@ -34,6 +34,8 @@ from framestack_core.api import (
     agent_shut,
     agent_sign_in,
     agent_sign_out,
+    blueprint_insert,
+    blueprint_plan,
     command_list,
     command_logs,
     command_start,
@@ -271,6 +273,30 @@ def _optional_str(params: dict[str, Any], name: str) -> str | None:
 def agent_blueprints_method(params: dict[str, Any]) -> dict[str, Any]:
     """What input B can be given. An absent catalog is an answer, not an error."""
     return agent_blueprints(_optional_str(params, "catalog"))
+
+
+def blueprint_plan_method(params: dict[str, Any]) -> dict[str, Any]:
+    """What inserting this entry would do. Writes nothing, runs nothing, executes nothing."""
+    return blueprint_plan(
+        _project_of(params),
+        _required_str(params, "blueprint"),
+        _optional_str(params, "catalog"),
+    )
+
+
+def blueprint_insert_method(params: dict[str, Any]) -> dict[str, Any]:
+    """Write the entry's files into the project (P20).
+
+    `plan` is required and has no fallback -- a caller that has not read a plan cannot
+    insert, which is the whole of what "an insert is a diff a person accepts" buys (Q28.2).
+    Copying files executes nothing: no import, no install, **no post-insert hook, ever**.
+    """
+    return blueprint_insert(
+        _project_of(params),
+        _required_str(params, "blueprint"),
+        _required_str(params, "plan"),
+        _optional_str(params, "catalog"),
+    )
 
 
 def agent_brief_method(params: dict[str, Any]) -> dict[str, Any]:
@@ -732,6 +758,8 @@ HANDLERS: dict[str, Handler] = {
     "repair.apply": repair_apply,
     "agent.brief": agent_brief_method,
     "agent.blueprints": agent_blueprints_method,
+    "blueprint.plan": blueprint_plan_method,
+    "blueprint.insert": blueprint_insert_method,
     "agent.record": agent_record_method,
     "agent.failures": agent_failures_method,
     "env.status": env_status,

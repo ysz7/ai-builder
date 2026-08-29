@@ -26,6 +26,16 @@ a = Analysis(
         # has to exist on disk -- a module frozen into the archive cannot be run by anyone
         # but this binary.
         (str(ROOT / "src" / "framestack_core" / "probe.py"), "framestack_core"),
+        # The bundled blueprint catalog (P20). It is package data for the reason the system
+        # prompt is: the core reads it at runtime and a frozen sidecar has no repository
+        # around it to look in. It is also the whole of Q28's first source -- the catalog
+        # shipped *with the application*, whose trust decision was made at install -- so a
+        # build that dropped it would leave only the named one, which most people have not
+        # got.
+        (
+            str(ROOT / "src" / "framestack_core" / "blueprints"),
+            "framestack_core/blueprints",
+        ),
     ],
     # libcst pulls its grammar and native parser in dynamically; without this the
     # frozen binary imports cleanly and then fails at first parse.

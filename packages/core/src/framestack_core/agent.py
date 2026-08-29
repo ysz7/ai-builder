@@ -180,6 +180,8 @@ class Brief:
                     "section": self.blueprint.section,
                     "text": self.blueprint.text,
                     "carries_markup": self.blueprint.carries_markup,
+                    "origin": self.blueprint.origin,
+                    "carries_code": self.blueprint.carries_code,
                 }
             ),
         }
