@@ -357,7 +357,7 @@ Write FastAPI exactly as the official docs would, then mark it up. Concretely:
 Do not add a framework, a runtime dependency, or anything that would make the app need
 `bp` to run. `bp` is markup only.
 
-## Infrastructure files
+## Infrastructure files (`docker.*`)
 
 A real project also has a `Dockerfile`, a compose file, migrations and configuration.
 Write them the way you always would — **as ordinary files, carrying no markup at all.**
@@ -454,6 +454,54 @@ Write LangGraph exactly as its docs would, then mark it up. Concretely:
   where the check reads it from.
 - **Write the tests.** A tool is proven by a run that entered it, never by being
   registered — registration says only that something *could* call it.
+
+## Background work generation rules (`queue.*`)
+
+- **The queue is a group of its own.** One `__node__.py` in the worker package declares
+  `kind="queue.workers"` with its direct children as members by reference: the queue object,
+  every task, and the schedule. It is **never a member of the service's group** — a task
+  outlives the request that queued it and runs in a process the service never starts.
+- **The queue object is the carrier of `queue.app`** — the Python that owns the connection
+  to the broker, never the container behind it, which is the docker node beside it. Its
+  knobs must reach the library's own configuration (`worker_concurrency`,
+  `task_time_limit`), because that is what the builder asks when it runs a worker: a knob
+  the library never sees is decoration, and the button drifts away from it.
+- **A task is a plain function, `@editable` with the signature locked**, and putting it on
+  the queue is a `@generated()` zone — `app.task(name="work.report")(build_report)`. The
+  same split routes follow, and for the same reason: a carrier wrapped in a task decorator
+  is no longer the function the graph named, and a run through it cannot be seen. Queue by
+  the registered name at the call site, never by the function object.
+- **The schedule is a `@generated()` function returning the timed entries**, and every
+  entry names a task **by the name it was registered under** — that string is what the
+  check asks the library about. An interval that a knob controls is read from the knob, so
+  that changing the knob changes the schedule.
+- **Write the tests.** *The task works* and *the queue delivers* are not the same claim: a
+  task is proven by a run that entered it — the project's own tests, in eager mode — and
+  delivery is proven by the broker answering and a worker replying. Neither one stands in
+  for the other, so a project with no test for a task has a task that is honestly unproven
+  however healthy its broker is.
+
+## Database and vector generation rules (`db.*`, `vector.*`)
+
+- **The node is the Python that talks to the service**, never the container it talks to.
+  The module that owns the connection carries `@node(kind="db.session")`; the container is
+  a docker node carried by the compose file, and the two are different nodes about
+  different things.
+- **A `db.session` carrier exposes `connect()` taking no arguments**, because that is
+  exactly what the check calls. Without it the node cannot be proven at all — no argument
+  the toolchain invented would be honest evidence of anything.
+- **They are members of whatever consults them.** A session used by the API is listed in
+  the service's group, the same way a consumed MCP server is: reaching a database is
+  something this project's code does.
+- **The knobs are the connection's own dials** — pool size, connect timeout, statement
+  timeout on the session; vector size and the number of neighbours returned on the store —
+  and each is read where it takes effect, not stored and ignored.
+- **Methods that take real input are `@editable`, signature locked**; anything that merely
+  assembles or bootstraps (a schema migration, a pool built from the knobs) is
+  `@generated()`.
+- **Write the tests.** `vector.store` has no check beyond "it loads", deliberately: adding
+  and searching both need real documents and a made-up one proves nothing. The project's
+  own tests are the only evidence that node will ever have.
 
 ## Before you write (the pre-flight the builder expects)
 

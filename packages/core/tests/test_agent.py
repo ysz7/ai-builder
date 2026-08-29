@@ -32,7 +32,7 @@ from framestack_core.agent import (
 )
 from framestack_core.api import agent_blueprints, agent_brief, read_graph
 from framestack_core.catalog import find_catalog, list_blueprints, load_blueprint
-from framestack_core.kinds import REGISTRY
+from framestack_core.kinds import REGISTRY, families
 
 EXAMPLE = Path(__file__).resolve().parents[3] / "examples" / "fastapi-service"
 MIS_ANNOTATED = Path(__file__).parent / "fixtures" / "mis-annotated"
@@ -131,6 +131,67 @@ def test_the_prompt_is_found_where_it_is_written() -> None:
     assert prompt_path().name == "system-prompt-claude-code.md"
     assert prompt_path().parent.name == "prompts"
     assert "The markup layer is inert at runtime" in system_prompt()
+
+
+def _sections(text: str) -> dict[str, str]:
+    """The prompt split at its `##` headings: heading line -> everything under it."""
+    sections: dict[str, str] = {}
+    heading = "# System prompt"
+    for line in text.splitlines(keepends=True):
+        if line.startswith("## "):
+            heading = line.strip()
+            sections[heading] = ""
+        else:
+            sections[heading] = sections.get(heading, "") + line
+    return sections
+
+
+def _stack_specific(text: str) -> tuple[dict[str, str], dict[str, str]]:
+    """The sections written for one technology family, and everything else.
+
+    A section belongs to a family because its **heading names it** -- which is why the
+    headings that do not read as a family name carry the prefix in backticks. Deriving it
+    keeps the two in step: a family whose rules are never written stays invisible here
+    rather than being listed by hand and quietly wrong.
+    """
+    stack, universal = {}, {}
+    for heading, body in _sections(text).items():
+        lowered = heading.lower()
+        target = stack if any(f in lowered for f in families()) else universal
+        target[heading] = body
+    return stack, universal
+
+
+def test_every_family_the_registry_reports_has_generation_rules() -> None:
+    """The asymmetry P22 named: a kind told about with no rules for writing it.
+
+    An agent handed a `kind` table row and nothing else knows the value exists and not
+    what shape the code around it has to take -- which is how `queue.*`, `db.session` and
+    `vector.store` came to be listed with four families' worth of rules beside them and
+    none of their own.
+    """
+    stack, _ = _stack_specific(system_prompt())
+    named = " ".join(stack).lower()
+
+    for family in families():
+        assert family in named, f"no section of the prompt is about `{family}.*`"
+
+
+def test_the_prompt_has_not_reached_the_size_that_triggers_composition() -> None:
+    """P22's trigger, measured rather than remembered.
+
+    Composing the prompt per project costs the cached prefix on every variation, so it is
+    worth doing only once the document is big enough for that to pay. The threshold is a
+    number: roughly 60KB, or the stack-specific half outweighing the universal core. When
+    this fails, the answer is not to raise the number -- it is to do P22.
+    """
+    text = system_prompt()
+    stack, universal = _stack_specific(text)
+    stack_bytes = sum(len(body.encode()) for body in stack.values())
+    universal_bytes = sum(len(body.encode()) for body in universal.values())
+
+    assert len(text.encode()) < 60_000, "the prompt is large enough to compose (P22)"
+    assert stack_bytes < universal_bytes, "the stack-specific half now outweighs the core (P22)"
 
 
 # -- the brief -------------------------------------------------------------------------

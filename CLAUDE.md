@@ -313,6 +313,16 @@ not documentation: the core reads it at runtime, a test asserts its `kind` table
 and the frozen sidecar bundles it. Never add a second copy anywhere — two files would mean two sets of
 rules, and the one in force would be whichever was found first.
 
+**Every family in the registry has a generation-rules section, and that is checked rather than
+remembered.** A section belongs to a family because its *heading names it* — which is why the ones
+that do not read as a family name carry the prefix in backticks (`` (`queue.*`) ``) — so
+`test_every_family_the_registry_reports_has_generation_rules` can walk `kinds.families()` and demand
+one per family. A `kind` row with no rules beside it tells an agent that a value exists and not what
+shape the code around it takes. The same derivation splits stack-specific from universal for P22's
+trigger: the prompt is composed per project only once it passes ~60KB or the stack half outweighs the
+core, and `test_the_prompt_has_not_reached_the_size_that_triggers_composition` measures both on every
+run. When it fails, do the phase — never raise the number.
+
 
 ```bash
 uv run python -m framestack_core strip examples/fastapi-service /tmp/stripped
