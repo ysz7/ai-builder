@@ -61,6 +61,23 @@ type Props = {
   onKnob: (node: string, knob: string, value: unknown) => void;
   /** The `⋮`. The caller decides what it offers, from the registry. */
   onMenu: (id: string, at: { x: number; y: number }) => void;
+  /**
+   * A drag from one node to another (P21).
+   *
+   * **This does not draw an edge.** It asks the core to write the call into the generated
+   * zone; an arrow appears in the next read, or in the next run, or not at all -- and the
+   * last of those is information rather than a bug (Q9). Nothing here adds a wire to what
+   * is drawn, because a wire drawn by a gesture would be the second source of truth I-1
+   * forbids, and it is the whole difference between this and a flow-document builder.
+   */
+  onConnect: (source: string, target: string) => void;
+  /**
+   * Which kinds may be connected to which, from the core's own table.
+   *
+   * Held so a drag that could only ever be refused can be declined at the pin. It is the
+   * same table the writer uses -- there is no second list here.
+   */
+  compositions: { source: string; target: string }[];
 };
 
 export function Canvas({
@@ -75,6 +92,8 @@ export function Canvas({
   onToggleExpand,
   onKnob,
   onMenu,
+  onConnect,
+  compositions,
 }: Props) {
   const nodes = graph.graph.nodes;
 
@@ -110,14 +129,21 @@ export function Canvas({
       const flow = graph.flow.filter(
         (arrow) => drawn(arrow.source) && drawn(arrow.target),
       );
+      const kind = nodes.find((node) => node.id === id)?.kind ?? "";
+      // A pin is a socket something is plugged into (§18.6), and P21 adds a second reason
+      // for one to exist: a node a connection could be *made* from or to needs somewhere to
+      // start and land the drag. Still not unconditional -- a kind the table says nothing
+      // about wears no pin, so a gesture that could only be refused cannot be started.
+      const canLeave = compositions.some((one) => one.source === kind);
+      const canArrive = compositions.some((one) => one.target === kind);
       return {
-        dataIn: contract.some((edge) => edge.target === id),
-        dataOut: contract.some((edge) => edge.source === id),
+        dataIn: contract.some((edge) => edge.target === id) || canArrive,
+        dataOut: contract.some((edge) => edge.source === id) || canLeave,
         execIn: flow.some((arrow) => arrow.target === id),
         execOut: flow.some((arrow) => arrow.source === id),
       };
     },
-    [graph, hidden, placed],
+    [graph, hidden, placed, nodes, compositions],
   );
 
   const flowNodes = useMemo<Node[]>(() => {
@@ -288,7 +314,15 @@ export function Canvas({
         onNodesChange={onNodesChange}
         onNodeClick={(_, node) => onSelect(node.id)}
         onPaneClick={() => onSelect(null)}
-        nodesConnectable={false}
+        // Connectable, and **nothing is added to `edges` here**: the handler writes code and
+        // the picture catches up from the next read. React Flow would happily keep a wire it
+        // was handed, which is exactly the flow-document architecture this project is not.
+        nodesConnectable
+        onConnect={(connection) => {
+          if (connection.source && connection.target) {
+            onConnect(connection.source, connection.target);
+          }
+        }}
         proOptions={{ hideAttribution: true }}
         minZoom={0.25}
         maxZoom={1.6}

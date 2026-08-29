@@ -63,6 +63,7 @@ export function ping(echo?: string): Promise<PingResult> {
 
 import type {
   BlueprintInsert,
+  GraphCompositions,
   BlueprintPlan,
   Blueprints,
   BodyWrite,
@@ -424,6 +425,26 @@ export function blueprintInsert(
     blueprint,
     plan,
   });
+}
+
+/**
+ * Connect two nodes by writing the call into the generated zone (P21).
+ *
+ * **No arrow comes back from this.** An edge appears in the next read because a type now
+ * crosses a boundary, or in the next observed run because a flow was drawn (Q9) — never
+ * because a gesture was made. A write that stands while no arrow appears is information.
+ */
+export function nodeConnect(
+  project: string,
+  source: string,
+  target: string,
+): Promise<WriteResult & { file: string | null; refused: string | null }> {
+  return coreRequest("node.connect", { project, source, target });
+}
+
+/** What may be connected to what. Asked once; the canvas keeps no list of its own. */
+export function graphCompositions(): Promise<GraphCompositions> {
+  return coreRequest<GraphCompositions>("graph.compositions", {});
 }
 
 export function graphKinds(): Promise<GraphKinds> {

@@ -41,6 +41,8 @@ from framestack_core.api import (
     command_start,
     command_state,
     command_stop,
+    connect_nodes,
+    connectable_kinds,
     create_new_project,
     describe_kinds,
     env_call,
@@ -273,6 +275,26 @@ def _optional_str(params: dict[str, Any], name: str) -> str | None:
 def agent_blueprints_method(params: dict[str, Any]) -> dict[str, Any]:
     """What input B can be given. An absent catalog is an answer, not an error."""
     return agent_blueprints(_optional_str(params, "catalog"))
+
+
+def node_connect(params: dict[str, Any]) -> dict[str, Any]:
+    """Connect two nodes by writing the call into the generated zone (P21).
+
+    Addressed by two nodes, because a connection is a relation. A composition the registry
+    does not describe comes back refused with **both kinds named** -- never a guess at a call
+    signature, because a wrong write into a generated zone is a broken project and a refusal
+    is a sentence.
+    """
+    return connect_nodes(
+        _project_of(params),
+        _required_str(params, "source"),
+        _required_str(params, "target"),
+    )
+
+
+def graph_compositions(params: dict[str, Any]) -> dict[str, Any]:
+    """What may be connected to what. One table, asked -- never a second list in a canvas."""
+    return connectable_kinds()
 
 
 def blueprint_plan_method(params: dict[str, Any]) -> dict[str, Any]:
@@ -748,10 +770,12 @@ HANDLERS: dict[str, Handler] = {
     "ping": ping,
     "graph.read": graph_read,
     "graph.kinds": graph_kinds,
+    "graph.compositions": graph_compositions,
     "snapshot.take": snapshot_take,
     "snapshot.status": snapshot_status_method,
     "knob.set": knob_set,
     "node.set_title": node_set_title,
+    "node.connect": node_connect,
     "node.source": node_source_method,
     "node.set_body": node_set_body,
     "repair.list": repair_list,

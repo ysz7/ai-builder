@@ -10,7 +10,7 @@ AST-addressable markup layer (`bp`); a parser projects that into a graph; edits 
 written back through the syntax tree with `libcst`. Assembled applications deploy as plain Python
 projects with no runtime dependency on the builder.
 
-Current state: **P0–P20 done.** Window opens, React Flow renders a
+Current state: **P0–P21 done.** Window opens, React Flow renders a
 scaffold canvas, Rust reaches the Python core over NDJSON, the five `bp` primitives exist and are proven inert, and
 `strip` removes the markup with the example service answering identically before and after. The parser
 turns an annotated project into a graph IR, the static gate judges it into addressed diagnostics, and
@@ -359,6 +359,7 @@ the application and holds the verbs that act on it — including the two that re
 server, the one that hands a pipeline its documents, and the ones that list and run the project's own
 commands; `agent.py` assembles the agent's brief and records its failure modes, `catalog.py`
 reads the two blueprint catalogs and `blueprint.py` plans and inserts an entry that carries code;
+`compose.py` is the table of what may be connected to what;
 `strip.py` removes the markup.
 
 `apply_repair` takes `resolution` as a required keyword with no default. That is not style: §9 case 2
@@ -366,8 +367,21 @@ has two non-equivalent answers and the toolchain is not entitled to either, so t
 that resolves a generated-zone divergence while leaving the decision implicit. Never add a default,
 an "auto" mode, or a convenience wrapper that picks one.
 
-There are three write verbs and no more: `set_knob`, `set_node_title`, `set_body`. **An insert is not
-a fourth** (P20): those three edit code that is already there, through a syntax node, and an insert
+**There are two families of write, not one list** (Q31). Three verbs a *person* drives — `set_knob`,
+`set_node_title`, `set_body` — and every one of them is **refused the generated zone**, because that
+zone is assembly the graph owns. And `connect` (P21), which writes **only** into that zone and
+nowhere else, which is what the zone is for. The two families do not overlap at any address, which is
+what the original "three and no more" was actually protecting: not a count, but a person not editing
+what the graph maintains. `connect` is addressed by **two** nodes, because a connection is a relation
+— and **it draws no arrow**: an edge appears afterwards because a type now crosses a boundary or
+because a run drew a flow (Q9), and a write that stands while no arrow appears is information rather
+than a bug. What may be connected to what lives in `compose.py` and nowhere else; a composition it
+does not describe is a refusal **naming both kinds**, never a guess at a call signature, because a
+wrong write into a generated zone is a broken project and a refusal is a sentence with the agent
+behind it. Inference is not on the table: a RAG stage into a pipeline needs a value threaded through
+an assembly, so it is refused (Q32).
+
+**An insert is not one of either family** (P20): those three edit code that is already there, through a syntax node, and an insert
 writes whole files that were not there at all — which is why it cannot go through `libcst`, refuses a
 collision instead of merging, and is judged afterwards by the gate rather than validated against a
 knob's declaration. The third (Q15) is
@@ -487,12 +501,11 @@ agent's system prompt used to and was moved into the package for exactly that re
 
 - [architecture.md](docs/architecture.md) — the v0 spec. Sections 2 (invariants) and 7 (the parser as
   a gate) carry everything load-bearing.
-- [roadmap.md](docs/roadmap.md) — **P21–P22 only**, plus a roll-call of what is done. P0–P20 are
+- [roadmap.md](docs/roadmap.md) — **P22 only**, plus a roll-call of what is done. P0–P21 are
   finished and their detailed record was cleared from the file deliberately, so what is left is the
   work in front of us; the reasoning behind the decisions those phases settled is in
   open-questions.md, which is where it belonged anyway. It opens with the direction the remaining
-  phases serve (Q25), and P21 — connecting two nodes as a write into the generated zone — is the
-  one in front of us.
+  phases serve (Q25), and P22 — the prompt composed from the registry — is the last of them.
 - [design.md](docs/design.md) — the plan for the UI: what the design has to answer, which method sits
   behind each surface, and what it may not invent. Written before the design, so the design can be
   judged against it. **Its layout sections (§3, §5, §6, §8) were superseded by P18** and describe a

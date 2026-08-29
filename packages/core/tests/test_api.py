@@ -19,6 +19,7 @@ from framestack_core.api import (
     AGENT_RECORD_SCHEMA,
     ENVIRONMENT_SCHEMA,
     GRAPH_API_VERSION,
+    GRAPH_COMPOSITIONS_SCHEMA,
     GRAPH_KINDS_SCHEMA,
     GRAPH_READ_SCHEMA,
     REPAIR_APPLY_SCHEMA,
@@ -31,6 +32,7 @@ from framestack_core.api import (
     agent_brief,
     agent_failures,
     agent_record,
+    connectable_kinds,
     describe_kinds,
     environment_status,
     read_graph,
@@ -152,6 +154,10 @@ def test_reading_without_observing_leaves_every_node_unproven() -> None:
 
 def test_the_registry_payload_matches_the_declared_contract() -> None:
     validate(wire_form(describe_kinds()), GRAPH_KINDS_SCHEMA)
+
+
+def test_the_composition_payload_matches_the_declared_contract() -> None:
+    validate(wire_form(connectable_kinds()), GRAPH_COMPOSITIONS_SCHEMA)
 
 
 def test_an_undeclared_field_is_caught() -> None:

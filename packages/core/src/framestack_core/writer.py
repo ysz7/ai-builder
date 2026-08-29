@@ -35,6 +35,7 @@ from typing import Any
 
 import libcst as cst
 
+from framestack_core.compose import composition_for
 from framestack_core.diagnostics import Diagnostic
 from framestack_core.gate import check_graph
 from framestack_core.ir import Function, Graph, Knob, Node
@@ -43,7 +44,12 @@ from framestack_core.parser import parse_project, signature_of
 from framestack_core.paths import package_name
 from framestack_core.snapshot import save_snapshot, take_snapshot
 
-__all__ = ["WriteResult", "set_body", "set_knob", "set_node_title"]
+__all__ = ["WriteResult", "connect", "set_body", "set_knob", "set_node_title"]
+
+#: For rendering a statement back to text when a transformer has to compare against one.
+#: A module of its own so the comparison is `libcst`'s own idea of the code rather than a
+#: string this file assembled and hoped matched.
+_RENDERER = cst.parse_module("")
 
 
 @dataclass(frozen=True)
@@ -481,3 +487,181 @@ def _belongs_to(function: Function, node: Node) -> bool:
     would be editing one node's code through another's panel.
     """
     return function.path == node.carrier or function.path.startswith(f"{node.carrier}.")
+
+
+# -- connecting two nodes (P21) --------------------------------------------------------
+
+
+class _AddToGenerated(cst.CSTTransformer):
+    """Insert one statement into a generated function, before whatever it returns.
+
+    Before the `return` rather than at the end, because a generated zone is assembly that
+    builds something and hands it back: appending after the return would write a line that
+    can never run, and prepending would put the call before the thing it acts on exists.
+    """
+
+    def __init__(self, function: str, statement: str) -> None:
+        self.function = function
+        self.statement = statement
+        self.changed = False
+        self.already = False
+
+    def leave_FunctionDef(
+        self, original: cst.FunctionDef, updated: cst.FunctionDef
+    ) -> cst.FunctionDef:
+        if original.name.value != self.function:
+            return updated
+
+        body = updated.body
+        if not isinstance(body, cst.IndentedBlock):
+            return updated
+
+        rendered = [_RENDERER.code_for_node(line).strip() for line in body.body]
+        if self.statement in rendered:
+            # Already connected. Writing it twice would mount the same router twice, which
+            # is a real change to a real application -- so this is a refusal, not a no-op.
+            self.already = True
+            return updated
+
+        line = cst.parse_statement(self.statement)
+        at = len(body.body)
+        for index, statement in enumerate(body.body):
+            if isinstance(statement, cst.SimpleStatementLine) and any(
+                isinstance(small, cst.Return) for small in statement.body
+            ):
+                at = index
+                break
+
+        self.changed = True
+        return updated.with_changes(
+            body=body.with_changes(body=[*body.body[:at], line, *body.body[at:]])
+        )
+
+
+class _AddImport(cst.CSTTransformer):
+    """Add `from <module> import <name>` if the file does not already have that name.
+
+    Placed after the last existing import so the file keeps a single import block. Import
+    *order* is deliberately not this transformer's business: the repository's formatter
+    owns that, and a writer that also sorted imports would be rewriting lines nobody asked
+    it to touch, which is the one thing `libcst` was chosen to avoid.
+    """
+
+    def __init__(self, module: str, name: str) -> None:
+        self.module = module
+        self.name = name
+        self.changed = False
+
+    def leave_Module(self, original: cst.Module, updated: cst.Module) -> cst.Module:
+        wanted = f"from {self.module} import {self.name}"
+        rendered = [_RENDERER.code_for_node(line).strip() for line in updated.body]
+        if any(line.startswith(wanted) for line in rendered):
+            return updated
+
+        last = -1
+        for index, statement in enumerate(updated.body):
+            if isinstance(statement, cst.SimpleStatementLine) and any(
+                isinstance(small, cst.Import | cst.ImportFrom) for small in statement.body
+            ):
+                last = index
+
+        self.changed = True
+        line = cst.parse_statement(wanted)
+        at = last + 1
+        return updated.with_changes(body=[*updated.body[:at], line, *updated.body[at:]])
+
+
+def connect(project: Path | str, source_id: str, target_id: str) -> WriteResult:
+    """Write the call that connects one node to another, into the generated zone (P21).
+
+    **The fourth write verb, and the first of a second family** (Q31). `set_knob`,
+    `set_node_title` and `set_body` are the three a *person* drives, and every one of them is
+    denied the generated zone because that zone is assembly the graph owns. This one writes
+    into that zone and nowhere else, which is what the zone is for. The two families do not
+    overlap at any address.
+
+    It is addressed by **two** nodes rather than one, because a connection is a relation, and
+    it obeys the same three rules as every other write: the gate undoes it if it made things
+    worse, it becomes the new snapshot reference when it stands, and it refuses rather than
+    guesses.
+
+    **No arrow is drawn by this.** An edge appears afterwards because a type now crosses a
+    boundary, or because a run drew a flow (Q9) -- and a write that succeeds while no arrow
+    appears is information, not a bug.
+    """
+    project = Path(project)
+    graph = parse_project(project)
+
+    source = graph.node(source_id)
+    if source is None:
+        return _refused(f"no node with id {source_id!r}")
+    target = graph.node(target_id)
+    if target is None:
+        return _refused(f"no node with id {target_id!r}")
+    if source_id == target_id:
+        return _refused("a node cannot be connected to itself")
+
+    composition = composition_for(source.kind, target.kind)
+    if composition is None:
+        # Both kinds named, and no guess at a call signature. A wrong write into a generated
+        # zone is a broken project; this is a sentence, and the agent is behind it.
+        return _refused(
+            f"nothing describes how to connect {source.kind} to {target.kind} — "
+            f"ask the agent to write it"
+        )
+
+    # Searched for by the name the composition gave, and refused when that is not exactly
+    # one function: "the only generated function" is a rule that holds until a project has
+    # two, and then it silently picks one.
+    found = [
+        function
+        for function in graph.functions
+        if function.zone == "generated" and function.path.rsplit(".", 1)[-1] == composition.into
+    ]
+    if len(found) != 1:
+        which = "no" if not found else f"{len(found)}"
+        return _refused(
+            f"{which} generated function called {composition.into!r} — "
+            f"connecting {source.kind} to {target.kind} writes into that one"
+        )
+    into = found[0]
+
+    module, _, name = source.carrier.rpartition(".")
+    if not module:
+        return _refused(f"{source.carrier!r} is not addressable as a module member")
+    statement = composition.call.format(name=name, id=source.id)
+
+    path = project / into.location.file
+    before = path.read_text(encoding="utf-8")
+
+    adder = _AddToGenerated(composition.into, statement)
+    tree = cst.parse_module(before).visit(adder)
+    if adder.already:
+        return _refused(f"{source_id!r} is already connected to {target_id!r}")
+    if not adder.changed:
+        return _refused(f"{composition.into!r} was not found where the graph said it was")
+
+    if composition.imports_source:
+        importer = _AddImport(module, name)
+        tree = tree.visit(importer)
+
+    after = tree.code
+    if after == before:
+        return WriteResult(written=True, file=into.location.file)
+
+    errors_before = {(d.code, d.address) for d in check_graph(graph).errors}
+    path.write_text(after, encoding="utf-8")
+
+    rechecked = check_graph(parse_project(project))
+    introduced = [d for d in rechecked.errors if (d.code, d.address) not in errors_before]
+    if introduced:
+        path.write_text(before, encoding="utf-8")
+        return WriteResult(
+            written=False,
+            file=into.location.file,
+            refused="the connection was undone: it would have broken the gate",
+            diagnostics=tuple(introduced),
+        )
+
+    save_snapshot(take_snapshot(parse_project(project)), project)
+    return WriteResult(written=True, file=into.location.file)

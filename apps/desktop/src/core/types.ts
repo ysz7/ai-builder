@@ -362,6 +362,24 @@ export type NodeKindInfo = {
   description: string;
 };
 
+/**
+ * One connection this toolchain will write (P21).
+ *
+ * Asked of the core so a canvas can decline a gesture that would only ever be refused —
+ * there is no second list of what may be dragged onto what, because there is one table and
+ * it is the one that does the writing.
+ */
+export type Composition = {
+  source: string;
+  target: string;
+  description: string;
+};
+
+export type GraphCompositions = {
+  api_version: number;
+  compositions: Composition[];
+};
+
 export type GraphKinds = {
   api_version: number;
   /**

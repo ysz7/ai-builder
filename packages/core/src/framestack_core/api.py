@@ -18,6 +18,7 @@ from typing import Any
 from framestack_core.agent import build_brief, failure_modes, record_outcome
 from framestack_core.blueprint import insert_blueprint, plan_blueprint
 from framestack_core.catalog import all_blueprints, find_catalog
+from framestack_core.compose import COMPOSITIONS
 from framestack_core.converse import (
     poll_talk,
     say_to,
@@ -86,12 +87,13 @@ from framestack_core.shell import (
 from framestack_core.snapshot import load_snapshot, save_snapshot, take_snapshot
 from framestack_core.source import node_source
 from framestack_core.verdict import Observation
-from framestack_core.writer import set_body, set_knob, set_node_title
+from framestack_core.writer import connect, set_body, set_knob, set_node_title
 
 __all__ = [
     "AGENT_BLUEPRINTS_SCHEMA",
     "BLUEPRINT_INSERT_SCHEMA",
     "BLUEPRINT_PLAN_SCHEMA",
+    "GRAPH_COMPOSITIONS_SCHEMA",
     "AGENT_BRIEF_SCHEMA",
     "AGENT_CHOICES_SCHEMA",
     "AGENT_SESSION_SCHEMA",
@@ -121,6 +123,8 @@ __all__ = [
     "agent_blueprints",
     "blueprint_insert",
     "blueprint_plan",
+    "connect_nodes",
+    "connectable_kinds",
     "environment_status",
     "run_build",
     "run_call",
@@ -607,6 +611,12 @@ AGENT_BLUEPRINTS_SCHEMA = {
     "api_version": "int",
     "catalog": "str?",
     "blueprints": [_BLUEPRINT_ENTRY],
+}
+
+#: The `graph.compositions` payload: what may be connected to what, and what it means.
+GRAPH_COMPOSITIONS_SCHEMA = {
+    "api_version": "int",
+    "compositions": [{"source": "str", "target": "str", "description": "str"}],
 }
 
 #: The `blueprint.plan` payload: everything inserting an entry would do, and nothing done.
@@ -1117,6 +1127,40 @@ def write_node_title(project: Path | str, node: str, title: str) -> dict[str, An
     """Rename a node by editing the declaration it is named on."""
     result = set_node_title(project, node, title)
     return {"api_version": GRAPH_API_VERSION, **result.as_dict()}
+
+
+def connect_nodes(project: Path | str, source: str, target: str) -> dict[str, Any]:
+    """Write the call that connects one node to another, into the generated zone (P21).
+
+    The same `WRITE_SCHEMA` as the three verbs a person drives, because it is the same kind
+    of answer -- but it is a write of the **other** family (Q31): those three are refused the
+    generated zone, and this one writes nowhere else.
+
+    **No arrow comes back from this.** An edge appears in the next `graph.read` because a
+    type now crosses a boundary, or in the next observed run because a flow was drawn (Q9).
+    A write that stands while no arrow appears is information, not a bug.
+    """
+    result = connect(project, source, target)
+    return {"api_version": GRAPH_API_VERSION, **result.as_dict()}
+
+
+def connectable_kinds() -> dict[str, Any]:
+    """Every composition this toolchain will write, so a canvas can decline the rest.
+
+    One table, asked -- never a second list of what may be dragged onto what. A canvas that
+    kept its own would let a person make a gesture that only ever ends in a refusal.
+    """
+    return {
+        "api_version": GRAPH_API_VERSION,
+        "compositions": [
+            {
+                "source": one.source,
+                "target": one.target,
+                "description": one.description,
+            }
+            for one in COMPOSITIONS
+        ],
+    }
 
 
 def read_source(project: Path | str, node: str) -> dict[str, Any]:

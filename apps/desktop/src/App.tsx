@@ -46,8 +46,10 @@ import {
   envDown,
   envStatus,
   envUp,
+  graphCompositions,
   graphRead,
   knobSet,
+  nodeConnect,
   layoutRead,
   layoutWrite,
   nodeSetTitle,
@@ -58,6 +60,7 @@ import {
 } from "./core/client";
 import { kindRegistry, startsByKind } from "./core/registry";
 import type {
+  Composition,
   Environment,
   GraphRead,
   Layout,
@@ -193,6 +196,8 @@ export default function App() {
   const [processes, setProcesses] = useState<Record<string, RunState>>({});
   /** The registry, whole. What a node's own verbs are is its answer, never a list here. */
   const [kinds, setKinds] = useState<NodeKindInfo[]>([]);
+  /** What may be connected to what (P21). The core's table, held rather than reinvented. */
+  const [compositions, setCompositions] = useState<Composition[]>([]);
   /** What the compose file declares and where it stands. Null until docker has been asked. */
   const [services, setServices] = useState<Environment | null>(null);
 
@@ -329,7 +334,38 @@ export default function App() {
     void kindRegistry()
       .then((answer) => setKinds(answer.kinds))
       .catch(() => undefined);
+    // A canvas that cannot read this offers no connections at all, which is the same answer
+    // as a project whose kinds compose with nothing -- and never a guess that they do.
+    void graphCompositions()
+      .then((answer) => setCompositions(answer.compositions))
+      .catch(() => undefined);
   }, []);
+
+  /**
+   * A drag from one node to another (P21).
+   *
+   * It writes code and then re-reads. **Nothing draws an arrow here**: an edge appears
+   * because a type now crosses a boundary, or because a run drew a flow (Q9), and a write
+   * that stands while no arrow appears is information rather than a bug. A refusal is an
+   * ordinary answer -- two kinds whose composition the registry does not describe get a
+   * sentence naming both, and the agent is what it points at.
+   */
+  const onConnect = useCallback(
+    async (source: string, target: string) => {
+      setBusy(true);
+      setRefused(null);
+      try {
+        const result = await nodeConnect(project, source, target);
+        if (!result.ok) setRefused(result.refused ?? "the connection was refused");
+        else await open(project, observed);
+      } catch (error) {
+        setRefused(error instanceof Error ? error.message : String(error));
+      } finally {
+        setBusy(false);
+      }
+    },
+    [project, observed, open],
+  );
 
   const starts = startsByKind(kinds);
 
@@ -585,6 +621,8 @@ export default function App() {
               onToggleExpand={onToggleExpand}
               onKnob={onKnob}
               onMenu={onMenu}
+              onConnect={(source, target) => void onConnect(source, target)}
+              compositions={compositions}
             />
           ) : (
             <div className="bp-empty bp-empty-full">
