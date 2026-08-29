@@ -22,7 +22,16 @@ export type Point = { x: number; y: number };
  * is where a docstring line stops wrapping every three words.
  */
 export const NODE_WIDTH = 300;
-const COLUMN = 396;
+/**
+ * The distance between two top-level columns.
+ *
+ * Wide enough for the deepest card plus the frame's padding on both sides: a frame wraps
+ * everything **under** it, not just its direct members, so a router's routes are inside it
+ * and indented, and the widest thing a column ever holds is a card at the deepest level.
+ */
+const COLUMN = 470;
+/** How far a card is set in from its parent's. Containment, drawn as position. */
+const INDENT = 24;
 const FRAME_PAD = 26;
 const FRAME_TOP = 52;
 /** The gap between two stacked cards. Constant; what varies is the card, not the gap. */
@@ -62,6 +71,39 @@ export function topLevel(nodes: GraphNode[]): GraphNode[] {
 }
 
 /**
+ * Everything under a node, in declaration order, with how deep it sits.
+ *
+ * A frame is drawn around a **whole subtree**, never around one generation of it. A router
+ * owns its routes and the service owns the router, so a frame that stopped at its direct
+ * members left the routes outside the region that claims them -- drawn far away, on a row
+ * for nodes nothing could place, with a wire crossing back in. The picture said the routes
+ * were not part of the service, and the code says they are.
+ *
+ * The visited set is defence, not decoration: containment is declared and the gate is what
+ * rejects a cycle, but this walk runs on whatever the parser returned, including a project
+ * that is currently wrong. A cycle here would be an infinite loop in the canvas.
+ */
+export function descendants(
+  group: GraphNode,
+  byId: Map<string, GraphNode>,
+  seen: Set<string> = new Set(),
+): { node: GraphNode; depth: number }[] {
+  const out: { node: GraphNode; depth: number }[] = [];
+  const walk = (parent: GraphNode, depth: number): void => {
+    for (const id of parent.members) {
+      if (seen.has(id)) continue;
+      seen.add(id);
+      const child = byId.get(id);
+      if (!child) continue;
+      out.push({ node: child, depth });
+      walk(child, depth + 1);
+    }
+  };
+  walk(group, 0);
+  return out;
+}
+
+/**
  * A position for every node, saved ones kept and the rest placed beside their group.
  *
  * A saved entry always wins, including one whose node has moved to a different group: the
@@ -85,14 +127,14 @@ export function placeAll(nodes: GraphNode[], saved: Layout): Record<string, Poin
 
     // Deliberately no entry for the group: a frame is derived from what it contains.
     let cursor = 60 + FRAME_TOP;
-    for (const memberId of group.members) {
-      const member = byId.get(memberId);
-      if (!member) continue;
-      placed[memberId] = at(memberId) ?? { x: x + FRAME_PAD, y: cursor };
+    // The whole subtree, not one generation: a node the frame will wrap has to be placed
+    // inside the column, or the frame grows to reach it somewhere across the canvas.
+    for (const { node: member, depth } of descendants(group, byId)) {
+      placed[member.id] = at(member.id) ?? { x: x + FRAME_PAD + depth * INDENT, y: cursor };
       // Stepped by the card's own height rather than by a fixed row: cards differ by
       // several field blocks now, and a constant stride either overlaps the tall ones or
       // strands the short ones in whitespace.
-      cursor += cardHeight(member, saved[memberId]) + GUTTER;
+      cursor += cardHeight(member, saved[member.id]) + GUTTER;
       row += 1;
     }
     if (row === 0) placed[group.id] = at(group.id) ?? { x, y: 60 };
@@ -118,11 +160,12 @@ export function frameBox(
   saved: Layout = {},
 ): { x: number; y: number; width: number; height: number } {
   const byId = new Map(nodes.map((node) => [node.id, node]));
-  const members = group.members
-    .map((id) => {
-      const point = placed[id];
-      const member = byId.get(id);
-      return point ? { ...point, height: member ? cardHeight(member, saved[id]) : 150 } : null;
+  // Every node under the group, however deep. The frame is a region that says "these are
+  // the service", so a route the service owns through its router belongs inside it.
+  const members = descendants(group, byId)
+    .map(({ node }) => {
+      const point = placed[node.id];
+      return point ? { ...point, height: cardHeight(node, saved[node.id]) } : null;
     })
     .filter(Boolean) as (Point & { height: number })[];
   const own = placed[group.id] ?? { x: 60, y: 60 };

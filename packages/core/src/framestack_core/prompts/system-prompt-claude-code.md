@@ -505,24 +505,42 @@ Write LangGraph exactly as its docs would, then mark it up. Concretely:
 
 ## Before you write (the pre-flight the builder expects)
 
-0. **The project is where you work.** Everything you read, write or run belongs inside
-   the project directory. Do not read the builder's own source to find out how something
-   works, do not install into or write to paths outside the project, and do not create
-   scratch directories elsewhere on the machine — a temporary virtualenv goes in the
-   project, not in `/tmp`. If something you need is genuinely outside, say so and stop:
-   the person will decide, and a question costs less than an action nobody asked for.
-1. **Verify current versions/APIs** of FastAPI, Pydantic and anything else on the web
-   before writing — your training data may be stale.
+0. **The project is where you work.** Every *path on this machine* you read, write or run
+   belongs inside the project directory. Do not read the builder's own source to find out
+   how something works, do not install into or write to paths outside the project, and do
+   not create scratch directories elsewhere — a temporary virtualenv goes in the project,
+   not in `/tmp`. If something you need is genuinely outside, say so and stop: the person
+   will decide, and a question costs less than an action nobody asked for. (This is about
+   the filesystem. The web is step 1.)
+1. **Check the versions this project actually has** — what its `pyproject.toml` or
+   `requirements.txt` pins, what its lock file resolved, what its interpreter reports —
+   before writing against an API. That is a fact about the project, and it is local, which
+   makes it the answer rather than an opinion about the answer. **The web is the second
+   opinion**: worth a search when you are about to use an API you are unsure of and the
+   project cannot settle it, never a survey of every library before you start. Your
+   training data may be stale; so is a release note about a version this project does not
+   install.
 2. **Read what already exists** in the project and **audit it against what you're about
-   to build**: report, item by item, what is already present and correct. Plan only the
-   gap. Existing working code stays even if shaped differently; replacing anything that
-   works needs a stated reason.
+   to build.** Plan only the gap. Existing working code stays even if shaped differently;
+   replacing anything that works needs a stated reason. Report the *conclusion* — what you
+   will not build because it is already there, and anything you are replacing with the
+   reason — not the walk that produced it. An inventory of correct files is a paragraph
+   nobody acts on.
 3. **Say which node(s) you are creating or modifying, and why**, before generating.
-4. Propose the plan and get approval, then build.
+4. **Get approval before work that changes the shape of the graph** — a node created,
+   removed or renamed, a `members` list edited, anything written into a `@generated()`
+   zone. Those are decisions about the project's structure and they are the person's.
+   A change that lives **wholly inside one `@editable` body**, asked for plainly, is the
+   thing they already asked for: build it and say what you did. Approval is for what they
+   have not decided yet, not a receipt for what they have.
 
 ## After you write (self-check before handing off)
 
-Confirm each, concretely, not "should be fine":
+Check each of these, and **do not narrate them back**. The builder's static gate tests
+every one of the first seven mechanically and returns each failure with an address, the
+rule it breaks and how to repair it — so a paragraph confirming them proves nothing that
+the gate is not about to prove better, and a list of ten confirmations is the slowest way
+to say "done". Report only what you could **not** satisfy, and why.
 
 - Every visible node has a carrier (class/function/module). No carrier-less nodes.
 - Every function inside a carrier is `@editable` (signature-locked) or `@generated`.
@@ -533,10 +551,16 @@ Confirm each, concretely, not "should be fine":
 - Every subsystem has a `__node__.py` group node listing members **by reference**.
 - Every knob is an `Annotated`+`Param` field with a literal default and one clear write
   target, with `widget=` only where the type does not determine the control.
+
+And three the gate cannot reach, which is why they are the ones worth your attention:
+
 - No markup construct affects runtime. Mentally strip `bp` — does the app still run and
   serve? If not, fix it.
 - Each node passes an observable check (the route actually responds). Parsing is not
-  enough.
+  enough — and a node proven by a test needs the test to exist, so write it.
+- Every client, tool or task the libraries end up holding has a `@node`. A carrier with no
+  node is reported as `graph.undeclared_carrier` **only after a run**, so the gate will not
+  catch it for you before you hand off.
 
 ## When something you generated is flagged for repair
 

@@ -16,7 +16,7 @@
  * A graph with no run has no flow arrows at all. That emptiness is a measurement.
  */
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   applyNodeChanges,
   Background,
@@ -34,9 +34,17 @@ import type { GraphRead, Layout, Placement } from "../core/types";
 import { BpGroup } from "./BpGroup";
 import { BpNode } from "./BpNode";
 import { tintOf } from "./kinds";
-import { frameBox, NODE_WIDTH, placeAll, topLevel } from "./place";
+import { descendants, frameBox, NODE_WIDTH, placeAll, topLevel } from "./place";
 
 const nodeTypes = { bpNode: BpNode, bpGroup: BpGroup };
+
+/**
+ * A frame is drawn as a React Flow node, so it needs an id -- and it must not be the
+ * group's, or the frame and the group would be the same element to every handler here.
+ * The prefix is that separation, and these two are the only places it is spelled.
+ */
+const FRAME = "frame:";
+const groupOf = (id: string): string | null => (id.startsWith(FRAME) ? id.slice(FRAME.length) : null);
 
 type Props = {
   graph: GraphRead;
@@ -99,11 +107,19 @@ export function Canvas({
 
   const placed = useMemo(() => placeAll(nodes, layout), [nodes, layout]);
 
-  /** A member of a collapsed group is not drawn -- but its group still carries its mark. */
+  /**
+   * A member of a collapsed group is not drawn -- but its group still carries its mark.
+   *
+   * The **whole subtree**, for the same reason the frame wraps one: folding a service left
+   * its routers' routes on the canvas with nothing around them, which is not what folding
+   * a region means.
+   */
   const hidden = useMemo(() => {
+    const byId = new Map(nodes.map((node) => [node.id, node]));
     const set = new Set<string>();
     for (const group of nodes) {
-      if (layout[group.id]?.collapsed) group.members.forEach((id) => set.add(id));
+      if (!layout[group.id]?.collapsed) continue;
+      for (const { node } of descendants(group, byId)) set.add(node.id);
     }
     return set;
   }, [nodes, layout]);
@@ -146,7 +162,18 @@ export function Canvas({
     [graph, hidden, placed, nodes, compositions],
   );
 
+  /** For each group, every id under it. Held so a frame drag knows what it carries. */
+  const subtreeOf = useMemo(() => {
+    const byId = new Map(nodes.map((node) => [node.id, node]));
+    const map = new Map<string, string[]>();
+    for (const node of nodes) {
+      map.set(node.id, descendants(node, byId).map((entry) => entry.node.id));
+    }
+    return map;
+  }, [nodes]);
+
   const flowNodes = useMemo<Node[]>(() => {
+    const byId = new Map(nodes.map((node) => [node.id, node]));
     const groups = new Set(topLevel(nodes).filter((n) => n.members.length > 0).map((n) => n.id));
     const result: Node[] = [];
 
@@ -161,21 +188,31 @@ export function Canvas({
       const box = collapsed ? { x: open.x, y: open.y, width: 260, height: 27 } : open;
 
       result.push({
-        id: `frame:${group.id}`,
+        id: `${FRAME}${group.id}`,
         type: "bpGroup",
         position: { x: box.x, y: box.y },
         style: { width: box.width, height: box.height },
-        draggable: false,
+        // Draggable, and what moves is **its members**. A frame has no geometry of its
+        // own -- it is the bounding box of what it contains -- so there is nothing about
+        // it to store; dragging one is a way of moving a whole subtree at once, and the
+        // frame arrives at the new place because its members did.
+        draggable: true,
         // Not React Flow's own selection: the frame is behind everything and must not
         // swallow a click meant for a member. Its **bar** selects, and that is a button.
         selectable: false,
-        zIndex: 0,
+        // Behind the **edges** as well as behind the cards. React Flow puts its edges in a
+        // sibling layer with no z-index of its own, so a frame at 0 won the tie on DOM
+        // order and painted its background over every wire that crossed it. Negative is
+        // what puts it under that layer; it stays above the pane, so its bar still takes a
+        // click.
+        zIndex: -1,
         data: {
           node: group,
           verdict: (graph.verdicts[group.id] ?? "unproven") as never,
           reason: reasonFor(group.id),
           collapsed,
-          memberCount: group.members.length,
+          // What the frame draws around, which is the subtree and not one generation.
+          memberCount: descendants(group, byId).length,
           selected: group.id === selected,
           running: runningKinds.has(group.kind),
           onToggle: onToggleCollapse,
@@ -198,7 +235,6 @@ export function Canvas({
           node,
           verdict: (graph.verdicts[node.id] ?? "unproven") as never,
           reason: reasonFor(node.id),
-          observation: graph.observations[node.id] ?? null,
           lit: litFiles.has(node.location.file),
           running: runningKinds.has(node.kind),
           expanded: layout[node.id]?.expanded ?? false,
@@ -282,27 +318,83 @@ export function Canvas({
    * the new place only when the drag ended: a teleport instead of a drag.
    */
   const [drawn, setDrawn] = useState<Node[]>(flowNodes);
+  /**
+   * The same list, readable synchronously.
+   *
+   * A frame drag needs the position the frame had **one event ago** to know how far it has
+   * come, and a state variable read inside the handler is the one from the last render.
+   */
+  const drawnRef = useRef<Node[]>(flowNodes);
+  const put = useCallback((next: Node[]) => {
+    drawnRef.current = next;
+    setDrawn(next);
+  }, []);
 
   // The graph is the source of truth, so whenever it or the stored layout changes, what is
   // drawn is replaced rather than merged: a drag's leftovers must never outlive the drag.
-  useEffect(() => setDrawn(flowNodes), [flowNodes]);
+  useEffect(() => put(flowNodes), [flowNodes, put]);
 
   const onNodesChange = useCallback(
     (changes: NodeChange[]) => {
+      const now = drawnRef.current;
+      const at = new Map(now.map((node) => [node.id, node.position]));
+
+      // A frame carries what is inside it. React Flow moves the frame element; the members
+      // are moved here, on the same event, so the region and its contents never come apart
+      // mid-drag -- and the frame's own position is thrown away at the next render, since
+      // `frameBox` recomputes it from where the members ended up.
+      const shifted = new Map<string, { x: number; y: number }>();
+      for (const change of changes) {
+        if (change.type !== "position" || !change.position) continue;
+        const group = groupOf(change.id);
+        const before = at.get(change.id);
+        if (!group || !before) continue;
+        const dx = change.position.x - before.x;
+        const dy = change.position.y - before.y;
+        if (dx === 0 && dy === 0) continue;
+        for (const id of subtreeOf.get(group) ?? []) {
+          const member = at.get(id);
+          if (member) shifted.set(id, { x: member.x + dx, y: member.y + dy });
+        }
+      }
+
       // Applied on every frame -- this is what makes the node follow the pointer -- but
       // **kept** only when the drag has finished. A file write behind the mouse would be a
       // write per frame, and a position mid-drag is not yet something the person chose.
-      setDrawn((now) => applyNodeChanges(changes, now));
+      const next = applyNodeChanges(changes, now);
+      put(
+        shifted.size === 0
+          ? next
+          : next.map((node) =>
+              shifted.has(node.id) ? { ...node, position: shifted.get(node.id)! } : node,
+            ),
+      );
 
       const moved: Record<string, Placement> = {};
       for (const change of changes) {
         if (change.type !== "position" || change.dragging || !change.position) continue;
-        if (change.id.startsWith("frame:")) continue;
-        moved[change.id] = { ...layout[change.id], ...change.position };
+        const group = groupOf(change.id);
+        if (group === null) {
+          moved[change.id] = { ...layout[change.id], ...change.position };
+          continue;
+        }
+        // The frame itself is never stored: it has no position of its own to keep, and an
+        // entry for one would be a coordinate nothing reads (Q13). What is stored is where
+        // its members ended up -- **all** of them, including the ones a collapsed frame is
+        // hiding, which is why the total is measured against the derived box rather than
+        // read off the drawn elements. Nothing is drawn for a member that is not shown.
+        const origin = flowNodes.find((one) => one.id === change.id)?.position;
+        if (!origin) continue;
+        const dx = change.position.x - origin.x;
+        const dy = change.position.y - origin.y;
+        for (const id of subtreeOf.get(group) ?? []) {
+          const base = placed[id];
+          if (base) moved[id] = { ...layout[id], x: base.x + dx, y: base.y + dy };
+        }
       }
       if (Object.keys(moved).length > 0) onMove(moved);
     },
-    [layout, onMove],
+    [flowNodes, layout, onMove, placed, put, subtreeOf],
   );
 
   return (
@@ -312,7 +404,12 @@ export function Canvas({
         edges={flowEdges}
         nodeTypes={nodeTypes}
         onNodesChange={onNodesChange}
-        onNodeClick={(_, node) => onSelect(node.id)}
+        // A frame opens its group. It is drawn as a region and it *is* a node -- the
+        // service, the pipeline, the queue -- so a click anywhere on it has to reach the
+        // same inspector its bar does. Passing the element's id straight through selected
+        // `frame:api`, which is nothing the graph has ever heard of, so the panel came up
+        // empty and the frame read as unclickable.
+        onNodeClick={(_, node) => onSelect(groupOf(node.id) ?? node.id)}
         onPaneClick={() => onSelect(null)}
         // Connectable, and **nothing is added to `edges` here**: the handler writes code and
         // the picture catches up from the next read. React Flow would happily keep a wire it

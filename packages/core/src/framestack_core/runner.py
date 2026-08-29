@@ -1125,6 +1125,37 @@ def _within(project: Path, directory: str) -> Path | None:
     return here if here.is_dir() else None
 
 
+def _inside(root: Path, candidate: Path) -> bool:
+    """Whether a resolved path is the project or something under it."""
+    try:
+        candidate.relative_to(root)
+    except ValueError:
+        return False
+    return True
+
+
+def _package_root(here: Path) -> Path | None:
+    """Where npm says its answer about this directory comes from, or None if it will not say.
+
+    Not found by looking for a file: the walk npm does is npm's, and reproducing it here
+    would be a second opinion about somebody else's resolution rules.
+    """
+    try:
+        completed = subprocess.run(  # noqa: S603 -- the command is ours
+            ["npm", "prefix"],  # noqa: S607 -- npm is resolved on PATH by the caller
+            cwd=here,
+            capture_output=True,
+            text=True,
+            timeout=NPM_TIMEOUT_S,
+        )
+    except (subprocess.TimeoutExpired, OSError):
+        return None
+    if completed.returncode != 0:
+        return None
+    answered = completed.stdout.strip()
+    return Path(answered).resolve() if answered else None
+
+
 def project_commands(project: Path | str, directory: str = "") -> CommandList:
     """What `npm run` would run here, asked of npm itself (P17.6).
 
@@ -1136,6 +1167,21 @@ def project_commands(project: Path | str, directory: str = "") -> CommandList:
         return CommandList(False, f"there is no directory {directory!r} in this project")
     if shutil.which("npm") is None:
         return CommandList(False, "npm is not installed, so this project has no commands to ask")
+
+    # **Whose commands these are is a question npm has to be asked too.** `npm pkg get`
+    # walks up until it finds a `package.json`, so a project that declares none is answered
+    # with whatever repository happens to contain it -- and this panel would then offer a
+    # stranger's `build` as "the project's own command", with `start_command` running it.
+    # `npm prefix` is npm's own account of where its answer comes from, which is the same
+    # asking-rather-than-reading rule the list itself follows (§5.8).
+    owner = _package_root(here)
+    if owner is not None and not _inside(root, owner):
+        return CommandList(
+            True,
+            "the nearest package.json is outside this project, so its commands are not this "
+            "project's",
+            directory=directory,
+        )
 
     try:
         completed = subprocess.run(  # noqa: S603 -- the command is ours, built above

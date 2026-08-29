@@ -78,9 +78,10 @@ not import costs the claim rather than the nodes. Kinds opt in through `NodeKind
 **The workspace is StackAI's and the architecture is unmoved** (P18). An icon rail and a top bar
 around a full-bleed canvas; the dock is deleted and its faces went to the rail, onto the node, and
 into a sheet nobody has to look at. The node card is the reference's, element for element -- a family
-tab above it, a header, a description line, field blocks, a pill -- with one swap that is the point of
-the whole redesign: **their footer carries telemetry and ours carries evidence**, so
-`proven by test_users.py::test_create` is drawn in the pixels a competitor spends on a token count.
+tab above it, a header, a description line, field blocks, a pill. Its footer carried **evidence**
+where the reference carries telemetry, and **that row is gone** (Q33): a run changed every card at
+once, and the card is something a person arranges and reads rather than a report. **The mark is the
+only thing a run changes now**, and the evidence is named in the inspector and the rail's flyout.
 Light is the base and dark the exception, and every token has a value in both. `Observe` is the black
 primary where the reference puts `Publish`, because the most emphatic button on the screen is the one
 that produces evidence. Nothing here needed a new core method: the payload gained the test's id as
@@ -250,9 +251,11 @@ What follows from that, day to day:
   in week one, and that is the reason to be code-first and open source.
 - **The audience is the engineer.** StackAI sells to a non-technical buyer; "the same legibility with
   more technical detail" is a different person, and every trade-off resolves toward them.
-- **The differentiator does not survive a screenshot.** "Green because `test_retrieval.py` entered
-  it" belongs on the node card, not three clicks away, or the project is compared to Langflow on
-  looks and found to be the same thing.
+- **The differentiator does not survive a screenshot** -- and as of Q33 it is one click deep anyway.
+  "Green because `test_retrieval.py` entered it" is still the sentence, but it is read in the
+  inspector: a card that rewrote itself on every run cost more legibility than the screenshot was
+  worth. The way back, if it is ever wanted, is a footer that is always there and changes its words,
+  never one that appears.
 
 ## Commands
 

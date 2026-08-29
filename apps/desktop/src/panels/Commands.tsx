@@ -151,8 +151,13 @@ export function Commands({ project }: Props) {
         <button className="bp-term-pick" disabled={busy !== ""} onClick={() => void ask()}>
           ↻
         </button>
+        {/* The same slot the Terminal uses to say what a tab is. "nothing running" was
+            true and told nobody what this panel was for, which is a poor trade for the one
+            line of prose the surface gets. */}
         <span className="bp-term-state">
-          {state ? `pid ${state.pid} · ${state.target}` : "nothing running"}
+          {state
+            ? `pid ${state.pid} · ${state.target}`
+            : "the commands this project declares, and one of your own"}
         </span>
         {state ? (
           <button className="bp-term-pick" disabled={busy !== ""} onClick={() => void stop()}>

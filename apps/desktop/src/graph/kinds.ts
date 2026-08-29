@@ -72,12 +72,6 @@ export function verdictOf(verdicts: Record<string, string>, id: string): Verdict
   return value === "green" || value === "broken" ? value : "unproven";
 }
 
-/** The short kind, for the header. `fastapi.route` reads as `route` beside a tinted rule. */
-export function shortKind(kind: string): string {
-  const parts = kind.split(".");
-  return parts.length > 1 ? parts.slice(1).join(".") : kind;
-}
-
 /**
  * The family's name, as the tab says it.
  *

@@ -61,7 +61,9 @@ export function BpGroup({ data }: NodeProps) {
         title={node.title ?? node.id}
       >
         <span
-          className="bp-chev"
+          // Not a drag handle: the triangle is 9px of text and a hand that slips while
+          // pressing it would move the whole subtree instead of folding it.
+          className="bp-chev nodrag"
           role="button"
           tabIndex={-1}
           title={collapsed ? "Expand" : "Collapse"}

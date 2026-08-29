@@ -378,11 +378,11 @@ textarea {
 }
 .bp-sheet-head {
   flex: 0 0 auto;
-  height: 38px;
+  height: 32px;
   display: flex;
   align-items: center;
   gap: 2px;
-  padding: 0 8px 0 12px;
+  padding: 0 6px 0 8px;
   border-bottom: 1px solid var(--line);
   user-select: none;
 }
@@ -391,8 +391,8 @@ textarea {
   border-radius: var(--radius-2);
   background: none;
   color: var(--muted-2);
-  font-size: 13px;
-  padding: 5px 11px;
+  font-size: 12.5px;
+  padding: 4px 9px;
   cursor: pointer;
 }
 .bp-sheet-tab.is-on {
@@ -406,7 +406,7 @@ textarea {
   flex: 1 1 auto;
   min-height: 0;
   overflow: auto;
-  padding: 11px 14px;
+  padding: 8px 10px;
 }
 /* The way back to a shell when nothing is open. Quiet, in the corner the dock used to
    occupy entirely. */
@@ -831,18 +831,26 @@ textarea {
   display: inline-flex;
   align-items: center;
   gap: 6px;
+  max-width: 100%;
   padding: 5px 11px;
   border-radius: var(--radius-pill);
   background: var(--bg-3);
   color: var(--fg-2);
-  font-size: 12px;
+  /* A dotted registry name, not a word: `langgraph.settings` is the longest of them, and it
+     is read rather than scanned, so it gets the tabular face and a size that fits. */
+  font-family: var(--mono);
+  font-size: 11px;
   font-weight: 500;
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
-/* The footer. Their telemetry, our evidence -- `Green because test_retrieval.py entered it`
-   in the pixels a competitor spends on a token count. A node nothing has run has no chips
-   at all, because a chip reading `0.0 sec` would be invented telemetry. */
-.bp-card-foot,
+/* The evidence chips. They used to sit on the card as its footer -- their telemetry, our
+   evidence -- and Q33 took that row off, so this is the inspector's layout now. A node
+   nothing has run has no chips at all, because a chip reading `0.0 sec` would be invented
+   telemetry. */
 .bp-chips {
   display: flex;
   flex-wrap: wrap;
@@ -947,6 +955,11 @@ textarea {
   border: 1px solid var(--line);
   border-radius: 12px;
   background: var(--surface-3);
+  /* The region moves what it contains, so it says so before it is pressed. */
+  cursor: grab;
+}
+.bp-frame:active {
+  cursor: grabbing;
 }
 .bp-frame.is-selected {
   border-color: var(--select);
@@ -1992,33 +2005,14 @@ textarea.bp-field {
   flex: 1;
 }
 
-/* ---------- repair ---------- */
-.bp-modal {
-  position: fixed;
-  inset: 0;
-  background: color-mix(in srgb, var(--bg) 78%, transparent);
-  backdrop-filter: blur(3px);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 40;
-}
-.bp-sheet {
-  width: min(680px, 92vw);
-  max-height: 82vh;
-  overflow-y: auto;
-  background: var(--surface);
-  border: 1px solid var(--line-strong);
-  padding: 20px 22px;
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-}
-.bp-sheet-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
+/* ---------- repair ----------
+
+   `.bp-modal` and `.bp-sheet` used to be redefined here, for a repair dialog that P18
+   deleted. Both names went to live elements in that rebuild -- the rename dialog and the
+   bottom sheet -- and because these rules came later in the file they quietly won: the
+   sheet was pinned to `min(680px, 92vw)` and padded like a dialog, which is why the
+   terminal stopped at two thirds of the window and sat in a well of its own margins. Dead
+   CSS under a name somebody else is now using is not dead. */
 .bp-repair {
   display: flex;
   flex-direction: column;
@@ -2130,7 +2124,7 @@ body.is-resizing {
 .bp-term {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 6px;
   height: 100%;
   min-height: 0;
 }
@@ -2207,7 +2201,7 @@ body.is-resizing {
   align-items: center;
   gap: 8px;
   border-top: 1px solid var(--line);
-  padding-top: 7px;
+  padding-top: 5px;
   flex: 0 0 auto;
 }
 .bp-term-caret {

@@ -9,22 +9,27 @@
  *   - their category is a **role** they invented; ours is the kind's **family**, tinted;
  *   - their field blocks hold a prompt; ours hold **knobs**, which the writer can reach
  *     through the syntax tree, edited through the same `knob.set` the inspector uses;
- *   - their footer carries **telemetry**; ours carries **evidence**.
+ *   - their footer carries **telemetry**; ours carried **evidence**, and now carries
+ *     nothing.
  *
- * That last swap is the reason the card is worth copying at all. `Green because
- * test_retrieval.py entered it` is the sentence this whole project exists to be able to say,
- * and it is drawn in the pixels a competitor spends on a token count -- not three clicks
- * away, where a screenshot cannot find it.
+ * That last row is gone by decision, and the trade is worth stating rather than losing.
+ * `Green because test_retrieval.py entered it` is the sentence this project exists to be
+ * able to say, and P18 drew it here so that a screenshot could find it. What it cost is
+ * that pressing Observe changed every card at once -- new chips, a taller box, a green
+ * band across a canvas that had just been read -- and the card is a thing a person arranges
+ * and looks at, not a report. **The mark is the only thing a run changes now**, which also
+ * keeps the drawn card the size `place.cardHeight` predicted, so a frame still wraps its
+ * members after a run.
  *
- * The verdict mark and the evidence chips are two of the five things §18.6 keeps: their node
- * has no verdict, because nothing in it was ever proven.
+ * The evidence itself did not move far: the inspector's `NodeEvidence` names the test, and
+ * the rail's flyout names it for every node at once.
  */
 
 import { Handle, Position, type NodeProps } from "@xyflow/react";
 
-import type { GraphNode, Knob, Observation, Verdict } from "../core/types";
+import type { GraphNode, Knob, Verdict } from "../core/types";
 import { KnobBlock } from "../panels/Knob";
-import { familyName, glyphOf, MARKS, shortKind, tintBgOf, tintOf } from "./kinds";
+import { familyName, glyphOf, MARKS, tintBgOf, tintOf } from "./kinds";
 
 /** How many knobs a collapsed card shows. The reference shows one or two blocks; three is
  *  the point where a card stops being scannable and starts being a form. */
@@ -35,8 +40,6 @@ export type BpNodeData = {
   verdict: Verdict;
   /** Why the node is what it is: the observation's detail, or why no check could run. */
   reason: string;
-  /** The evidence itself, for the chips. Null where nothing has been run. */
-  observation: Observation | null;
   /** Set while the agent is editing the file this node lives in. */
   lit: boolean;
   /** A process this node's kind starts is alive right now. Not a verdict — see `running`. */
@@ -65,39 +68,11 @@ export type BpNodeData = {
   pins: { dataIn: boolean; dataOut: boolean; execIn: boolean; execOut: boolean };
 };
 
-/**
- * The footer chips: what proved this node, named.
- *
- * `by` is the test's identifier **as data** -- the core gained that field for this row
- * (P18.3), so that nothing here has to pull a name back out of the sentence beside it. A
- * front end parsing "exercised by 3 passing test(s), e.g. …" would be a second opinion about
- * a format one floor down, and it would break the first time the wording improved.
- *
- * A node nothing has run yet gets no chips at all. That emptiness is the honest answer, and
- * a chip reading `0.0 sec` in its place -- which is what the reference draws -- would be
- * this application inventing telemetry to fill a row.
- */
-function Evidence({ observation }: { observation: Observation | null }) {
-  if (!observation) return null;
-  const source = observation.by || observation.check;
-  return (
-    <div className="bp-card-foot">
-      <span className={`bp-chip${observation.passed ? " is-ok" : " is-bad"}`}>
-        {observation.passed ? "proven by" : "failed in"} {source}
-      </span>
-      {observation.by ? (
-        <span className="bp-chip is-quiet">{observation.check}</span>
-      ) : null}
-    </div>
-  );
-}
-
 export function BpNode({ data, selected }: NodeProps) {
   const {
     node,
     verdict,
     reason,
-    observation,
     lit,
     running,
     expanded,
@@ -198,14 +173,15 @@ export function BpNode({ data, selected }: NodeProps) {
           </button>
         ) : null}
 
-        {/* The kind pill, in the geometry the reference gives the model name. It is the one
-            place the full registry name is spelled out on the canvas: the tab says the
-            family, and this says which member of it. */}
+        {/* The kind pill, in the geometry the reference gives the model name, and it spells
+            the **registry name in full**. `route` beside a tinted `FastAPI` tab was the
+            shorter reading, but the dotted name is the value: it is what `kind=` says in the
+            code, what the library behind `+` lists, and what a person types when they ask
+            the agent for another one. The comment here always claimed the full name was
+            drawn; now it is. */}
         <div className="bp-card-pill-row">
-          <span className="bp-pill">{shortKind(node.kind)}</span>
+          <span className="bp-pill">{node.kind}</span>
         </div>
-
-        <Evidence observation={observation} />
 
         {/* The reason, where there is one and no chip could carry it: "the broker does not
             answer -- start it from the compose file's node" is a repair instruction, and

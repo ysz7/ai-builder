@@ -137,6 +137,28 @@ def test_a_project_with_no_commands_says_so_rather_than_failing(tmp_path: Path) 
     assert listed.commands == ()
 
 
+@needs_npm
+def test_a_package_outside_the_project_is_not_the_project_s_commands(tmp_path: Path) -> None:
+    """`npm pkg get` walks up, and the panel says "the project's own commands".
+
+    A Python project checked out inside any repository that has a `package.json` above it
+    was offered that repository's scripts under its own name -- and pressing one ran it.
+    The directory was contained all along; what was not was the answer.
+    """
+    outer = tmp_path / "outer"
+    (outer / "inner").mkdir(parents=True)
+    (outer / "package.json").write_text(
+        json.dumps({"name": "outer", "private": True, "scripts": {"build": "echo no"}}),
+        encoding="utf-8",
+    )
+
+    listed = project_commands(outer / "inner")
+
+    assert listed.ok is True
+    assert listed.commands == ()
+    assert "outside this project" in listed.detail
+
+
 def test_nothing_outside_the_project_can_be_asked(tmp_path: Path) -> None:
     """The directory is passed in, so it is also checked: a verb that would run npm in
     somebody's home directory because a string said so is not a verb, it is a shell."""
