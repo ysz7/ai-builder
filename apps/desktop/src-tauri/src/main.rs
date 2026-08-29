@@ -2,5 +2,5 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 fn main() {
-    aibuilder_desktop_lib::run()
+    framestack_desktop_lib::run()
 }

@@ -1,11 +1,11 @@
 [project]
-name = "awesome-ai-builder"
+name = "framestack-ai-builder"
 version = "0.1.0"
 description = "Workspace root. The shippable pieces are packages/bp and packages/core."
 requires-python = ">=3.10"
 dependencies = [
     "bp",
-    "aibuilder-core",
+    "framestack-core",
 ]
 
 [dependency-groups]
@@ -39,7 +39,7 @@ members = ["packages/*"]
 
 [tool.uv.sources]
 bp = { workspace = true }
-aibuilder-core = { workspace = true }
+framestack-core = { workspace = true }
 
 [tool.pytest.ini_options]
 testpaths = ["packages/bp/tests", "packages/core/tests"]
@@ -55,7 +55,7 @@ select = ["E", "F", "I", "UP", "B", "SIM", "TID"]
 
 [tool.ruff.lint.isort]
 # `app` and `work` are the example projects' own packages.
-known-first-party = ["bp", "aibuilder_core", "app", "work"]
+known-first-party = ["bp", "framestack_core", "app", "work"]
 
 [tool.ruff.lint.per-file-ignores]
 # The example is generated-agent output: it exists to be parsed, not to be tidy.

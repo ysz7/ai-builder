@@ -14,9 +14,9 @@ from pathlib import Path
 
 from test_api import validate, wire_form
 
-from aibuilder_core.api import AGENT_SESSION_SCHEMA, agent_poll, agent_session
-from aibuilder_core.layout import create_project
-from aibuilder_core.session import (
+from framestack_core.api import AGENT_SESSION_SCHEMA, agent_poll, agent_session
+from framestack_core.layout import create_project
+from framestack_core.session import (
     AGENT_LOG_PATH,
     agent_available,
     poll_session,
@@ -32,7 +32,7 @@ def log(project: Path, *lines: dict[str, object]) -> None:
     A transcript lives per conversation now, so "the log" is whichever file the open session
     is writing to -- and only a project with no session at all falls back to the single file.
     """
-    from aibuilder_core.session import _current_log
+    from framestack_core.session import _current_log
 
     path = _current_log(project) or project / AGENT_LOG_PATH
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -52,7 +52,7 @@ def test_asking_whether_an_agent_exists_starts_nothing(tmp_path: Path) -> None:
     answer = session_status(tmp_path)
 
     assert answer.running is False
-    assert not (tmp_path / ".aibuilder").exists()
+    assert not (tmp_path / ".framestack").exists()
 
 
 def test_speaking_without_a_session_is_refused_with_a_reason(tmp_path: Path) -> None:
@@ -227,7 +227,7 @@ def test_an_agent_installed_by_a_shell_is_found_from_a_window(monkeypatch, tmp_p
     machine" becomes true of one and false of the other -- correct-looking, and wrong in
     exactly the place a person would be using it.
     """
-    from aibuilder_core import session
+    from framestack_core import session
 
     installed = tmp_path / "claude"
     installed.write_text("#!/bin/sh\n", encoding="utf-8")
@@ -238,7 +238,7 @@ def test_an_agent_installed_by_a_shell_is_found_from_a_window(monkeypatch, tmp_p
 
 
 def test_no_agent_anywhere_is_an_answer_not_a_crash(monkeypatch) -> None:
-    from aibuilder_core import session
+    from framestack_core import session
 
     monkeypatch.setattr(session.shutil, "which", lambda _: None)
     monkeypatch.setattr(session, "FALLBACK_PATHS", ())
@@ -257,7 +257,7 @@ def spawn(monkeypatch, tmp_path: Path) -> list[list[str]]:
     is quiet: `--resume` without an id starts a new conversation, and `--resume` *without*
     `--fork-session` overwrites the branch a person asked to keep.
     """
-    from aibuilder_core import session
+    from framestack_core import session
 
     seen: list[list[str]] = []
 
@@ -284,7 +284,7 @@ def spawn(monkeypatch, tmp_path: Path) -> list[list[str]]:
 
 
 def test_a_new_conversation_is_given_an_id_by_us(monkeypatch, tmp_path: Path) -> None:
-    from aibuilder_core.session import start_session
+    from framestack_core.session import start_session
 
     seen = spawn(monkeypatch, tmp_path)
     answer = start_session(tmp_path)
@@ -296,7 +296,7 @@ def test_a_new_conversation_is_given_an_id_by_us(monkeypatch, tmp_path: Path) ->
 
 
 def test_continuing_names_the_conversation_and_does_not_fork(monkeypatch, tmp_path: Path) -> None:
-    from aibuilder_core.session import start_session
+    from framestack_core.session import start_session
 
     seen = spawn(monkeypatch, tmp_path)
     start_session(tmp_path, resume="abc-123")
@@ -310,7 +310,7 @@ def test_continuing_names_the_conversation_and_does_not_fork(monkeypatch, tmp_pa
 
 
 def test_a_fork_keeps_the_branch_it_came_from(monkeypatch, tmp_path: Path) -> None:
-    from aibuilder_core.session import start_session
+    from framestack_core.session import start_session
 
     seen = spawn(monkeypatch, tmp_path)
     start_session(tmp_path, resume="abc-123", fork=True)
@@ -323,7 +323,7 @@ def test_a_fork_keeps_the_branch_it_came_from(monkeypatch, tmp_path: Path) -> No
 def test_the_prompt_is_appended_on_every_way_in(monkeypatch, tmp_path: Path) -> None:
     """`--resume` restores a conversation, and what it restores of the system prompt is not
     ours to assume -- so the file is handed over again every time (§3: one set of rules)."""
-    from aibuilder_core.session import prompt_path, start_session
+    from framestack_core.session import prompt_path, start_session
 
     seen = spawn(monkeypatch, tmp_path)
     start_session(tmp_path)
@@ -332,13 +332,13 @@ def test_the_prompt_is_appended_on_every_way_in(monkeypatch, tmp_path: Path) -> 
 
     for command in seen:
         assert command[command.index("--append-system-prompt-file") + 1] == str(prompt_path())
-        assert "Write(.aibuilder/**)" in command
+        assert "Write(.framestack/**)" in command
 
 
 def test_a_forks_real_id_is_taken_from_the_agent(monkeypatch, tmp_path: Path) -> None:
     """We hand `--fork-session` over and the agent picks the new id. Predicting it would put
     a session in the list that cannot be resumed, which only shows up much later."""
-    from aibuilder_core.session import start_session
+    from framestack_core.session import start_session
 
     spawn(monkeypatch, tmp_path)
     start_session(tmp_path, resume="abc-123", fork=True)
@@ -358,7 +358,7 @@ def test_a_fork_keeps_the_conversation_it_forked(monkeypatch, tmp_path: Path) ->
     previous id is a real conversation somebody asked to keep. The claim was written from the
     mechanism rather than from what a fork is for, and it locked the bug in.
     """
-    from aibuilder_core.session import start_session
+    from framestack_core.session import start_session
 
     spawn(monkeypatch, tmp_path)
     start_session(tmp_path, resume="abc-123", fork=True)
@@ -373,7 +373,7 @@ def test_a_fork_keeps_the_conversation_it_forked(monkeypatch, tmp_path: Path) ->
 def test_an_id_the_agent_replaced_is_dropped(monkeypatch, tmp_path: Path) -> None:
     """The other half of the same rule: a uuid we invented and the agent did not use never
     named a conversation, and offering it to resume offers something that does not exist."""
-    from aibuilder_core.session import start_session
+    from framestack_core.session import start_session
 
     spawn(monkeypatch, tmp_path)
     invented = start_session(tmp_path).session
@@ -411,7 +411,7 @@ def test_a_session_that_never_says_which_model_claims_none(tmp_path: Path) -> No
 
 def talking(monkeypatch, tmp_path: Path) -> list[bytes]:
     """Open a session whose stdin is a list, so what was written can be read back."""
-    from aibuilder_core import session
+    from framestack_core import session
 
     written: list[bytes] = []
 
@@ -444,7 +444,7 @@ def talking(monkeypatch, tmp_path: Path) -> list[bytes]:
 
 def test_a_picture_goes_before_the_words_it_is_asked_about(monkeypatch, tmp_path: Path) -> None:
     """ "Here is the thing, and here is what I am asking about it" is the order it is read in."""
-    from aibuilder_core.session import say
+    from framestack_core.session import say
 
     written = talking(monkeypatch, tmp_path)
     one_pixel = "iVBORw0KGgo="
@@ -466,7 +466,7 @@ def test_a_format_the_agent_does_not_read_is_refused_before_it_is_written(
 ) -> None:
     """The pipe cannot be taken back out of. An unknown media type accepted here fails
     somewhere nobody can see it -- inside the agent, after the turn was sent."""
-    from aibuilder_core.session import say
+    from framestack_core.session import say
 
     written = talking(monkeypatch, tmp_path)
 
@@ -477,7 +477,7 @@ def test_a_format_the_agent_does_not_read_is_refused_before_it_is_written(
 
 
 def test_a_picture_that_did_not_arrive_whole_is_refused(monkeypatch, tmp_path: Path) -> None:
-    from aibuilder_core.session import say
+    from framestack_core.session import say
 
     written = talking(monkeypatch, tmp_path)
 
@@ -492,7 +492,7 @@ def test_a_turn_that_carried_a_picture_says_so_in_the_transcript(
 ) -> None:
     """Without the note the person's turn reads as a question about nothing; with the picture
     itself the transcript would be a second copy of a thing the agent already has."""
-    from aibuilder_core.session import say
+    from framestack_core.session import say
 
     talking(monkeypatch, tmp_path)
     log(tmp_path)
@@ -506,7 +506,7 @@ def test_a_turn_that_carried_a_picture_says_so_in_the_transcript(
 def test_a_turn_with_no_picture_is_the_message_and_nothing_added(
     monkeypatch, tmp_path: Path
 ) -> None:
-    from aibuilder_core.session import say
+    from framestack_core.session import say
 
     written = talking(monkeypatch, tmp_path)
     log(tmp_path)
@@ -526,7 +526,7 @@ def test_a_session_with_nothing_asked_for_names_no_model_and_no_effort(
 ) -> None:
     """An empty setting means **the agent picks**, so the flag is not passed at all. Passing
     a default of ours would be putting our choice in the agent's mouth and calling it its."""
-    from aibuilder_core.session import start_session
+    from framestack_core.session import start_session
 
     seen = spawn(monkeypatch, tmp_path)
     start_session(tmp_path)
@@ -539,7 +539,7 @@ def test_a_session_with_nothing_asked_for_names_no_model_and_no_effort(
 def test_what_was_configured_becomes_the_flags_of_the_next_session(
     monkeypatch, tmp_path: Path
 ) -> None:
-    from aibuilder_core.session import configure_session, start_session
+    from framestack_core.session import configure_session, start_session
 
     seen = spawn(monkeypatch, tmp_path)
     configure_session(tmp_path, model="opus", effort="high", mode="plan")
@@ -555,7 +555,7 @@ def test_manual_is_refused_by_name_rather_than_passed_along(tmp_path: Path) -> N
     """The CLI lists `manual` as a choice, accepts it, and then reports `default` -- it is
     taken and ignored. A setting that is accepted and does nothing is worse than one that is
     refused, and this is the second time that flag has looked available and not been (Q17)."""
-    from aibuilder_core.session import configure_session, read_settings
+    from framestack_core.session import configure_session, read_settings
 
     answer = configure_session(tmp_path, mode="manual")
 
@@ -565,17 +565,17 @@ def test_manual_is_refused_by_name_rather_than_passed_along(tmp_path: Path) -> N
 
 
 def test_skipping_permission_checks_is_not_a_setting_this_offers(tmp_path: Path) -> None:
-    """The agent is denied writes to `.aibuilder/` because its own evidence about itself is
+    """The agent is denied writes to `.framestack/` because its own evidence about itself is
     in there (Q16). A mode whose purpose is to skip permission checks is not a switch this
     application puts over that."""
-    from aibuilder_core.session import configure_session
+    from framestack_core.session import configure_session
 
     assert not configure_session(tmp_path, mode="bypassPermissions").ok
 
 
 def test_configuring_starts_nothing(monkeypatch, tmp_path: Path) -> None:
     """P11: nothing starts implicitly. Saving a setting is not asking for a conversation."""
-    from aibuilder_core.session import configure_session
+    from framestack_core.session import configure_session
 
     seen = spawn(monkeypatch, tmp_path)
     answer = configure_session(tmp_path, model="sonnet")
@@ -592,7 +592,7 @@ def test_configuring_starts_nothing(monkeypatch, tmp_path: Path) -> None:
 
 def test_a_setting_left_alone_is_not_the_same_as_one_set_to_nothing(tmp_path: Path) -> None:
     """`None` means "leave it"; `""` is the deliberate choice of the agent's own default."""
-    from aibuilder_core.session import configure_session, read_settings
+    from framestack_core.session import configure_session, read_settings
 
     configure_session(tmp_path, model="opus", effort="max")
     configure_session(tmp_path, effort="")
@@ -611,7 +611,7 @@ def test_changing_a_setting_restarts_the_open_conversation_and_keeps_it(
     """These are flags at spawn: there is no way to change a running session's model. So the
     conversation is resumed under its own id -- kept -- and the process it was being had in
     is not."""
-    from aibuilder_core.session import configure_session, start_session
+    from framestack_core.session import configure_session, start_session
 
     seen = spawn(monkeypatch, tmp_path)
     live(monkeypatch)  # after `spawn`, which makes the recorded pid look dead
@@ -632,7 +632,7 @@ def test_a_setting_written_by_hand_that_the_agent_would_reject_is_not_passed_on(
 ) -> None:
     """The file is on disk and somebody can edit it. What it holds is checked when it is read,
     because the alternative is handing the agent a flag it will refuse to start with."""
-    from aibuilder_core.session import SETTINGS_PATH, read_settings
+    from framestack_core.session import SETTINGS_PATH, read_settings
 
     path = tmp_path / SETTINGS_PATH
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -685,7 +685,7 @@ def test_a_poll_with_no_init_in_it_claims_no_commands(tmp_path: Path) -> None:
 def test_the_last_list_survives_a_session_that_sends_no_init(tmp_path: Path) -> None:
     """A **resumed** session sends no `init` until its first turn, so the alternative to
     remembering is showing nothing at all to exactly the person who has been here before."""
-    from aibuilder_core.session import read_commands, session_status
+    from framestack_core.session import read_commands, session_status
 
     log(
         tmp_path,
@@ -700,7 +700,7 @@ def test_the_last_list_survives_a_session_that_sends_no_init(tmp_path: Path) -> 
 def test_reading_commands_from_a_project_that_has_none_is_empty_not_an_error(
     tmp_path: Path,
 ) -> None:
-    from aibuilder_core.session import read_commands
+    from framestack_core.session import read_commands
 
     assert read_commands(tmp_path) == ()
 
@@ -717,7 +717,7 @@ def live(monkeypatch) -> list[int]:
     import os
 
     signalled: list[int] = []
-    from aibuilder_core import session
+    from framestack_core import session
 
     monkeypatch.setattr(session, "_alive", lambda _: True)
     monkeypatch.setattr(os, "getpgid", lambda pid: pid)
@@ -728,7 +728,7 @@ def live(monkeypatch) -> list[int]:
 def test_asking_for_the_conversation_already_open_starts_nothing(monkeypatch, tmp_path) -> None:
     """The one question "already open" answers. Pressing the same chip twice must not
     tear down the session it names and build it again."""
-    from aibuilder_core.session import start_session
+    from framestack_core.session import start_session
 
     seen = spawn(monkeypatch, tmp_path)
     start_session(tmp_path, resume="abc-123")
@@ -743,7 +743,7 @@ def test_asking_for_the_conversation_already_open_starts_nothing(monkeypatch, tm
 def test_another_conversation_is_switched_to_rather_than_refused(monkeypatch, tmp_path) -> None:
     """Naming a different conversation is a deliberate switch. Answering it with the session
     that happens to be running is how the conversation list came to do nothing at all."""
-    from aibuilder_core.session import start_session
+    from framestack_core.session import start_session
 
     seen = spawn(monkeypatch, tmp_path)
     start_session(tmp_path, resume="abc-123")
@@ -757,7 +757,7 @@ def test_another_conversation_is_switched_to_rather_than_refused(monkeypatch, tm
 
 
 def test_a_new_conversation_while_one_runs_is_a_new_conversation(monkeypatch, tmp_path) -> None:
-    from aibuilder_core.session import start_session
+    from framestack_core.session import start_session
 
     seen = spawn(monkeypatch, tmp_path)
     first = start_session(tmp_path)
@@ -772,7 +772,7 @@ def test_a_new_conversation_while_one_runs_is_a_new_conversation(monkeypatch, tm
 def test_forking_the_open_conversation_is_not_already_open(monkeypatch, tmp_path) -> None:
     """A fork of the live session names the same id and means something else entirely --
     keep this branch, start another beside it."""
-    from aibuilder_core.session import start_session
+    from framestack_core.session import start_session
 
     seen = spawn(monkeypatch, tmp_path)
     start_session(tmp_path, resume="abc-123")
@@ -790,7 +790,7 @@ def test_forking_the_open_conversation_is_not_already_open(monkeypatch, tmp_path
 def test_resuming_a_known_conversation_leaves_it_where_it_was(monkeypatch, tmp_path) -> None:
     """Reordering on resume makes a switch look exactly like nothing having happened: the
     chip a person pressed jumps to the front, which is where the active one already was."""
-    from aibuilder_core.session import list_sessions, start_session
+    from framestack_core.session import list_sessions, start_session
 
     spawn(monkeypatch, tmp_path)
     first = start_session(tmp_path).session
@@ -805,7 +805,7 @@ def test_resuming_a_known_conversation_leaves_it_where_it_was(monkeypatch, tmp_p
 
 
 def test_forgetting_drops_the_reference_and_not_the_transcript(monkeypatch, tmp_path) -> None:
-    from aibuilder_core.session import forget_session, list_sessions, start_session
+    from framestack_core.session import forget_session, list_sessions, start_session
 
     spawn(monkeypatch, tmp_path)
     first = start_session(tmp_path).session
@@ -822,7 +822,7 @@ def test_forgetting_drops_the_reference_and_not_the_transcript(monkeypatch, tmp_
 def test_forgetting_the_open_conversation_closes_it_first(monkeypatch, tmp_path) -> None:
     """A list entry is the only way back to a session, so dropping it while it ran would
     leave a process nothing could name."""
-    from aibuilder_core.session import forget_session, session_status, start_session
+    from framestack_core.session import forget_session, session_status, start_session
 
     spawn(monkeypatch, tmp_path)
     opened = start_session(tmp_path).session
@@ -836,7 +836,7 @@ def test_forgetting_the_open_conversation_closes_it_first(monkeypatch, tmp_path)
 
 def test_a_conversation_can_be_given_a_name(monkeypatch, tmp_path) -> None:
     """The label is the only field of a conversation that belongs to the person."""
-    from aibuilder_core.session import list_sessions, rename_session, start_session
+    from framestack_core.session import list_sessions, rename_session, start_session
 
     spawn(monkeypatch, tmp_path)
     opened = start_session(tmp_path).session
@@ -851,7 +851,7 @@ def test_a_conversation_can_be_given_a_name(monkeypatch, tmp_path) -> None:
 
 
 def test_an_empty_name_puts_the_default_back(monkeypatch, tmp_path) -> None:
-    from aibuilder_core.session import list_sessions, rename_session, start_session
+    from framestack_core.session import list_sessions, rename_session, start_session
 
     spawn(monkeypatch, tmp_path)
     opened = start_session(tmp_path).session
@@ -866,7 +866,7 @@ def test_an_empty_name_puts_the_default_back(monkeypatch, tmp_path) -> None:
 def test_a_name_is_capped_rather_than_refused(monkeypatch, tmp_path) -> None:
     """A chip is not a place to write in, and refusing a long name would be a dialog about
     a field that should simply hold what fits."""
-    from aibuilder_core.session import NAME_LIMIT, list_sessions, rename_session, start_session
+    from framestack_core.session import NAME_LIMIT, list_sessions, rename_session, start_session
 
     spawn(monkeypatch, tmp_path)
     opened = start_session(tmp_path).session
@@ -878,7 +878,7 @@ def test_a_name_is_capped_rather_than_refused(monkeypatch, tmp_path) -> None:
 
 
 def test_naming_a_conversation_that_is_not_there_is_refused(tmp_path: Path) -> None:
-    from aibuilder_core.session import rename_session
+    from framestack_core.session import rename_session
 
     answer = rename_session(tmp_path, "no-such-id", "whatever")
 
@@ -958,7 +958,7 @@ def test_a_refused_tool_is_still_told_apart_from_one_that_worked(tmp_path: Path)
 def test_an_enormous_result_is_excerpted_and_says_so(tmp_path: Path) -> None:
     """A `Read` of a large file answers with the whole file. Trailing off would read as the
     whole answer; the log keeps everything either way."""
-    from aibuilder_core.session import EXCERPT
+    from framestack_core.session import EXCERPT
 
     log(
         tmp_path,
@@ -1040,7 +1040,7 @@ def test_a_stream_event_that_is_not_a_delta_says_nothing(tmp_path: Path) -> None
 def test_the_account_is_read_from_the_agent(monkeypatch) -> None:
     """Asked, never assumed (§5.8) -- and never held: the credential is the CLI's, put on
     this machine by its own browser flow, and the core has nothing to store."""
-    from aibuilder_core import session
+    from framestack_core import session
 
     told = {
         "loggedIn": True,
@@ -1065,7 +1065,7 @@ def test_the_account_is_read_from_the_agent(monkeypatch) -> None:
 def test_an_agent_that_answers_nothing_useful_says_it_does_not_know(monkeypatch) -> None:
     """Not knowing is an answer. Guessing that somebody is signed in would put a person's
     subscription behind a button that claims to be ready."""
-    from aibuilder_core import session
+    from framestack_core import session
 
     monkeypatch.setattr(session, "agent_binary", lambda: "claude")
     monkeypatch.setattr(
@@ -1081,7 +1081,7 @@ def test_an_agent_that_answers_nothing_useful_says_it_does_not_know(monkeypatch)
 
 
 def test_no_agent_means_no_account_and_no_crash(monkeypatch) -> None:
-    from aibuilder_core import session
+    from framestack_core import session
 
     monkeypatch.setattr(session, "agent_binary", lambda: None)
 
@@ -1094,7 +1094,7 @@ def test_no_agent_means_no_account_and_no_crash(monkeypatch) -> None:
 def test_asking_who_is_signed_in_signs_nobody_in(monkeypatch) -> None:
     """A read that could start a browser flow would be P11's rule broken in the one place
     it is most surprising: looking at the panel."""
-    from aibuilder_core import session
+    from framestack_core import session
 
     ran: list[list[str]] = []
     monkeypatch.setattr(session, "agent_binary", lambda: "claude")
@@ -1113,8 +1113,8 @@ def test_asking_who_is_signed_in_signs_nobody_in(monkeypatch) -> None:
 
 
 def test_the_account_payload_matches_the_declared_contract(monkeypatch) -> None:
-    from aibuilder_core import session
-    from aibuilder_core.api import AGENT_ACCOUNT_SCHEMA, agent_account
+    from framestack_core import session
+    from framestack_core.api import AGENT_ACCOUNT_SCHEMA, agent_account
 
     monkeypatch.setattr(session, "agent_binary", lambda: None)
 
@@ -1127,7 +1127,7 @@ def test_the_account_payload_matches_the_declared_contract(monkeypatch) -> None:
 def test_switching_conversations_does_not_destroy_the_one_left(monkeypatch, tmp_path) -> None:
     """One log per project, truncated on every start, meant the transcript of the
     conversation being left was gone -- the agent kept its own, ours did not exist."""
-    from aibuilder_core.session import start_session
+    from framestack_core.session import start_session
 
     spawn(monkeypatch, tmp_path)
     first = start_session(tmp_path).session
@@ -1139,12 +1139,12 @@ def test_switching_conversations_does_not_destroy_the_one_left(monkeypatch, tmp_
 
     assert [(e["kind"], e["text"]) for e in poll_session(tmp_path).events] == []
     # And the one that was left still has its own words, under its own name.
-    kept = tmp_path / ".aibuilder" / "conversations" / f"{first}.log"
+    kept = tmp_path / ".framestack" / "conversations" / f"{first}.log"
     assert "one" in kept.read_text(encoding="utf-8")
 
 
 def test_coming_back_to_a_conversation_finds_what_it_said(monkeypatch, tmp_path) -> None:
-    from aibuilder_core.session import start_session
+    from framestack_core.session import start_session
 
     spawn(monkeypatch, tmp_path)
     first = start_session(tmp_path).session
@@ -1161,7 +1161,7 @@ def test_coming_back_to_a_conversation_finds_what_it_said(monkeypatch, tmp_path)
 def test_a_fork_does_not_truncate_the_conversation_it_forks(monkeypatch, tmp_path) -> None:
     """The trap of this design: a fork spawns under the id it is forking, so a log keyed by
     that id would open the original's transcript and empty it before the real id is known."""
-    from aibuilder_core.session import start_session
+    from framestack_core.session import start_session
 
     spawn(monkeypatch, tmp_path)
     first = start_session(tmp_path).session
@@ -1171,12 +1171,12 @@ def test_a_fork_does_not_truncate_the_conversation_it_forks(monkeypatch, tmp_pat
 
     start_session(tmp_path, resume=first, fork=True)
 
-    original = tmp_path / ".aibuilder" / "conversations" / f"{first}.log"
+    original = tmp_path / ".framestack" / "conversations" / f"{first}.log"
     assert "one" in original.read_text(encoding="utf-8")
 
 
 def test_a_forks_transcript_follows_the_id_the_agent_gave_it(monkeypatch, tmp_path) -> None:
-    from aibuilder_core.session import start_session
+    from framestack_core.session import start_session
 
     spawn(monkeypatch, tmp_path)
     first = start_session(tmp_path).session
@@ -1187,12 +1187,12 @@ def test_a_forks_transcript_follows_the_id_the_agent_gave_it(monkeypatch, tmp_pa
 
     poll_session(tmp_path)
 
-    assert (tmp_path / ".aibuilder" / "conversations" / "the-fork.log").is_file()
+    assert (tmp_path / ".framestack" / "conversations" / "the-fork.log").is_file()
 
 
 def test_forgetting_a_conversation_deletes_its_transcript(monkeypatch, tmp_path) -> None:
     """The one place a transcript is deleted. Everything else keeps it."""
-    from aibuilder_core.session import forget_session, start_session
+    from framestack_core.session import forget_session, start_session
 
     spawn(monkeypatch, tmp_path)
     opened = start_session(tmp_path).session
@@ -1202,14 +1202,14 @@ def test_forgetting_a_conversation_deletes_its_transcript(monkeypatch, tmp_path)
 
     forget_session(tmp_path, opened)
 
-    assert not (tmp_path / ".aibuilder" / "conversations" / f"{opened}.log").is_file()
+    assert not (tmp_path / ".framestack" / "conversations" / f"{opened}.log").is_file()
 
 
 def test_what_the_person_said_is_kept_because_nothing_else_keeps_it(monkeypatch, tmp_path) -> None:
     """Checked rather than assumed: the agent's stream carries what it says and what its
     tools answer, and not one line of what it was asked. A conversation reopened later had
     the replies and none of the questions."""
-    from aibuilder_core.session import _remember_said, start_session
+    from framestack_core.session import _remember_said, start_session
 
     spawn(monkeypatch, tmp_path)
     start_session(tmp_path)
@@ -1225,7 +1225,7 @@ def test_what_the_person_said_is_kept_because_nothing_else_keeps_it(monkeypatch,
 def test_a_question_is_put_back_where_it_was_asked(monkeypatch, tmp_path) -> None:
     """Woven in by the position the log had reached, not appended at one end -- which would
     put every question after every answer."""
-    from aibuilder_core.session import _remember_said, start_session
+    from framestack_core.session import _remember_said, start_session
 
     spawn(monkeypatch, tmp_path)
     start_session(tmp_path)
@@ -1256,8 +1256,8 @@ def test_a_turns_cost_is_reported_as_it_is_written(tmp_path: Path) -> None:
 def test_stopping_a_turn_is_not_stopping_the_conversation(monkeypatch, tmp_path) -> None:
     """The agent takes a control message and ends the turn. Killing the process would throw
     away the session and the thread of what was being discussed to cancel one answer."""
-    from aibuilder_core import session
-    from aibuilder_core.session import interrupt, start_session
+    from framestack_core import session
+    from framestack_core.session import interrupt, start_session
 
     seen = spawn(monkeypatch, tmp_path)
     written: list[bytes] = []
@@ -1284,7 +1284,7 @@ def test_stopping_a_turn_is_not_stopping_the_conversation(monkeypatch, tmp_path)
 
 
 def test_stopping_when_nothing_runs_is_an_answer_not_a_crash(tmp_path: Path) -> None:
-    from aibuilder_core.session import interrupt
+    from framestack_core.session import interrupt
 
     assert interrupt(tmp_path).ok is False
 
@@ -1431,8 +1431,8 @@ def test_a_control_request_that_is_not_a_question_is_not_one(tmp_path: Path) -> 
 
 def test_answering_a_request_nobody_asked_is_refused(tmp_path: Path) -> None:
     """A request that is not in this log is one this session never saw."""
-    from aibuilder_core import session
-    from aibuilder_core.session import answer_permission
+    from framestack_core import session
+    from framestack_core.session import answer_permission
 
     session._LIVE[str(tmp_path.resolve())] = _Listening()
     log(tmp_path, ask())
@@ -1452,8 +1452,8 @@ def test_answering_writes_the_response_the_turn_is_blocked_on(tmp_path: Path) ->
     this application editing a command on its way to a shell. Plain "Allow" sends no rules:
     it answers this request and nothing beyond it.
     """
-    from aibuilder_core import session
-    from aibuilder_core.session import answer_permission
+    from framestack_core import session
+    from framestack_core.session import answer_permission
 
     listening = _Listening()
     session._LIVE[str(tmp_path.resolve())] = listening
@@ -1479,8 +1479,8 @@ def test_always_sends_back_the_rule_the_agent_itself_suggested(tmp_path: Path) -
     vocabulary -- the thing §5.8 exists to stop. What the agent suggested is sent back
     unchanged, and it writes it where its own terminal will find it.
     """
-    from aibuilder_core import session
-    from aibuilder_core.session import answer_permission
+    from framestack_core import session
+    from framestack_core.session import answer_permission
 
     listening = _Listening()
     session._LIVE[str(tmp_path.resolve())] = listening
@@ -1497,8 +1497,8 @@ def test_always_sends_back_the_rule_the_agent_itself_suggested(tmp_path: Path) -
 
 def test_a_denial_is_said_in_the_persons_name(tmp_path: Path) -> None:
     """The agent explains this to the person next, and "denied" alone reads as a failure."""
-    from aibuilder_core import session
-    from aibuilder_core.session import answer_permission
+    from framestack_core import session
+    from framestack_core.session import answer_permission
 
     listening = _Listening()
     session._LIVE[str(tmp_path.resolve())] = listening
@@ -1523,8 +1523,8 @@ def test_what_was_answered_is_remembered_because_the_stream_does_not_say(
     or never, if the answer was no. So a panel reading the log alone would offer the buttons
     again to somebody who had already pressed one.
     """
-    from aibuilder_core import session
-    from aibuilder_core.session import answer_permission
+    from framestack_core import session
+    from framestack_core.session import answer_permission
 
     session._LIVE[str(tmp_path.resolve())] = _Listening()
     log(tmp_path, ask())
@@ -1541,7 +1541,7 @@ def test_what_was_answered_is_remembered_because_the_stream_does_not_say(
 
 
 def test_answering_without_a_session_is_refused_rather_than_pretended(tmp_path: Path) -> None:
-    from aibuilder_core.session import answer_permission
+    from framestack_core.session import answer_permission
 
     log(tmp_path, ask())
     refused = answer_permission(tmp_path, "req-1", allow=True)
@@ -1584,12 +1584,12 @@ def test_running_commands_is_a_setting_of_its_own_and_not_the_mode(
     Neither permission mode lets a command through: `acceptEdits` asks for an approval this
     transport cannot carry (Q17), and `dontAsk` refuses outright -- "permission to use Bash
     has been denied because Claude Code is running in don't ask mode". What decides is the
-    tool policy, the same mechanism that already keeps the agent out of `.aibuilder/`.
+    tool policy, the same mechanism that already keeps the agent out of `.framestack/`.
 
     Off unless somebody says otherwise: a builder that shipped shell access turned on would
     be deciding for everyone that an agent may run anything in their project.
     """
-    from aibuilder_core.session import configure_session, start_session
+    from framestack_core.session import configure_session, start_session
 
     seen = spawn(monkeypatch, tmp_path)
 
@@ -1605,7 +1605,7 @@ def test_running_commands_is_a_setting_of_its_own_and_not_the_mode(
 
 
 def test_a_command_policy_the_agent_would_not_understand_is_refused(tmp_path: Path) -> None:
-    from aibuilder_core.session import configure_session
+    from framestack_core.session import configure_session
 
     refused = configure_session(tmp_path, commands="everything")
 
@@ -1624,19 +1624,19 @@ def test_the_only_thing_denied_by_name_is_the_builders_own_directory(
     denied tool never asks -- and `ls /tmp/uvicorn.log`, a log the agent had written a moment
     earlier, came back refused with no way to say yes.
 
-    `.aibuilder/` stays denied because it is not a question: an agent that could edit the
+    `.framestack/` stays denied because it is not a question: an agent that could edit the
     snapshot would be forging evidence about itself, and there is nobody to ask about that.
     """
-    from aibuilder_core.session import DENIED, start_session
+    from framestack_core.session import DENIED, start_session
 
-    assert DENIED == ("Edit(.aibuilder/**)", "Write(.aibuilder/**)")
+    assert DENIED == ("Edit(.framestack/**)", "Write(.framestack/**)")
 
     seen = spawn(monkeypatch, tmp_path)
     start_session(tmp_path)
 
     line = seen[-1]
     refused = line[line.index("--disallowed-tools") + 1 : line.index("--append-system-prompt-file")]
-    assert "Write(.aibuilder/**)" in refused
+    assert "Write(.framestack/**)" in refused
     assert not any(rule.startswith("Bash(") for rule in refused)
 
 
@@ -1648,7 +1648,7 @@ def test_a_request_for_permission_has_somewhere_to_go(monkeypatch, tmp_path: Pat
     `--help`, so it was measured against the running CLI before being relied on -- and this
     test is what stops it being dropped by somebody tidying the command line.
     """
-    from aibuilder_core.session import start_session
+    from framestack_core.session import start_session
 
     seen = spawn(monkeypatch, tmp_path)
     start_session(tmp_path)

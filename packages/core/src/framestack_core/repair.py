@@ -31,12 +31,12 @@ from typing import Any
 
 import libcst as cst
 
-from aibuilder_core.diagnostics import Diagnostic
-from aibuilder_core.observe import run_observations
-from aibuilder_core.project import read_project
-from aibuilder_core.reconcile import Divergence, DivergenceCode, Fault, Resolution, reconcile
-from aibuilder_core.snapshot import Snapshot, load_snapshot, save_snapshot, take_snapshot
-from aibuilder_core.writer import _apply
+from framestack_core.diagnostics import Diagnostic
+from framestack_core.observe import run_observations
+from framestack_core.project import read_project
+from framestack_core.reconcile import Divergence, DivergenceCode, Fault, Resolution, reconcile
+from framestack_core.snapshot import Snapshot, load_snapshot, save_snapshot, take_snapshot
+from framestack_core.writer import _apply
 
 __all__ = ["RepairResult", "apply_repair", "list_repairs", "repair_request"]
 
@@ -292,7 +292,7 @@ def _accept(project: Path, observe: bool) -> RepairResult:
 
 def _settle(project: Path, observe: bool, file: str | None) -> RepairResult:
     """Re-enter the gates, and move the reference only on a both-conditions pass (I-5)."""
-    from aibuilder_core.gate import check_graph
+    from framestack_core.gate import check_graph
 
     graph = read_project(project)
     result = check_graph(graph)

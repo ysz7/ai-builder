@@ -21,7 +21,7 @@ from typing import Any
 
 import pytest
 
-from aibuilder_core.agent import (
+from framestack_core.agent import (
     AGENT_LOG_PATH,
     build_brief,
     failure_modes,
@@ -30,9 +30,9 @@ from aibuilder_core.agent import (
     record_outcome,
     system_prompt,
 )
-from aibuilder_core.api import agent_blueprints, agent_brief, read_graph
-from aibuilder_core.catalog import find_catalog, list_blueprints, load_blueprint
-from aibuilder_core.kinds import REGISTRY
+from framestack_core.api import agent_blueprints, agent_brief, read_graph
+from framestack_core.catalog import find_catalog, list_blueprints, load_blueprint
+from framestack_core.kinds import REGISTRY
 
 EXAMPLE = Path(__file__).resolve().parents[3] / "examples" / "fastapi-service"
 MIS_ANNOTATED = Path(__file__).parent / "fixtures" / "mis-annotated"
@@ -57,7 +57,7 @@ def _no_ambient_catalog(monkeypatch: pytest.MonkeyPatch) -> None:
     a machine that has one set -- and a test that silently read it would pass or fail for
     reasons that have nothing to do with the code.
     """
-    monkeypatch.delenv("AIBUILDER_BLUEPRINTS", raising=False)
+    monkeypatch.delenv("FRAMESTACK_BLUEPRINTS", raising=False)
 
 
 def catalog(tmp_path: Path, text: str = SPEC) -> Path:
@@ -313,7 +313,7 @@ def test_an_empty_log_tallies_to_nothing(tmp_path: Path) -> None:
 
 
 def request(method: str, **params: Any) -> dict[str, Any]:
-    from aibuilder_core.__main__ import handle_line
+    from framestack_core.__main__ import handle_line
 
     line = handle_line(json.dumps({"id": 1, "method": method, "params": params}))
     assert line is not None

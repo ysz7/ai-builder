@@ -26,8 +26,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from enum import Enum
 
-from aibuilder_core.ir import Graph, Location
-from aibuilder_core.snapshot import NodeOutline, Snapshot
+from framestack_core.ir import Graph, Location
+from framestack_core.snapshot import NodeOutline, Snapshot
 
 __all__ = ["Divergence", "DivergenceCode", "Fault", "Resolution", "reconcile"]
 

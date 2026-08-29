@@ -12,10 +12,10 @@ import shutil
 import textwrap
 from pathlib import Path
 
-from aibuilder_core.gate import check_graph
-from aibuilder_core.observe import build_plan, run_observations
-from aibuilder_core.parser import parse_project
-from aibuilder_core.verdict import Verdict
+from framestack_core.gate import check_graph
+from framestack_core.observe import build_plan, run_observations
+from framestack_core.parser import parse_project
+from framestack_core.verdict import Verdict
 
 FIXTURES = Path(__file__).parent / "fixtures"
 BROKEN_RUNTIME = FIXTURES / "broken-runtime"
@@ -374,8 +374,8 @@ def test_a_degraded_check_says_what_it_was_written_against(tmp_path: Path) -> No
     against are two facts the reader has to put together; printing them apart makes that
     the reader's job.
     """
-    from aibuilder_core.observe import build_plan
-    from aibuilder_core.probe import run_plan
+    from framestack_core.observe import build_plan
+    from framestack_core.probe import run_plan
 
     root = without_tests(tmp_path)
     plan = build_plan(parse_project(root), root)

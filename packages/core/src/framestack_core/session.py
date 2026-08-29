@@ -21,7 +21,7 @@ Three rules carried over from P13, unchanged:
 * **Nothing starts implicitly.** No read, no poll and no status check ever starts the agent;
   `agent.start` exists so that nothing else has to.
 
-And one rule of its own, from Q16: the agent is **denied writes to `.aibuilder/`**. The
+And one rule of its own, from Q16: the agent is **denied writes to `.framestack/`**. The
 snapshot, the run records and the agent's own log live there, and an agent that could edit
 the snapshot would be forging evidence about itself.
 """
@@ -40,7 +40,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from aibuilder_core.agent import prompt_path
+from framestack_core.agent import prompt_path
 
 __all__ = [
     "AGENT_LOG_PATH",
@@ -64,18 +64,18 @@ __all__ = [
 ]
 
 #: Beside the run and worker records. Tooling state; delete it and the project is unchanged.
-AGENT_STATE_PATH = Path(".aibuilder") / "session.json"
+AGENT_STATE_PATH = Path(".framestack") / "session.json"
 #: The raw stream, one JSON object per line, exactly as the agent wrote it.
 #: Where a conversation's stream is kept, one file per conversation.
 #:
 #: **Per conversation and not per project.** One file, truncated on every `agent.start`, meant
 #: that switching conversations destroyed the transcript of the one being left: the agent
 #: keeps its own, ours was gone, and "go back to that conversation" showed an empty panel.
-LOGS_PATH = Path(".aibuilder") / "conversations"
+LOGS_PATH = Path(".framestack") / "conversations"
 
 #: The log of a project with no session on record. Kept for exactly that case -- reading a
 #: stream that no `agent.start` produced -- and never written to by a session.
-AGENT_LOG_PATH = Path(".aibuilder") / "session.log"
+AGENT_LOG_PATH = Path(".framestack") / "session.log"
 #: What the agent said it can be asked to do, kept from the last `init` line it sent.
 #:
 #: **Read rather than hard-coded.** The list belongs to the agent: it changes with its
@@ -83,11 +83,11 @@ AGENT_LOG_PATH = Path(".aibuilder") / "session.log"
 #: else's installation that goes stale without ever looking wrong. Kept on disk because a
 #: **resumed** session sends no `init` until its first turn -- so the alternative to
 #: remembering is showing nothing at all to exactly the person who has been here before.
-COMMANDS_PATH = Path(".aibuilder") / "commands.json"
+COMMANDS_PATH = Path(".framestack") / "commands.json"
 
 #: The conversations this project has had. A list of ids the agent owns, not a transcript --
 #: what was said lives in the agent's own store, and this is only how to ask for it again.
-SESSIONS_PATH = Path(".aibuilder") / "sessions.json"
+SESSIONS_PATH = Path(".framestack") / "sessions.json"
 
 #: Where a permission request is answered from. **A flag, and it is the whole of Q21.**
 #:
@@ -114,10 +114,10 @@ PERMISSION_PROMPT = ("--permission-prompt-tool", "stdio")
 #: written -- came back refused with no way to say yes. What was a boundary became a wall
 #: across the middle of ordinary work.
 #:
-#: So the boundary is the question now, and `.aibuilder/` stays denied because it is not a
+#: So the boundary is the question now, and `.framestack/` stays denied because it is not a
 #: question: an agent that could edit the snapshot would be forging evidence about itself,
 #: and there is nobody to ask about that.
-DENIED = ("Edit(.aibuilder/**)", "Write(.aibuilder/**)")
+DENIED = ("Edit(.framestack/**)", "Write(.framestack/**)")
 
 #: How a session is set up, kept because the flags that set it are **flags at spawn**.
 #:
@@ -125,7 +125,7 @@ DENIED = ("Edit(.aibuilder/**)", "Write(.aibuilder/**)")
 #: one in a conversation that is already running. So changing one is a restart with
 #: `--resume` -- the conversation survives, its process does not -- and the setting has to be
 #: written down somewhere, or the restart would not know what to start with.
-SETTINGS_PATH = Path(".aibuilder") / "agent-settings.json"
+SETTINGS_PATH = Path(".framestack") / "agent-settings.json"
 
 #: The models a session may be asked for, as **the agent's own aliases**.
 #:
@@ -147,7 +147,7 @@ EFFORTS = ("", "low", "medium", "high", "xhigh", "max")
 #: name rather than passed along to be quietly dropped.
 #:
 #: **`bypassPermissions` is not here either**, and for a different reason: the agent is denied
-#: writes to `.aibuilder/` because its own evidence about itself is in there, and a mode whose
+#: writes to `.framestack/` because its own evidence about itself is in there, and a mode whose
 #: whole purpose is to skip permission checks is not a switch this application offers over
 #: that. A person who wants it has the agent's own terminal.
 #:
@@ -1040,7 +1040,7 @@ def answer_permission(
 
     `always` is the agent's own suggestion and the agent's own store: the rule lands in the
     project's `.claude/settings.local.json`, where the same person's terminal will find it.
-    Nothing about permission is kept in `.aibuilder/` except which requests were answered,
+    Nothing about permission is kept in `.framestack/` except which requests were answered,
     because that is a fact about our transcript rather than about their policy.
     """
     root = Path(project).resolve()

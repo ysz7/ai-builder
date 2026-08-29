@@ -22,8 +22,8 @@ from pathlib import Path
 
 import pytest
 
-from aibuilder_core.api import read_graph
-from aibuilder_core.runner import (
+from framestack_core.api import read_graph
+from framestack_core.runner import (
     RUN_STATE_PATH,
     call_endpoint,
     read_logs,
@@ -40,7 +40,7 @@ SERVICE = EXAMPLES / "fastapi-service"
 def project(tmp_path: Path) -> Path:
     """A copy of the reference service, and nothing of it left running afterwards."""
     root = tmp_path / "service"
-    shutil.copytree(SERVICE, root, ignore=shutil.ignore_patterns("__pycache__", ".aibuilder"))
+    shutil.copytree(SERVICE, root, ignore=shutil.ignore_patterns("__pycache__", ".framestack"))
     try:
         yield root
     finally:
@@ -84,7 +84,7 @@ def test_stopping_works_on_a_process_this_session_did_not_start(project: Path) -
     Forgetting the process in memory is exactly what a crash does. What survives is the
     file, and `stop` has to work from that alone.
     """
-    from aibuilder_core import runner
+    from framestack_core import runner
 
     started = start_application(project)
     assert started.ok is True
@@ -145,7 +145,7 @@ def test_a_project_with_no_application_is_refused_with_the_reason(tmp_path: Path
 
 def test_ending_the_session_ends_what_it_started(project: Path) -> None:
     """A session is the sidecar's lifetime; a CLI invocation is not one."""
-    from aibuilder_core.runner import stop_everything_started_here
+    from framestack_core.runner import stop_everything_started_here
 
     start_application(project)
     assert run_status(project).ok is True

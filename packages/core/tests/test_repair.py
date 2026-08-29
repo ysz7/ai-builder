@@ -14,10 +14,10 @@ from pathlib import Path
 
 import pytest
 
-from aibuilder_core.parser import parse_project
-from aibuilder_core.reconcile import reconcile
-from aibuilder_core.repair import apply_repair, list_repairs
-from aibuilder_core.snapshot import load_snapshot, save_snapshot, take_snapshot
+from framestack_core.parser import parse_project
+from framestack_core.reconcile import reconcile
+from framestack_core.repair import apply_repair, list_repairs
+from framestack_core.snapshot import load_snapshot, save_snapshot, take_snapshot
 
 EXAMPLE = Path(__file__).resolve().parents[3] / "examples" / "fastapi-service"
 

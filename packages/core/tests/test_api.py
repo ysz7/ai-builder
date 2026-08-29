@@ -12,7 +12,7 @@ import json
 from pathlib import Path
 from typing import Any
 
-from aibuilder_core.api import (
+from framestack_core.api import (
     AGENT_BLUEPRINTS_SCHEMA,
     AGENT_BRIEF_SCHEMA,
     AGENT_FAILURES_SCHEMA,
@@ -43,7 +43,7 @@ from aibuilder_core.api import (
     write_knob,
     write_node_title,
 )
-from aibuilder_core.gate import GateMode
+from framestack_core.gate import GateMode
 
 EXAMPLE = Path(__file__).resolve().parents[3] / "examples" / "fastapi-service"
 FIXTURE = Path(__file__).parent / "fixtures" / "mis-annotated"
@@ -267,8 +267,8 @@ def test_the_write_payloads_match_the_declared_contract(tmp_path: Path) -> None:
 def test_the_repair_payloads_match_the_declared_contract(tmp_path: Path) -> None:
     import shutil
 
-    from aibuilder_core.parser import parse_project
-    from aibuilder_core.snapshot import save_snapshot, take_snapshot
+    from framestack_core.parser import parse_project
+    from framestack_core.snapshot import save_snapshot, take_snapshot
 
     root = tmp_path / "project"
     shutil.copytree(EXAMPLE, root)
@@ -344,7 +344,7 @@ def test_the_environment_payloads_match_the_declared_contract(tmp_path: Path) ->
 
 
 def request(method: str, **params: Any) -> dict[str, Any]:
-    from aibuilder_core.__main__ import handle_line
+    from framestack_core.__main__ import handle_line
 
     line = handle_line(json.dumps({"id": 1, "method": method, "params": params}))
     assert line is not None

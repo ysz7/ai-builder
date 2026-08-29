@@ -19,7 +19,7 @@ import { Grip } from "./Grip";
 /** What is left when the dock is collapsed: exactly the header. */
 const HEADER = 34;
 const MIN_OPEN = 96;
-const REMEMBERED = "aibuilder.dock";
+const REMEMBERED = "framestack.dock";
 
 /**
  * One face of the dock. `badge` is a count worth seeing without opening it -- how much is
@@ -58,7 +58,7 @@ function stored(): number {
  * to unmount on every re-read, which sent the person back to the first tab several times a
  * minute; keeping it means even a reload comes back where they were.
  */
-const FACE = "aibuilder.dock-face";
+const FACE = "framestack.dock-face";
 
 export function Dock({ faces, face, onFace }: Props) {
   const [tab, setTab] = useState(

@@ -13,4 +13,4 @@ if ! command -v uv >/dev/null 2>&1; then
     exit 127
 fi
 
-exec uv run --project "$ROOT" python -m aibuilder_core "$@"
+exec uv run --project "$ROOT" python -m framestack_core "$@"

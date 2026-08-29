@@ -19,10 +19,10 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from enum import Enum
 
-from aibuilder_core.diagnostics import Code, Diagnostic, Severity, describe
-from aibuilder_core.ir import Graph, Node
-from aibuilder_core.kinds import CarrierType, lookup
-from aibuilder_core.verdict import Observation, Verdict, verdict_for
+from framestack_core.diagnostics import Code, Diagnostic, Severity, describe
+from framestack_core.ir import Graph, Node
+from framestack_core.kinds import CarrierType, lookup
+from framestack_core.verdict import Observation, Verdict, verdict_for
 
 __all__ = ["GateMode", "GateResult", "check_graph"]
 

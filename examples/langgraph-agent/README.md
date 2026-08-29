@@ -21,5 +21,5 @@ node is proven by a test that actually entered it.
 
 ```bash
 uv run pytest examples/langgraph-agent/tests
-uv run python -m aibuilder_core check examples/langgraph-agent --observe
+uv run python -m framestack_core check examples/langgraph-agent --observe
 ```

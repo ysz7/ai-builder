@@ -1,6 +1,6 @@
 """Where the person put things on the canvas.
 
-The fifth file in `.aibuilder/`, and it belongs to the same family as the other four: the
+The fifth file in `.framestack/`, and it belongs to the same family as the other four: the
 snapshot, the run record, the worker record and the agent log are all state the toolchain
 keeps *about* a project without the project depending on any of it. Delete this one and
 nothing changes except that the nodes come back in different places.
@@ -29,7 +29,7 @@ from typing import Any
 __all__ = ["LAYOUT_PATH", "LayoutWrite", "create_project", "read_layout", "write_layout"]
 
 #: Beside the snapshot and the run records. Tooling state, never project source.
-LAYOUT_PATH = Path(".aibuilder") / "layout.json"
+LAYOUT_PATH = Path(".framestack") / "layout.json"
 
 
 @dataclass(frozen=True)

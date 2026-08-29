@@ -14,10 +14,10 @@ from pathlib import Path
 
 import libcst as cst
 
-from aibuilder_core.parser import parse_project
-from aibuilder_core.reconcile import reconcile
-from aibuilder_core.snapshot import load_snapshot, save_snapshot, take_snapshot
-from aibuilder_core.writer import WriteResult, set_body, set_knob, set_node_title
+from framestack_core.parser import parse_project
+from framestack_core.reconcile import reconcile
+from framestack_core.snapshot import load_snapshot, save_snapshot, take_snapshot
+from framestack_core.writer import WriteResult, set_body, set_knob, set_node_title
 
 EXAMPLE = Path(__file__).resolve().parents[3] / "examples" / "fastapi-service"
 
@@ -210,7 +210,7 @@ def test_a_write_that_would_break_the_gate_is_undone(tmp_path: Path) -> None:
     exercised through a transformer that deliberately breaks the project. The repairs in
     P7 edit far more than a literal, and this is the net under them.
     """
-    from aibuilder_core.writer import _apply
+    from framestack_core.writer import _apply
 
     root = project(tmp_path)
     before = (root / "app/api/health.py").read_text()
@@ -380,7 +380,7 @@ def test_a_body_write_moves_the_reference_with_it(tmp_path: Path) -> None:
 
 def test_the_body_verb_is_a_method_in_the_core(tmp_path: Path) -> None:
     """The extension point is `HANDLERS`, never a new command in the Rust shell."""
-    from aibuilder_core.handlers import dispatch
+    from framestack_core.handlers import dispatch
 
     root = project(tmp_path)
 

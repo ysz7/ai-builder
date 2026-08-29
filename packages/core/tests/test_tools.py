@@ -20,19 +20,19 @@ from pathlib import Path
 
 from test_api import validate, wire_form
 
-from aibuilder_core.api import (
+from framestack_core.api import (
     MCP_CALL_SCHEMA,
     MCP_INSPECT_SCHEMA,
     mcp_call,
     mcp_inspect,
     read_graph,
 )
-from aibuilder_core.diagnostics import Code
-from aibuilder_core.kinds import REGISTRY, CarrierType
-from aibuilder_core.observe import run_observations
-from aibuilder_core.parser import parse_project
-from aibuilder_core.runner import call_server_tool, inspect_server
-from aibuilder_core.writer import set_knob
+from framestack_core.diagnostics import Code
+from framestack_core.kinds import REGISTRY, CarrierType
+from framestack_core.observe import run_observations
+from framestack_core.parser import parse_project
+from framestack_core.runner import call_server_tool, inspect_server
+from framestack_core.writer import set_knob
 
 EXAMPLE = Path(__file__).resolve().parents[3] / "examples" / "mcp-agent"
 
@@ -43,7 +43,7 @@ SERVER = "agent.notes"
 def copy(tmp_path: Path, *, with_tests: bool = True) -> Path:
     root = tmp_path / "mcp-agent"
     shutil.copytree(
-        EXAMPLE, root, ignore=shutil.ignore_patterns("__pycache__", ".aibuilder", ".pytest_cache")
+        EXAMPLE, root, ignore=shutil.ignore_patterns("__pycache__", ".framestack", ".pytest_cache")
     )
     if not with_tests:
         # A project whose own run proves nothing, so every node falls back to its direct
@@ -233,7 +233,7 @@ def test_nothing_about_a_connection_is_written_down(tmp_path: Path) -> None:
     run = run_observations(parse_project(root), root)
 
     assert SERVER not in run.observations
-    assert not (root / ".aibuilder").is_dir()
+    assert not (root / ".framestack").is_dir()
 
 
 # -- a tool is proven by a run that entered it, not by registration ---------------
@@ -368,7 +368,7 @@ def test_both_verbs_answer_in_the_shape_they_declare() -> None:
 
 def test_the_verbs_are_methods_in_the_core() -> None:
     """The extension point is `HANDLERS`, never a new command in the Rust shell."""
-    from aibuilder_core.handlers import dispatch
+    from framestack_core.handlers import dispatch
 
     answer = dispatch("mcp.inspect", {"project": str(EXAMPLE), "node": SERVER})
 

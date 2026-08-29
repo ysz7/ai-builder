@@ -25,16 +25,16 @@ from __future__ import annotations
 import shutil
 from pathlib import Path
 
-from aibuilder_core.agent import build_brief
-from aibuilder_core.api import repairs_available, snapshot_status
-from aibuilder_core.gate import check_graph
-from aibuilder_core.observe import run_observations
-from aibuilder_core.parser import parse_project
-from aibuilder_core.repair import apply_repair
-from aibuilder_core.snapshot import save_snapshot, take_snapshot
-from aibuilder_core.strip import strip_project
-from aibuilder_core.verdict import Verdict
-from aibuilder_core.writer import set_knob
+from framestack_core.agent import build_brief
+from framestack_core.api import repairs_available, snapshot_status
+from framestack_core.gate import check_graph
+from framestack_core.observe import run_observations
+from framestack_core.parser import parse_project
+from framestack_core.repair import apply_repair
+from framestack_core.snapshot import save_snapshot, take_snapshot
+from framestack_core.strip import strip_project
+from framestack_core.verdict import Verdict
+from framestack_core.writer import set_knob
 
 EXAMPLE = Path(__file__).resolve().parents[3] / "examples" / "fastapi-service"
 
@@ -42,7 +42,7 @@ EXAMPLE = Path(__file__).resolve().parents[3] / "examples" / "fastapi-service"
 def service(tmp_path: Path) -> Path:
     """The slice's project: the reference service, somewhere it can be edited."""
     root = tmp_path / "service"
-    shutil.copytree(EXAMPLE, root, ignore=shutil.ignore_patterns("__pycache__", ".aibuilder"))
+    shutil.copytree(EXAMPLE, root, ignore=shutil.ignore_patterns("__pycache__", ".framestack"))
     return root
 
 

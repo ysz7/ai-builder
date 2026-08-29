@@ -71,7 +71,7 @@ const ALIVE_MS = 2000;
  * is a fact about this person's last session, and writing it into a project would put one
  * person's habit into everybody's repository.
  */
-const LAST_PROJECT = "aibuilder.last-project";
+const LAST_PROJECT = "framestack.last-project";
 
 /**
  * How wide the person made the side panes.
@@ -81,7 +81,7 @@ const LAST_PROJECT = "aibuilder.last-project";
  * into everybody's repository. Node positions are the opposite case -- they *are* about the
  * graph -- which is why those go through `layout.write` instead.
  */
-const PANES = { left: "aibuilder.pane-left", right: "aibuilder.pane-right" };
+const PANES = { left: "framestack.pane-left", right: "framestack.pane-right" };
 
 /** Whatever the canvas must keep, so a pane cannot be dragged over the whole window. */
 const CANVAS_FLOOR = 320;
@@ -378,7 +378,7 @@ export default function App() {
     <div className="bp-app">
       <header className="bp-bar">
         <span className="bp-brand">
-          Awesome <em>AI Builder</em>
+          Framestack <em>AI Builder</em>
         </span>
 
         {/* The bar carries no readouts and no verbs of its own any more. The project's path

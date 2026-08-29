@@ -16,7 +16,7 @@ once -- this side only says where the tests are.
 
 **The probe is spawned with the project's own interpreter** (P11), which is possible only
 because the probe imports nothing from this package: it is handed to that interpreter as a
-plain file, and a project's virtual environment has no `aibuilder_core` in it. The rule that
+plain file, and a project's virtual environment has no `framestack_core` in it. The rule that
 looked like tidiness in P4 is what makes the environment work at all.
 """
 
@@ -28,14 +28,14 @@ import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from aibuilder_core.converse import conversations_held
-from aibuilder_core.environment import Environment, describe_environment
-from aibuilder_core.ir import Graph
-from aibuilder_core.kinds import REGISTRY, CarrierType, lookup, technology_of
-from aibuilder_core.markup import GROUP_MANIFEST
-from aibuilder_core.paths import iter_python_files, module_name
-from aibuilder_core.runner import check_artifacts
-from aibuilder_core.verdict import Observation
+from framestack_core.converse import conversations_held
+from framestack_core.environment import Environment, describe_environment
+from framestack_core.ir import Graph
+from framestack_core.kinds import REGISTRY, CarrierType, lookup, technology_of
+from framestack_core.markup import GROUP_MANIFEST
+from framestack_core.paths import iter_python_files, module_name
+from framestack_core.runner import check_artifacts
+from framestack_core.verdict import Observation
 
 __all__ = [
     "ObservationRun",
@@ -105,7 +105,7 @@ def probe_script() -> Path:
         return beside
 
     bundled = Path(getattr(sys, "_MEIPASS", Path(sys.executable).parent))
-    candidate = bundled / "aibuilder_core" / "probe.py"
+    candidate = bundled / "framestack_core" / "probe.py"
     if candidate.is_file():
         return candidate
     raise FileNotFoundError(f"the probe is missing at {beside}")

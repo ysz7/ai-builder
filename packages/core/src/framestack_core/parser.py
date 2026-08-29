@@ -26,7 +26,7 @@ from typing import Any
 import libcst as cst
 from libcst.metadata import MetadataWrapper, PositionProvider
 
-from aibuilder_core.ir import (
+from framestack_core.ir import (
     Edge,
     Function,
     Graph,
@@ -36,15 +36,15 @@ from aibuilder_core.ir import (
     Parameter,
     Signature,
 )
-from aibuilder_core.kinds import CarrierType
-from aibuilder_core.markup import (
+from framestack_core.kinds import CarrierType
+from framestack_core.markup import (
     GROUP_MANIFEST,
     MARKUP_DECLARATIONS,
     MARKUP_METADATA,
     Bindings,
     collect_bindings,
 )
-from aibuilder_core.paths import iter_python_files, module_name, package_name
+from framestack_core.paths import iter_python_files, module_name, package_name
 
 __all__ = ["parse_project", "parse_source", "signature_of"]
 

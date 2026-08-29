@@ -19,9 +19,9 @@ that is not running says nothing about the code that would have used it. Bring i
 same run proves the rest:
 
 ```bash
-uv run python -m aibuilder_core env-up examples/service-with-db
-uv run python -m aibuilder_core check examples/service-with-db --observe
-uv run python -m aibuilder_core env-down examples/service-with-db
+uv run python -m framestack_core env-up examples/service-with-db
+uv run python -m framestack_core check examples/service-with-db --observe
+uv run python -m framestack_core env-down examples/service-with-db
 ```
 
 The embedding is a hash spread over sixteen dimensions — deterministic, local, no key and no

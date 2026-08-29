@@ -14,9 +14,9 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from aibuilder_core.artifacts import read_artifacts
-from aibuilder_core.ir import Graph
-from aibuilder_core.parser import parse_project
+from framestack_core.artifacts import read_artifacts
+from framestack_core.ir import Graph
+from framestack_core.parser import parse_project
 
 __all__ = ["read_project"]
 

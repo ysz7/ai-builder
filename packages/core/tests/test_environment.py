@@ -25,16 +25,16 @@ from typing import Any
 
 import pytest
 
-from aibuilder_core.api import environment_status, read_graph, services_start, services_stop
-from aibuilder_core.environment import (
+from framestack_core.api import environment_status, read_graph, services_start, services_stop
+from framestack_core.environment import (
     Environment,
     compose_file,
     describe_environment,
     project_interpreter,
 )
-from aibuilder_core.observe import probe_script, run_observations
-from aibuilder_core.parser import parse_project
-from aibuilder_core.verdict import Verdict
+from framestack_core.observe import probe_script, run_observations
+from framestack_core.parser import parse_project
+from framestack_core.verdict import Verdict
 
 EXAMPLES = Path(__file__).resolve().parents[3] / "examples"
 CACHED = EXAMPLES / "service-with-cache"
@@ -57,7 +57,7 @@ needs_docker = pytest.mark.skipif(
 
 def copy(tmp_path: Path, source: Path) -> Path:
     root = tmp_path / source.name
-    shutil.copytree(source, root, ignore=shutil.ignore_patterns("__pycache__", ".aibuilder"))
+    shutil.copytree(source, root, ignore=shutil.ignore_patterns("__pycache__", ".framestack"))
     return root
 
 
@@ -143,7 +143,7 @@ def test_docker_being_absent_is_reported_rather_than_guessed_around(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Not knowing is a third answer. It is not "no services" and it is not "all fine"."""
-    monkeypatch.setattr("aibuilder_core.environment.shutil.which", lambda _: None)
+    monkeypatch.setattr("framestack_core.environment.shutil.which", lambda _: None)
 
     environment = describe_environment(CACHED)
 
@@ -165,7 +165,7 @@ def test_a_failure_in_a_missing_environment_is_unattributable() -> None:
     graph = parse_project(CACHED)
     run = run_observations(graph, CACHED)
 
-    from aibuilder_core.gate import check_graph
+    from framestack_core.gate import check_graph
 
     verdicts = check_graph(graph, observations=run.observations).verdicts
 
@@ -191,7 +191,7 @@ def test_observing_never_starts_anything(monkeypatch: pytest.MonkeyPatch) -> Non
         asked.append(arguments)
         return 1, "", "not run in this test"
 
-    monkeypatch.setattr("aibuilder_core.environment._docker", record)
+    monkeypatch.setattr("framestack_core.environment._docker", record)
     run_observations(parse_project(CACHED), CACHED)
 
     assert asked, "docker was not consulted at all, so this test proves nothing"
@@ -243,7 +243,7 @@ def test_the_loop_closes_once_the_services_are_up(tmp_path: Path) -> None:
         graph = parse_project(root)
         run = run_observations(graph, root)
 
-        from aibuilder_core.gate import check_graph
+        from framestack_core.gate import check_graph
 
         verdicts = check_graph(graph, observations=run.observations).verdicts
         assert run.environment is not None and run.environment.incomplete is None
@@ -288,7 +288,7 @@ def compose_declares(
             return 0, "\n".join(lines), ""
         return 0, "", ""
 
-    monkeypatch.setattr("aibuilder_core.environment._docker", answer)
+    monkeypatch.setattr("framestack_core.environment._docker", answer)
 
 
 # -- running is docker's answer, and it is not reachability (Q24) -----------------
@@ -342,7 +342,7 @@ def test_docker_answering_in_a_list_is_read_the_same_way(
             return 0, json.dumps([{"Service": "cache", "State": "running"}]), ""
         return 0, "", ""
 
-    monkeypatch.setattr("aibuilder_core.environment._docker", answer)
+    monkeypatch.setattr("framestack_core.environment._docker", answer)
 
     assert describe_environment(CACHED).up is True
 
@@ -427,7 +427,7 @@ def test_a_configuration_that_cannot_be_read_is_said_so(monkeypatch: pytest.Monk
     def answer(project: Path, *arguments: str, timeout: int = 20) -> tuple[int, str, str]:
         return 0, "not json", ""
 
-    monkeypatch.setattr("aibuilder_core.environment._docker", answer)
+    monkeypatch.setattr("framestack_core.environment._docker", answer)
 
     environment = describe_environment(CACHED)
 
@@ -447,8 +447,8 @@ def test_the_loop_closes_on_a_project_with_a_database(tmp_path: Path) -> None:
     and the compose file by its services answering where they publish. The stripped copy is
     then put through exactly the same checks, because none of that may depend on `bp`.
     """
-    from aibuilder_core.project import read_project
-    from aibuilder_core.strip import strip_project
+    from framestack_core.project import read_project
+    from framestack_core.strip import strip_project
 
     root = copy(tmp_path, EXAMPLES / "service-with-db")
 
@@ -456,7 +456,7 @@ def test_the_loop_closes_on_a_project_with_a_database(tmp_path: Path) -> None:
     assert started["ok"] is True, started["detail"]
 
     try:
-        from aibuilder_core.gate import check_graph
+        from framestack_core.gate import check_graph
 
         graph = read_project(root)
         run = run_observations(graph, root)
@@ -487,7 +487,7 @@ def test_calling_a_service_the_project_never_declared_is_refused(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """A refusal is a result, and it names what there is instead of failing silently."""
-    from aibuilder_core.runner import call_service
+    from framestack_core.runner import call_service
 
     compose_declares(monkeypatch, {"cache": {}})
 
@@ -503,7 +503,7 @@ def test_a_service_that_publishes_nothing_cannot_be_called(
 ) -> None:
     """Not a failure of the call: nothing on this side of the compose network can reach it,
     so there is no address to fail to reach."""
-    from aibuilder_core.runner import call_service
+    from framestack_core.runner import call_service
 
     compose_declares(monkeypatch, {"worker": {}})
 
@@ -518,7 +518,7 @@ def test_a_port_the_service_does_not_publish_is_refused(
 ) -> None:
     """The port is docker's answer, not a number this side may pick. Guessing 8000 because
     it is usually 8000 would be inventing the address of somebody else's program."""
-    from aibuilder_core.runner import call_service
+    from framestack_core.runner import call_service
 
     compose_declares(monkeypatch, {"api": {"ports": [{"published": "8080"}]}})
 
@@ -533,7 +533,7 @@ def test_a_service_that_is_not_up_says_so_in_the_reason(
 ) -> None:
     """Two facts in one sentence, because the second explains the first: nothing answered,
     and its container is not running."""
-    from aibuilder_core.runner import call_service
+    from framestack_core.runner import call_service
 
     compose_declares(monkeypatch, {"api": {"ports": [{"published": str(free_port())}]}})
 
@@ -551,7 +551,7 @@ def test_calling_something_that_does_not_speak_http_is_an_answer_about_it(
     talk to it -- and saying so is more use than a stack trace about a disconnected remote."""
     import threading
 
-    from aibuilder_core.runner import call_service
+    from framestack_core.runner import call_service
 
     server = listening_port()
 

@@ -1,240 +1,137 @@
-# Awesome AI Builder
+<h1 align="center">Framestack AI Builder</h1>
 
-A visual builder for Python applications where **the code is the source of truth** and the graph is a
-two-way projection of it.
+<p align="center">
+  <b>A visual builder for Python where the code is the source of truth.</b><br>
+  Your project stays ordinary Python. The graph is a view of it — and a node is green
+  only when a real run proved it works.
+</p>
 
-A chat agent writes ordinary Python under fixed rules, adding an inert, AST-addressable annotation
-layer. A parser reads that layer and projects a node graph; edits made in a node are written back into
-the code through the syntax tree. The application that comes out runs locally and deploys anywhere as
-a plain Python project — with no runtime dependency on the builder.
+<p align="center">
+  <a href="#quickstart">Quickstart</a> ·
+  <a href="#what-you-can-build">What you can build</a> ·
+  <a href="#how-it-works">How it works</a> ·
+  <a href="#status">Status</a>
+</p>
 
-The mental model is Unreal Engine Blueprints, moved into backend development: a node is an editable
-surface over real code, not a wrapper that changes how it behaves.
+<!-- A screenshot of the workspace belongs here. -->
 
-## Why it is not Flowise / Langflow / LangGraph Studio
+---
 
-Those generate the graph as the source of truth and export code as an artifact. Here the direction is
-reversed: code first, graph derived. The annotation layer is inert — no-op decorators and `Annotated`
-metadata — so an assembled application never needs the builder at runtime. That property is the whole
-differentiator, and it is enforced mechanically in CI, not by convention.
+## The difference, in one line
 
-## Documents
+In every other visual builder, a node is green **because it exists**.
 
-- [packages/core/src/aibuilder_core/prompts/system-prompt-claude-code.md](packages/core/src/aibuilder_core/prompts/system-prompt-claude-code.md)
-  — the system prompt for the coding agent working inside the builder; it fixes the `bp` markup syntax
-  the toolchain parses. It sits with the code because the core reads it at runtime and tests assert
-  against it: it is an input, not a description.
-- `docs/` — the v0 specification, the phase roadmap and the log of settled questions. Kept out of the
-  repository deliberately; ask for it if you are working on the design rather than on the code.
+Here it is green because `test_retrieval.py` entered it and passed.
 
-## Assets
+That is not a feature bolted on top — it is the reason the architecture is what it is. Proving a
+node requires the code to be real, runnable and yours, which is exactly what flow-document builders
+gave away when they made a JSON canvas the source of truth.
 
-`assets/` holds design references for later — a graph-canvas template and a website design whose
-visual language may become the app's. Kept locally and out of the repository, like `docs/`: nothing
-there is wired into the build, and the UI is out of scope for v0 and delivered separately.
+## Why this and not Langflow, Flowise, StackAI, n8n
 
-## Stack
-
-| Layer | What it is | Rule |
+|  | Them | Framestack |
 | --- | --- | --- |
-| Shell | Tauri 2 (Rust) | Window, filesystem access, spawning the core, ferrying JSON. **No business logic.** |
-| Front-end | React 19 + React Flow (`@xyflow/react`) | The graph canvas, inside the Tauri window. |
-| Core | Python 3.10+ (`libcst`, `ast`) | Parser, writer, gates, orchestration. Runs as a Tauri sidecar process. |
-| `bp` | Standalone Python package | The four inert markup primitives. Installs into the projects the builder generates. |
+| Source of truth | a flow document; code is an export | **your Python files** |
+| Adding a node | writes an entry into the document | writes real, annotated code |
+| Editing in the UI | edits the document | rewrites the syntax tree with `libcst`, byte-for-byte everywhere else |
+| A green node means | it exists | **a test entered it and passed** |
+| If you delete the builder | the app stops being buildable | the project runs, unchanged |
+| Lock-in | the runtime interprets your flow | none — strip the annotations and it is plain Python |
 
-The Rust shell is three files and one IPC command (`core_request`). A new capability is a new
-*method in the Python core*, never a new command in Rust.
+The mental model is **Unreal Engine Blueprints for backend work**: a node is an editable surface over
+real code, never a wrapper that changes how it behaves.
 
-## Layout
+## How it works
 
-```
-apps/desktop/          Tauri app
-  src/                 React front-end (graph canvas, core client)
-  src-tauri/           thin Rust shell + sidecar bridge
-packages/bp/           inert markup primitives (ships to user projects)
-packages/core/         Python core, runs as the sidecar
-scripts/               sidecar dev shim and PyInstaller build
-examples/              the three annotated reference projects, each with its own tests
-docs/                  specification and roadmap — local only, not committed
-assets/                design references — local only, not committed
-```
+1. **You describe what you want.** A coding agent writes ordinary, production-quality Python — the
+   way the official docs would — and adds an inert annotation layer on top (`@node`, `@editable`,
+   `@generated`, `group_node`, `Param`).
+2. **A parser projects that into a graph.** Nodes come from real classes, functions and modules.
+   Edges are types crossing a boundary, read from the signatures you already wrote.
+3. **You tune it from the canvas.** Change a knob, rename a node, edit a body — every write goes
+   through the concrete syntax tree, so everything the edit was not about comes out identical.
+4. **You press Observe.** Your project's own test suite runs with the nodes instrumented. What a
+   passing test entered turns green. What nothing reached stays grey — never green by default, and
+   never green because a parser was satisfied.
 
-## Requirements
+The annotation layer is **inert**: no-op decorators and `Annotated` metadata. Strip it and the
+application behaves identically — there is a test that runs both copies in separate processes and
+demands the same answers.
 
-| | Needed for | Status on a fresh machine |
-| --- | --- | --- |
-| Node 20+ / npm | front-end, Tauri CLI | |
-| Python 3.10+ and [uv](https://docs.astral.sh/uv/) | the core, the workspace | |
-| Rust toolchain ([rustup](https://rustup.rs)) | **required — Tauri will not build without it** | usually absent, install first |
-| Xcode Command Line Tools | linking on macOS | `xcode-select --install` |
+## What you can build
 
-## Commands
+The builder can prove **27 kinds of node** across seven families. That list is the honest boundary of
+what it can make a claim about — anything outside it is still ordinary Python you can write, it just
+gets no verdict.
 
-```bash
-uv sync                 # Python workspace (bp + core + dev tools)
-npm install             # front-end and Tauri CLI
+| Family | Nodes |
+| --- | --- |
+| **FastAPI** | service, router, route, dependency, settings |
+| **LangGraph** | agent, state, node, router, tool, settings |
+| **RAG** | pipeline, chunking, embedding, retrieval, generation |
+| **MCP** | the server you expose, its tools, the servers you consume |
+| **Background work** | queue app, tasks, schedule, workers |
+| **Persistence** | database session, vector store |
+| **Infrastructure** | `Dockerfile`, `compose.yaml` — carried by the file itself |
 
-npm run dev             # full app: Vite + Tauri window + Python sidecar
-npm run web:dev         # front-end alone in a browser (no core, ping will fail)
-npm run test:py         # bp inertness + core protocol + strip tests
-npm run check           # the full suite: lint, types, tests (what CI runs)
-npm run build           # freeze the sidecar, then bundle .app and .dmg
-```
+And you can *use* what you built without leaving the window: talk to an agent from its own node, hand
+a pipeline its documents, call a route, inspect an MCP server, run the project's own npm commands,
+open a real terminal.
 
-`npm run dev` starts the sidecar from source through a shim at
-`apps/desktop/src-tauri/binaries/aibuilder-core-<target-triple>` — no PyInstaller step in the loop, so
-the core stays editable. `npm run build` runs `scripts/build-sidecar.sh` first, which freezes the core
-and overwrites that shim with the real binary; `git checkout -- apps/desktop/src-tauri/binaries`
-brings the shim back.
+Working annotated projects to read: [fastapi-service](examples/fastapi-service/),
+[langgraph-agent](examples/langgraph-agent/), [rag-pipeline](examples/rag-pipeline/),
+[mcp-agent](examples/mcp-agent/) — each with its own test suite, because that suite is the evidence
+its graph is judged by.
 
-To talk to the core by hand, without the app:
+## Quickstart
 
-```bash
-echo '{"id":1,"method":"ping"}' | uv run python -m aibuilder_core
-```
-
-To see the graph the parser reads out of a project, or to prove the markup is inert by stripping it
-and running what comes out:
+You need **Node 20+**, **Python 3.10+** with [uv](https://docs.astral.sh/uv/), and a
+[Rust toolchain](https://rustup.rs) — Tauri will not build without it.
 
 ```bash
-uv run python -m aibuilder_core graph examples/fastapi-service
-uv run python -m aibuilder_core check examples/fastapi-service --observe
-uv run python -m aibuilder_core snapshot examples/fastapi-service   # record the reference
-uv run python -m aibuilder_core status examples/fastapi-service     # what diverged since
-uv run python -m aibuilder_core set-knob examples/fastapi-service api.settings page_size 50
-uv run python -m aibuilder_core repairs examples/fastapi-service   # divergences and their options
-uv run python -m aibuilder_core strip examples/fastapi-service /tmp/stripped
+git clone <this repo> && cd framestack-ai-builder
+uv sync          # Python workspace
+npm install      # front-end and Tauri CLI
+npm run dev      # the app
 ```
 
-To see what the code-generation agent is handed — the system prompt, the request, and the project as
-it stands — for a chat request, or for a blueprint out of a catalog you point it at:
+Then open one of the `examples/` projects and press **Observe**.
+
+### Or try it without the app
+
+The whole core is a CLI. Read the graph out of a project, run its checks, or prove the annotations
+are inert by stripping them:
 
 ```bash
-uv run python -m aibuilder_core blueprints --catalog <path>         # what input B can be given
-uv run python -m aibuilder_core brief examples/fastapi-service --request "add a users router"
-uv run python -m aibuilder_core brief examples/fastapi-service --blueprint <id> --catalog <path>
-uv run python -m aibuilder_core failures examples/fastapi-service   # what the agent gets wrong
+uv run python -m framestack_core graph examples/fastapi-service
+uv run python -m framestack_core check examples/fastapi-service --observe
+uv run python -m framestack_core strip examples/fastapi-service /tmp/stripped
 ```
-
-The environment a project runs in — its interpreter, and the services its compose file declares — is
-read on demand and changed only when asked:
-
-```bash
-uv run python -m aibuilder_core env examples/service-with-db        # interpreter, services, state
-uv run python -m aibuilder_core env-up examples/service-with-db     # only ever because you asked
-uv run python -m aibuilder_core env-down examples/service-with-db
-```
-
-And the application itself can be started, called and stopped. Logs are polled rather than streamed,
-so nothing ever holds the wire open:
-
-```bash
-uv run python -m aibuilder_core run examples/fastapi-service        # starts, says which port
-uv run python -m aibuilder_core call examples/fastapi-service /users
-uv run python -m aibuilder_core logs examples/fastapi-service
-uv run python -m aibuilder_core stop examples/fastapi-service
-```
-
-Background work is its own subsystem with its own process. Nothing starts on its own here either: the
-worker refuses while the broker is down rather than bringing it up, and "is it up?" is asked of the
-queue, because a worker publishes no port:
-
-```bash
-uv run python -m aibuilder_core work examples/service-with-worker         # start a worker
-uv run python -m aibuilder_core work-status examples/service-with-worker  # who answers the queue
-uv run python -m aibuilder_core work-logs examples/service-with-worker
-uv run python -m aibuilder_core work-stop examples/service-with-worker
-```
-
-## Building for macOS — read before planning a release
-
-- **`.app` and `.dmg` can only be built on a macOS machine.** Cross-compiling to Mac from Linux or
-  Windows does not work: the Apple SDK and the signing chain are not available off-platform. Without a
-  Mac, the only route is CI with a macOS runner (GitHub Actions `macos-14` or later).
-- **Distribution requires Apple signing and notarization** — an Apple Developer account ($99/yr), a
-  Developer ID Application certificate, and a notarization pass. Unsigned builds are refused by
-  Gatekeeper on other people's machines; they run only locally, and only after a right-click → Open.
-- Space is reserved for this in `apps/desktop/src-tauri/tauri.conf.json` under `bundle.macOS`
-  (`signingIdentity`, `entitlements`, both `null` for now). Tauri reads the rest from the environment
-  at build time: `APPLE_SIGNING_IDENTITY`, `APPLE_CERTIFICATE`, `APPLE_CERTIFICATE_PASSWORD`,
-  `APPLE_ID`, `APPLE_PASSWORD`, `APPLE_TEAM_ID`. None are needed for local development.
-- The frozen Python sidecar is signed as part of the bundle, so it needs no separate treatment — but
-  it does mean an ad-hoc-signed sidecar cannot be swapped into a signed `.app` after the fact.
 
 ## Status
 
-P0 through P14 are done: the window opens, React Flow renders a canvas, the Rust shell reaches the Python
-core over NDJSON, the markup layer exists and is provably inert, and
-[examples/fastapi-service/](examples/fastapi-service/) is the annotated reference project the rest is
-tested against. `npm run check` is the gate.
+**Working today:** the parser, the gates, the writer, repair, the observable checks and the evidence
+they produce, the agent integration, the environment and its services, running and stopping things,
+background work, MCP, the workspace, and using what you built. Seven reference projects, 512 tests,
+one gate (`npm run check`) that CI runs and nothing else.
 
-The parser reads that project into a graph IR — nodes with their carriers, editable and generated
-zones, knobs with their metadata, group membership, and contract edges taken from real signatures.
+**Next:** the workspace is being rebuilt — a searchable library of what can be built, dense node
+cards that show their settings without being opened, and evidence on the card rather than three
+clicks away. After that, inserting a ready-made node from that library without spending a token.
 
-The static gate turns that graph into addressed diagnostics — what, where, which rule, and what a
-repair must do — and hands both to the UI over a versioned graph API. The observable checks then run
-the project in a subprocess to prove each node actually works: a node is green only when it both
-parses and answers, and a check that could not run leaves the node unproven rather than fine.
+**Honest caveat:** the interface you see today grew a panel per phase and is being replaced. The
+architecture underneath it is finished and tested; the surface is not.
 
-Reconciliation then answers the `git status` question — not "did something change", which a file
-watcher would drown in formatters and branch switches, but "is it still valid": what no longer
-matches the last state that passed the gates, addressed, and classified by whose fault it is.
+## Contributing
 
-Edits made in a node are written back through the syntax tree: a knob addresses its literal default,
-a rename addresses the keyword on the carrier's own declaration, and everything the edit was not
-about comes out of the file byte for byte as it went in.
+Development setup, the architecture rules, the protocol and the release process are in
+[DEVELOPMENT.md](DEVELOPMENT.md). The short version of the rules that matter:
 
-When something diverges, the repair system says what can be done about it. A broken contract is
-restored from the reference without discarding the body the user wrote. A hand edit in generated code
-is not resolved at all until someone chooses between reverting and accepting it — the tool offers
-both and waits, because one that always reverts would eventually delete work someone needed, and one
-that always accepts would eventually bless a breakage inside a green node.
+- **Code is the only source of truth.** No manifest, no graph file.
+- **The annotation layer is inert.** Behaviour never depends on it.
+- **Every node has a carrier** — a class, a function, a module, or a file.
+- **Green is earned by a run**, and a check that could not run reports *skipped*, never *fine*.
 
-Code generation enters through the same gates as everything else. The agent gets one brief, assembled
-the same way whether the request is a sentence or a blueprint from a catalog it is pointed at: the system
-prompt verbatim, the request, and the project as it stands. The prompt is the same text in both cases
-— the annotation rules live there and never in a blueprint, which is why a blueprint stays plain
-documentation that works in bare Claude Code. What the agent then gets wrong is written down rather
-than refused: the soft gate flags it, and the log of those flags is the list the next phase works
-from.
+## License
 
-The slice closes the loop on a real service: a brief, the graph, a knob written back through the
-syntax tree, a deliberate hand edit in generated code, reconciliation that names it, a repair the
-caller chooses, and green again — where green means proven by a run, not accepted by the parser. The
-evidence comes from the project's own test suite, with the carriers instrumented so each node reports
-whether a test actually entered it; the direct calls prove whatever no test reached. On the reference
-service every node is proven, including the POST route no tool may prove by inventing a request body.
-The stripped copy is then put through the same checks and answers identically.
-
-That same loop then closes on two more topologies, which is what makes it a mechanism rather than a
-FastAPI feature: a **LangGraph agent** — a group over state nodes, where the state schema is itself a
-node and each step is proven by being registered in the compiled graph — and a **RAG pipeline** — four
-equal stages with no owner, each carrying the knobs that belong to it, so tuning `top_k` happens on
-retrieval rather than in a settings file three directories away. Neither can be proven by a call the
-toolchain invents, so both are proven by their own tests.
-
-The checks now run in the **project's own** interpreter and know which services its compose file
-declares. A failing test in an environment the project asked for and did not get comes back
-`unproven` with the environment named, never as a broken node — while a test that passed still counts,
-whatever was absent. Nothing is ever started implicitly: bringing services up is an action a person
-takes, which is also why there is nothing left running afterwards to leak.
-
-A production project's own vocabulary is on the graph as well: the module that owns a database
-connection, the vector store beside it, and the compose file itself as a node whose buttons start and
-stop the services it declares. The application can be started, called and stopped from the same place,
-and what actually ran shows up as **flow** — the order a passing test went through the nodes, and the
-wiring a framework holds. Before a run there are no arrows, because a path nothing took is dark.
-
-Work that happens *after* the request is on the graph as its own subsystem: a queue, the tasks on it
-and what runs on a timer. Two claims are kept apart there, and the distinction is the whole of it —
-**the task works**, proven by a run that entered it, and **the queue delivers**, proven by the broker
-answering and a worker replying. The arrow from the route that queued the work to the task that ran it
-crosses a process boundary and is still drawn by a run and by nothing else.
-
-What is left is MCP servers inside that vocabulary, and the UI, which is delivered separately.
-
-The application's source language is Python, and the supported technologies are FastAPI, LangGraph,
-RAG and celery. That is a statement about what the graph projects, not about what a project may contain: a
-production project's Docker files, compose, migrations and configuration are part of the work, and
-such an artifact may even be a node, carried by the file itself — with the file staying the source of
-truth.
+MIT — see [LICENSE](LICENSE).

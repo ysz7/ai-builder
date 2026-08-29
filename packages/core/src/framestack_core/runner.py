@@ -21,7 +21,7 @@ it printed, calling it, and stopping it. Three rules shape it:
   status are *asked for*, which costs a poll and keeps a slow process from freezing the
   window. Pushing events would need a second message shape and a protocol version; it can be
   added later without taking anything back, which is why it is not being added now.
-* **What we start, we can find again.** The process is recorded in `.aibuilder/run.json` --
+* **What we start, we can find again.** The process is recorded in `.framestack/run.json` --
   tooling state beside the snapshot and the agent log, never something the graph reads a
   fact out of. A session that ends leaves nothing running; a session that *crashed* leaves a
   record the next one can act on, which is the only way an orphan is ever cleaned up.
@@ -47,10 +47,10 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from aibuilder_core.environment import Environment, describe_environment
-from aibuilder_core.ir import Graph, Node
-from aibuilder_core.kinds import CarrierType, lookup
-from aibuilder_core.verdict import Observation
+from framestack_core.environment import Environment, describe_environment
+from framestack_core.ir import Graph, Node
+from framestack_core.kinds import CarrierType, lookup
+from framestack_core.verdict import Observation
 
 __all__ = [
     "ArtifactRun",
@@ -82,17 +82,17 @@ __all__ = [
 
 #: Where the running process is recorded, beside the snapshot and the agent log. Tooling
 #: state: delete it and the project is unchanged, and nothing draws a graph from it.
-RUN_STATE_PATH = Path(".aibuilder") / "run.json"
+RUN_STATE_PATH = Path(".framestack") / "run.json"
 
 #: Where the application's output goes. A file rather than a pipe held in memory: the core
 #: must not have to stay alive for output to survive, and a crash must leave it readable.
-RUN_LOG_PATH = Path(".aibuilder") / "run.log"
+RUN_LOG_PATH = Path(".framestack") / "run.log"
 
 #: The same two files for the worker (P14). A separate record because it is a separate
 #: process with a separate lifetime: an application can run with no worker behind it, and a
 #: worker can outlive the application it was started beside.
-WORKER_STATE_PATH = Path(".aibuilder") / "worker.json"
-WORKER_LOG_PATH = Path(".aibuilder") / "worker.log"
+WORKER_STATE_PATH = Path(".framestack") / "worker.json"
+WORKER_LOG_PATH = Path(".framestack") / "worker.log"
 
 #: How long to wait for the application to answer on its port before calling it a failure.
 STARTUP_TIMEOUT_S = 30
@@ -383,7 +383,7 @@ def _ask_project(
     is, whether a worker is listening -- is a question only the project can answer, and it
     is answered where the project lives: in the probe's process, never in this one.
     """
-    from aibuilder_core.observe import probe_script
+    from framestack_core.observe import probe_script
 
     plan = {"project": str(project.resolve()), "modules": modules, "ask": ask, **extra}
     try:
@@ -409,8 +409,8 @@ def _ask_project(
 
 def _project_modules(root: Path) -> list[str]:
     """The modules the graph already knows about -- the same set the checks import."""
-    from aibuilder_core.observe import build_plan
-    from aibuilder_core.project import read_project
+    from framestack_core.observe import build_plan
+    from framestack_core.project import read_project
 
     listed = build_plan(read_project(root), root).get("modules", [])
     return [str(name) for name in listed] if isinstance(listed, list) else []
@@ -432,7 +432,7 @@ def start_application(
     up. What it waits for is the port answering -- not the process existing, which proves
     nothing, and not a log line, which is a string a project can print whenever it likes.
     """
-    from aibuilder_core.environment import project_interpreter
+    from framestack_core.environment import project_interpreter
 
     root = Path(project).resolve()
     existing = _read_state(root)
@@ -651,7 +651,7 @@ def call_service(
     if it is not one of them. Guessing 8000 because it is usually 8000 would be inventing
     the address of somebody else's program.
     """
-    from aibuilder_core.environment import describe_environment
+    from framestack_core.environment import describe_environment
 
     root = Path(project).resolve()
     environment = describe_environment(root)
@@ -704,7 +704,7 @@ def call_service(
 
 def build_image(project: Path | str) -> RunResult:
     """Build the images the compose file declares -- the button on the `Dockerfile` node."""
-    from aibuilder_core.environment import _docker, compose_file
+    from framestack_core.environment import _docker, compose_file
 
     root = Path(project).resolve()
     file = compose_file(root)
@@ -740,7 +740,7 @@ def start_worker(project: Path | str, python: str | None = None) -> RunResult:
     Refuses rather than improvises: no queue, no worker; no broker, no worker. Both come
     back as results with the reason and the button that would fix them.
     """
-    from aibuilder_core.environment import describe_environment
+    from framestack_core.environment import describe_environment
 
     root = Path(project).resolve()
     existing = _read_state(root, WORKER_STATE_PATH)
@@ -844,7 +844,7 @@ def worker_status(project: Path | str, python: str | None = None) -> RunResult:
     is alive may have lost the broker, and a queue that answers may be answering a worker
     somebody else started.
     """
-    from aibuilder_core.environment import project_interpreter
+    from framestack_core.environment import project_interpreter
 
     root = Path(project).resolve()
     state = _read_state(root, WORKER_STATE_PATH)
@@ -921,7 +921,7 @@ def _server_carrier(root: Path, node: str) -> tuple[str | None, str]:
     import the project and try to call `connect()` on something that has none, and the
     reason would be about a missing method instead of about the wrong node.
     """
-    from aibuilder_core.project import read_project
+    from framestack_core.project import read_project
 
     for candidate in read_project(root).nodes:
         if candidate.id == node:
@@ -1016,8 +1016,8 @@ def index_pipeline(project: Path | str, node: str, python: str | None = None) ->
     verb that ran whatever happened to be callable would build something and call it an
     index. A kind opts in by naming a way in, and a kind that has not shows no button.
     """
-    from aibuilder_core.kinds import REGISTRY
-    from aibuilder_core.project import read_project
+    from framestack_core.kinds import REGISTRY
+    from framestack_core.project import read_project
 
     root = Path(project).resolve()
     found = next((item for item in read_project(root).nodes if item.id == node), None)
@@ -1075,8 +1075,8 @@ def index_pipeline(project: Path | str, node: str, python: str | None = None) ->
 # and one fallen link would redden all of it (Q20).
 
 #: The command process's record and log, siblings of `run.json` and `worker.json`.
-COMMAND_STATE_PATH = Path(".aibuilder") / "command.json"
-COMMAND_LOG_PATH = Path(".aibuilder") / "command.log"
+COMMAND_STATE_PATH = Path(".framestack") / "command.json"
+COMMAND_LOG_PATH = Path(".framestack") / "command.log"
 
 #: How long npm may take to answer what scripts a project has.
 NPM_TIMEOUT_S = 30
@@ -1305,4 +1305,4 @@ def stop_everything_started_here() -> None:
     """
     for root, state_name in list(_STARTED_HERE):
         with contextlib.suppress(Exception):
-            _stop_recorded(Path(root), Path(".aibuilder") / state_name)
+            _stop_recorded(Path(root), Path(".framestack") / state_name)

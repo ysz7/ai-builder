@@ -1,4 +1,4 @@
-"""aibuilder-core -- the Python core.
+"""framestack-core -- the Python core.
 
 Everything with judgement in it lives here: the parser, the gates, the snapshot,
 the libcst writer, the repair logic. The Tauri shell around it is transport only.

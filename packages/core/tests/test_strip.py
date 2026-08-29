@@ -15,7 +15,7 @@ from pathlib import Path
 
 import pytest
 
-from aibuilder_core.strip import GROUP_MANIFEST, strip_project, strip_source
+from framestack_core.strip import GROUP_MANIFEST, strip_project, strip_source
 
 EXAMPLE = Path(__file__).resolve().parents[3] / "examples" / "fastapi-service"
 

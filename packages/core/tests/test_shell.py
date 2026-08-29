@@ -16,7 +16,7 @@ from pathlib import Path
 
 import pytest
 
-from aibuilder_core.shell import (
+from framestack_core.shell import (
     close_everything_opened_here,
     close_shell,
     list_shells,

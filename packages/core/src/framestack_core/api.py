@@ -15,26 +15,26 @@ from dataclasses import asdict
 from pathlib import Path
 from typing import Any
 
-from aibuilder_core.agent import build_brief, failure_modes, record_outcome
-from aibuilder_core.catalog import find_catalog, list_blueprints
-from aibuilder_core.converse import (
+from framestack_core.agent import build_brief, failure_modes, record_outcome
+from framestack_core.catalog import find_catalog, list_blueprints
+from framestack_core.converse import (
     poll_talk,
     say_to,
     start_talk,
     stop_talk,
     talk_status,
 )
-from aibuilder_core.diagnostics import Code, describe
-from aibuilder_core.environment import describe_environment, start_services, stop_services
-from aibuilder_core.gate import GateMode, check_graph
-from aibuilder_core.ir import Location
-from aibuilder_core.kinds import REGISTRY
-from aibuilder_core.layout import create_project, read_layout, write_layout
-from aibuilder_core.observe import run_observations
-from aibuilder_core.project import read_project
-from aibuilder_core.reconcile import reconcile
-from aibuilder_core.repair import apply_repair, list_repairs
-from aibuilder_core.runner import (
+from framestack_core.diagnostics import Code, describe
+from framestack_core.environment import describe_environment, start_services, stop_services
+from framestack_core.gate import GateMode, check_graph
+from framestack_core.ir import Location
+from framestack_core.kinds import REGISTRY
+from framestack_core.layout import create_project, read_layout, write_layout
+from framestack_core.observe import run_observations
+from framestack_core.project import read_project
+from framestack_core.reconcile import reconcile
+from framestack_core.repair import apply_repair, list_repairs
+from framestack_core.runner import (
     build_image,
     call_endpoint,
     call_server_tool,
@@ -55,7 +55,7 @@ from aibuilder_core.runner import (
     stop_worker,
     worker_status,
 )
-from aibuilder_core.session import (
+from framestack_core.session import (
     COMMANDS,
     EFFORTS,
     MODELS,
@@ -74,7 +74,7 @@ from aibuilder_core.session import (
     start_session,
     stop_session,
 )
-from aibuilder_core.shell import (
+from framestack_core.shell import (
     close_shell,
     list_shells,
     open_shell,
@@ -82,10 +82,10 @@ from aibuilder_core.shell import (
     resize_shell,
     write_shell,
 )
-from aibuilder_core.snapshot import load_snapshot, save_snapshot, take_snapshot
-from aibuilder_core.source import node_source
-from aibuilder_core.verdict import Observation
-from aibuilder_core.writer import set_body, set_knob, set_node_title
+from framestack_core.snapshot import load_snapshot, save_snapshot, take_snapshot
+from framestack_core.source import node_source
+from framestack_core.verdict import Observation
+from framestack_core.writer import set_body, set_knob, set_node_title
 
 __all__ = [
     "AGENT_BLUEPRINTS_SCHEMA",

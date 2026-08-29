@@ -7,7 +7,7 @@ import json
 import subprocess
 import sys
 
-from aibuilder_core.__main__ import handle_line, serve
+from framestack_core.__main__ import handle_line, serve
 
 
 def response(line: str) -> dict:
@@ -67,7 +67,7 @@ def test_serve_answers_in_order_one_line_per_request() -> None:
 def test_ping_over_a_real_subprocess() -> None:
     """End to end through an actual process, exactly as the sidecar is driven."""
     proc = subprocess.run(
-        [sys.executable, "-m", "aibuilder_core"],
+        [sys.executable, "-m", "framestack_core"],
         input='{"id": 7, "method": "ping"}\n',
         capture_output=True,
         text=True,
@@ -81,7 +81,7 @@ def test_ping_over_a_real_subprocess() -> None:
 def test_stdout_carries_only_the_wire() -> None:
     """Logs must go to stderr, or they corrupt the protocol stream."""
     proc = subprocess.run(
-        [sys.executable, "-m", "aibuilder_core"],
+        [sys.executable, "-m", "framestack_core"],
         input='{"id": 1, "method": "ping"}\n',
         capture_output=True,
         text=True,

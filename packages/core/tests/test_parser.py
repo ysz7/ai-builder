@@ -11,7 +11,7 @@ from __future__ import annotations
 import textwrap
 from pathlib import Path
 
-from aibuilder_core.parser import parse_project, parse_source
+from framestack_core.parser import parse_project, parse_source
 
 
 def parse(source: str) -> object:
@@ -549,7 +549,7 @@ def test_the_example_project_produces_the_expected_graph() -> None:
 
 def test_every_kind_in_the_example_is_registered() -> None:
     """An unregistered kind has no shape and no observable check -- it is a typo (§5.6)."""
-    from aibuilder_core.kinds import is_registered
+    from framestack_core.kinds import is_registered
 
     unknown = [node.kind for node in parse_project(EXAMPLE).nodes if not is_registered(node.kind)]
 
@@ -563,7 +563,7 @@ def test_the_example_has_no_unmarked_functions_inside_a_carrier() -> None:
     mark and gets none. The parser still sees those functions; they simply are not the
     graph's to classify.
     """
-    from aibuilder_core.gate import check_graph
+    from framestack_core.gate import check_graph
 
     unclassified = [
         diagnostic.location.object

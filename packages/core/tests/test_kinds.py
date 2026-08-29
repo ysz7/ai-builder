@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from aibuilder_core.kinds import REGISTRY, CarrierType, is_registered, lookup
+from framestack_core.kinds import REGISTRY, CarrierType, is_registered, lookup
 
 
 def test_every_entry_is_reachable_under_its_own_name() -> None:

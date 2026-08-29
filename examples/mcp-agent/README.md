@@ -30,9 +30,9 @@ values.
 | `agent.notes` | **connecting**, which is a button and never a side effect |
 
 ```bash
-uv run python -m aibuilder_core check examples/mcp-agent --observe
-uv run python -m aibuilder_core inspect examples/mcp-agent agent.notes
-uv run python -m aibuilder_core tool examples/mcp-agent agent.notes summarize '{"text": "One. Two."}'
+uv run python -m framestack_core check examples/mcp-agent --observe
+uv run python -m framestack_core inspect examples/mcp-agent agent.notes
+uv run python -m framestack_core tool examples/mcp-agent agent.notes summarize '{"text": "One. Two."}'
 ```
 
 The run draws the flow, and nothing else does (Q9):

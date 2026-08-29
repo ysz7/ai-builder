@@ -1,7 +1,7 @@
 # PyInstaller spec for the sidecar binary.
 #
 # Driven by scripts/build-sidecar.sh, which copies the result to
-# src-tauri/binaries/aibuilder-core-<target-triple>.
+# src-tauri/binaries/framestack-core-<target-triple>.
 #
 # One file, no console window of its own: the process is spawned by Tauri and
 # speaks NDJSON over its stdio.
@@ -11,7 +11,7 @@ from pathlib import Path
 ROOT = Path(SPECPATH).parent  # packages/core
 
 a = Analysis(
-    [str(ROOT / "src" / "aibuilder_core" / "__main__.py")],
+    [str(ROOT / "src" / "framestack_core" / "__main__.py")],
     pathex=[str(ROOT / "src")],
     binaries=[],
     # The system prompt is data the core reads at runtime, not documentation, so it
@@ -19,13 +19,13 @@ a = Analysis(
     # `agent.prompt_path` looks from source as well. One file, one lookup.
     datas=[
         (
-            str(ROOT / "src" / "aibuilder_core" / "prompts" / "system-prompt-claude-code.md"),
-            "aibuilder_core/prompts",
+            str(ROOT / "src" / "framestack_core" / "prompts" / "system-prompt-claude-code.md"),
+            "framestack_core/prompts",
         ),
         # The probe is handed to the *project's* interpreter as a plain file (P11), so it
         # has to exist on disk -- a module frozen into the archive cannot be run by anyone
         # but this binary.
-        (str(ROOT / "src" / "aibuilder_core" / "probe.py"), "aibuilder_core"),
+        (str(ROOT / "src" / "framestack_core" / "probe.py"), "framestack_core"),
     ],
     # libcst pulls its grammar and native parser in dynamically; without this the
     # frozen binary imports cleanly and then fails at first parse.
@@ -44,7 +44,7 @@ exe = EXE(
     a.binaries,
     a.datas,
     [],
-    name="aibuilder-core",
+    name="framestack-core",
     debug=False,
     strip=False,
     upx=False,

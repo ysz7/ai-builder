@@ -56,11 +56,11 @@ __all__ = [
 ]
 
 #: Where a conversation's stream is kept, one file per node talked to.
-TALKS_PATH = Path(".aibuilder") / "talks"
+TALKS_PATH = Path(".framestack") / "talks"
 
 #: The conversations open in this project, keyed by node id. Tooling state, beside
 #: `run.json` and `session.json`: delete it and the project is unchanged.
-TALK_STATE_PATH = Path(".aibuilder") / "talks.json"
+TALK_STATE_PATH = Path(".framestack") / "talks.json"
 
 #: How long to wait for the project to import and say it is listening.
 #:
@@ -180,9 +180,9 @@ def _way_to(project: Path, node: str) -> tuple[WayIn | None, str]:
     comes from the kind, which opts in by naming a way in; a kind that has not opted in is
     refused here rather than being handed to the probe to call and see what happens.
     """
-    from aibuilder_core.kinds import REGISTRY
-    from aibuilder_core.observe import build_plan
-    from aibuilder_core.project import read_project
+    from framestack_core.kinds import REGISTRY
+    from framestack_core.observe import build_plan
+    from framestack_core.project import read_project
 
     graph = read_project(project)
     found = next((item for item in graph.nodes if item.id == node), None)
@@ -227,8 +227,8 @@ def start_talk(project: Path | str, node: str, python: str | None = None) -> Tal
     application answers: what is waited for is the project's own word, not the existence of
     a process, which proves nothing.
     """
-    from aibuilder_core.environment import project_interpreter
-    from aibuilder_core.observe import probe_script
+    from framestack_core.environment import project_interpreter
+    from framestack_core.observe import probe_script
 
     root = Path(project).resolve()
     records = _read_state(root)

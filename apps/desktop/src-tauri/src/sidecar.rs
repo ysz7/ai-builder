@@ -35,7 +35,7 @@ impl Sidecar {
     pub fn spawn(app: &AppHandle) -> Result<Self, String> {
         let (rx, child) = app
             .shell()
-            .sidecar("aibuilder-core")
+            .sidecar("framestack-core")
             .map_err(|e| format!("sidecar not configured: {e}"))?
             .spawn()
             .map_err(|e| format!("sidecar failed to start: {e}"))?;

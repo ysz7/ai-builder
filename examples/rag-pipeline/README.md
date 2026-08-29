@@ -24,5 +24,5 @@ there is nowhere else it could honestly come from.
 
 ```bash
 uv run pytest examples/rag-pipeline/tests
-uv run python -m aibuilder_core check examples/rag-pipeline --observe
+uv run python -m framestack_core check examples/rag-pipeline --observe
 ```

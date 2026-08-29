@@ -49,7 +49,7 @@ BLUEPRINT_FILE = "blueprint.md"
 
 #: How the location is given when it is not passed in directly -- the frozen sidecar has no
 #: repository around it, and there is nothing else for it to fall back on.
-CATALOG_ENV = "AIBUILDER_BLUEPRINTS"
+CATALOG_ENV = "FRAMESTACK_BLUEPRINTS"
 
 #: The public sections of the catalog. Private ones are not ours to read from here.
 SECTIONS = ("blueprints", "project-blueprints")

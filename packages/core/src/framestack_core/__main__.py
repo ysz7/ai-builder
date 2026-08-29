@@ -3,34 +3,34 @@
 With no arguments this is the **sidecar**: NDJSON requests on stdin, NDJSON responses on
 stdout. That is how Tauri spawns it, so the argument-free path must never change meaning.
 
-    echo '{"id":1,"method":"ping"}' | uv run python -m aibuilder_core
+    echo '{"id":1,"method":"ping"}' | uv run python -m framestack_core
 
 With a subcommand it is a small CLI, used by CI and by hand:
 
-    uv run python -m aibuilder_core strip <project> <destination>
-    uv run python -m aibuilder_core graph <project>
-    uv run python -m aibuilder_core check <project> [--observe]
-    uv run python -m aibuilder_core snapshot <project>
-    uv run python -m aibuilder_core status <project>
-    uv run python -m aibuilder_core set-knob <project> <node> <knob> <value>
-    uv run python -m aibuilder_core repairs <project>
-    uv run python -m aibuilder_core repair <project> <code> <target> <resolution>
-    uv run python -m aibuilder_core blueprints
-    uv run python -m aibuilder_core brief <project> [--request TEXT] [--blueprint ID]
-    uv run python -m aibuilder_core record <project> --source chat|blueprint [--observe]
-    uv run python -m aibuilder_core failures <project>
-    uv run python -m aibuilder_core env <project>
-    uv run python -m aibuilder_core env-up <project>
-    uv run python -m aibuilder_core env-down <project>
-    uv run python -m aibuilder_core run <project> [--port N]
-    uv run python -m aibuilder_core run-status <project>
-    uv run python -m aibuilder_core logs <project>
-    uv run python -m aibuilder_core call <project> <path>
-    uv run python -m aibuilder_core stop <project>
-    uv run python -m aibuilder_core work <project>
-    uv run python -m aibuilder_core work-status <project>
-    uv run python -m aibuilder_core work-logs <project>
-    uv run python -m aibuilder_core work-stop <project>
+    uv run python -m framestack_core strip <project> <destination>
+    uv run python -m framestack_core graph <project>
+    uv run python -m framestack_core check <project> [--observe]
+    uv run python -m framestack_core snapshot <project>
+    uv run python -m framestack_core status <project>
+    uv run python -m framestack_core set-knob <project> <node> <knob> <value>
+    uv run python -m framestack_core repairs <project>
+    uv run python -m framestack_core repair <project> <code> <target> <resolution>
+    uv run python -m framestack_core blueprints
+    uv run python -m framestack_core brief <project> [--request TEXT] [--blueprint ID]
+    uv run python -m framestack_core record <project> --source chat|blueprint [--observe]
+    uv run python -m framestack_core failures <project>
+    uv run python -m framestack_core env <project>
+    uv run python -m framestack_core env-up <project>
+    uv run python -m framestack_core env-down <project>
+    uv run python -m framestack_core run <project> [--port N]
+    uv run python -m framestack_core run-status <project>
+    uv run python -m framestack_core logs <project>
+    uv run python -m framestack_core call <project> <path>
+    uv run python -m framestack_core stop <project>
+    uv run python -m framestack_core work <project>
+    uv run python -m framestack_core work-status <project>
+    uv run python -m framestack_core work-logs <project>
+    uv run python -m framestack_core work-stop <project>
 """
 
 from __future__ import annotations
@@ -42,7 +42,7 @@ import sys
 from pathlib import Path
 from typing import TextIO
 
-from aibuilder_core.api import (
+from framestack_core.api import (
     agent_blueprints,
     agent_brief,
     agent_failures,
@@ -74,25 +74,25 @@ from aibuilder_core.api import (
     write_body,
     write_knob,
 )
-from aibuilder_core.catalog import CATALOG_ENV
-from aibuilder_core.converse import (
+from framestack_core.catalog import CATALOG_ENV
+from framestack_core.converse import (
     close_everything_started_here as close_every_conversation_started_here,
 )
-from aibuilder_core.gate import check_graph, summarize
-from aibuilder_core.handlers import dispatch
-from aibuilder_core.observe import run_observations
-from aibuilder_core.project import read_project
-from aibuilder_core.protocol import (
+from framestack_core.gate import check_graph, summarize
+from framestack_core.handlers import dispatch
+from framestack_core.observe import run_observations
+from framestack_core.project import read_project
+from framestack_core.protocol import (
     ProtocolError,
     decode_request,
     encode_error,
     encode_result,
 )
-from aibuilder_core.runner import stop_everything_started_here
-from aibuilder_core.session import close_everything_started_here
-from aibuilder_core.shell import close_everything_opened_here
-from aibuilder_core.strip import strip_project
-from aibuilder_core.verdict import Observation
+from framestack_core.runner import stop_everything_started_here
+from framestack_core.session import close_everything_started_here
+from framestack_core.shell import close_everything_opened_here
+from framestack_core.strip import strip_project
+from framestack_core.verdict import Observation
 
 
 def log(message: str) -> None:
@@ -548,7 +548,7 @@ def run_index_cmd(project: Path, node: str) -> int:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="aibuilder-core", description=__doc__)
+    parser = argparse.ArgumentParser(prog="framestack-core", description=__doc__)
     sub = parser.add_subparsers(dest="command")
 
     strip_cmd = sub.add_parser(

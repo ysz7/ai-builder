@@ -32,7 +32,7 @@ nothing about delivery. Delivery is the queue node's own check and the worker bu
 With the broker down, every node here is green or unproven and none is broken:
 
 ```bash
-uv run python -m aibuilder_core check examples/service-with-worker --observe
+uv run python -m framestack_core check examples/service-with-worker --observe
 ```
 
 ## Running it
@@ -42,14 +42,14 @@ start while the broker is down rather than bringing it up on the way past, becau
 retrying against a dead broker looks, from the outside, exactly like one that is working.
 
 ```bash
-uv run python -m aibuilder_core env-up examples/service-with-worker    # the broker
-uv run python -m aibuilder_core work examples/service-with-worker      # the worker
-uv run python -m aibuilder_core run examples/service-with-worker       # the service
-uv run python -m aibuilder_core call examples/service-with-worker /health
-uv run python -m aibuilder_core work-logs examples/service-with-worker
-uv run python -m aibuilder_core work-stop examples/service-with-worker
-uv run python -m aibuilder_core stop examples/service-with-worker
-uv run python -m aibuilder_core env-down examples/service-with-worker
+uv run python -m framestack_core env-up examples/service-with-worker    # the broker
+uv run python -m framestack_core work examples/service-with-worker      # the worker
+uv run python -m framestack_core run examples/service-with-worker       # the service
+uv run python -m framestack_core call examples/service-with-worker /health
+uv run python -m framestack_core work-logs examples/service-with-worker
+uv run python -m framestack_core work-stop examples/service-with-worker
+uv run python -m framestack_core stop examples/service-with-worker
+uv run python -m framestack_core env-down examples/service-with-worker
 ```
 
 A worker publishes no port, so "is it up?" is asked of the **queue** — has anything answered

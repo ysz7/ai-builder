@@ -1,6 +1,6 @@
 #!/bin/sh
 # Freeze the Python core into a single-file binary and install it where Tauri
-# expects the sidecar: src-tauri/binaries/aibuilder-core-<target-triple>.
+# expects the sidecar: src-tauri/binaries/framestack-core-<target-triple>.
 #
 # Only needed for `npm run build`. Dev mode uses the shim at that same path.
 set -eu
@@ -29,8 +29,8 @@ uv run --project "$ROOT" --extra package pyinstaller \
     "$ROOT/packages/core/packaging/core.spec"
 
 mkdir -p "$BINARIES"
-cp "$ROOT/packages/core/dist/aibuilder-core" "$BINARIES/aibuilder-core-$TRIPLE"
-chmod +x "$BINARIES/aibuilder-core-$TRIPLE"
+cp "$ROOT/packages/core/dist/framestack-core" "$BINARIES/framestack-core-$TRIPLE"
+chmod +x "$BINARIES/framestack-core-$TRIPLE"
 
-echo "[build-sidecar] installed $BINARIES/aibuilder-core-$TRIPLE"
+echo "[build-sidecar] installed $BINARIES/framestack-core-$TRIPLE"
 echo "[build-sidecar] note: this overwrote the dev shim; 'git checkout -- $BINARIES' restores it"

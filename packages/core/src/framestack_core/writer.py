@@ -35,13 +35,13 @@ from typing import Any
 
 import libcst as cst
 
-from aibuilder_core.diagnostics import Diagnostic
-from aibuilder_core.gate import check_graph
-from aibuilder_core.ir import Function, Graph, Knob, Node
-from aibuilder_core.markup import Bindings, collect_bindings
-from aibuilder_core.parser import parse_project, signature_of
-from aibuilder_core.paths import package_name
-from aibuilder_core.snapshot import save_snapshot, take_snapshot
+from framestack_core.diagnostics import Diagnostic
+from framestack_core.gate import check_graph
+from framestack_core.ir import Function, Graph, Knob, Node
+from framestack_core.markup import Bindings, collect_bindings
+from framestack_core.parser import parse_project, signature_of
+from framestack_core.paths import package_name
+from framestack_core.snapshot import save_snapshot, take_snapshot
 
 __all__ = ["WriteResult", "set_body", "set_knob", "set_node_title"]
 

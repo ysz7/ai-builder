@@ -1,6 +1,6 @@
 """Where the person put things (Q13, amended).
 
-The layout is the fifth file in `.aibuilder/`, and the tests here are almost entirely about
+The layout is the fifth file in `.framestack/`, and the tests here are almost entirely about
 what it is **not** allowed to be. It cannot add a node, remove one, rename one, or change
 anything the graph says — and the core cannot look inside it, because a core that understood
 a coordinate would sooner or later be asked to produce one.
@@ -14,9 +14,9 @@ from pathlib import Path
 
 from test_api import validate, wire_form
 
-from aibuilder_core.api import LAYOUT_READ_SCHEMA, LAYOUT_WRITE_SCHEMA, layout_get, layout_put
-from aibuilder_core.layout import LAYOUT_PATH, read_layout, write_layout
-from aibuilder_core.parser import parse_project
+from framestack_core.api import LAYOUT_READ_SCHEMA, LAYOUT_WRITE_SCHEMA, layout_get, layout_put
+from framestack_core.layout import LAYOUT_PATH, read_layout, write_layout
+from framestack_core.parser import parse_project
 
 EXAMPLE = Path(__file__).resolve().parents[3] / "examples" / "fastapi-service"
 
@@ -29,7 +29,7 @@ POSITIONS = {
 
 def project(tmp_path: Path) -> Path:
     root = tmp_path / "project"
-    shutil.copytree(EXAMPLE, root, ignore=shutil.ignore_patterns("__pycache__", ".aibuilder"))
+    shutil.copytree(EXAMPLE, root, ignore=shutil.ignore_patterns("__pycache__", ".framestack"))
     return root
 
 
@@ -113,11 +113,11 @@ def test_deleting_it_changes_nothing_about_the_project(tmp_path: Path) -> None:
 
 
 def test_it_is_stored_beside_the_other_tooling_state(tmp_path: Path) -> None:
-    """The fifth file in `.aibuilder/`, and it is not project source."""
+    """The fifth file in `.framestack/`, and it is not project source."""
     root = project(tmp_path)
     write_layout(root, POSITIONS)
 
-    assert (root / ".aibuilder" / "layout.json").is_file()
+    assert (root / ".framestack" / "layout.json").is_file()
     assert json.loads((root / LAYOUT_PATH).read_text())["health"] == {"x": 220, "y": 120}
 
 
@@ -144,7 +144,7 @@ def test_the_capability_is_a_method_in_the_core(tmp_path: Path) -> None:
     A filesystem plugin in the shell would mean a second implementation the moment a second
     client exists -- and two implementations of one thing drift.
     """
-    from aibuilder_core.handlers import dispatch
+    from framestack_core.handlers import dispatch
 
     root = project(tmp_path)
     dispatch("layout.write", {"project": str(root), "layout": POSITIONS})
@@ -153,8 +153,8 @@ def test_the_capability_is_a_method_in_the_core(tmp_path: Path) -> None:
 
 
 def test_a_layout_that_is_not_an_object_is_a_protocol_fault() -> None:
-    from aibuilder_core.handlers import dispatch
-    from aibuilder_core.protocol import ProtocolError
+    from framestack_core.handlers import dispatch
+    from framestack_core.protocol import ProtocolError
 
     try:
         dispatch("layout.write", {"project": ".", "layout": [1, 2]})

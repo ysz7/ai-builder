@@ -26,7 +26,7 @@ from pathlib import Path
 
 import libcst as cst
 
-from aibuilder_core.markup import (
+from framestack_core.markup import (
     GROUP_MANIFEST,
     MARKUP_DECLARATIONS,
     MARKUP_DECORATORS,

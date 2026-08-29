@@ -41,10 +41,13 @@ apps/desktop/src-tauri/gen/schemas/
 !.env.example
 
 # the reconciliation reference: a build artifact, rewritten by any passing gate run
-.aibuilder/
+.framestack/
 
 # design documents: kept locally, not published. The one file in here that the toolchain
 # actually reads -- the agent's system prompt -- is package data under
-# packages/core/src/aibuilder_core/prompts/, precisely so `npm run check` does not depend
+# packages/core/src/framestack_core/prompts/, precisely so `npm run check` does not depend
 # on an ignored directory.
 docs/
+
+CLAUDE.MD
+DEVELOPMENT.md

@@ -55,7 +55,7 @@ __all__ = [
 ]
 
 #: Where a shell's output is kept, one file per shell. Tooling state beside the run record.
-SHELLS_PATH = Path(".aibuilder") / "shells"
+SHELLS_PATH = Path(".framestack") / "shells"
 
 #: How many shells one project may have open at once.
 #:

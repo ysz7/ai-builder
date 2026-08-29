@@ -11,10 +11,10 @@ from __future__ import annotations
 import textwrap
 from pathlib import Path
 
-from aibuilder_core.diagnostics import CATALOGUE, Code, Severity
-from aibuilder_core.gate import GateMode, check_graph
-from aibuilder_core.parser import parse_project, parse_source
-from aibuilder_core.verdict import Observation, Verdict
+from framestack_core.diagnostics import CATALOGUE, Code, Severity
+from framestack_core.gate import GateMode, check_graph
+from framestack_core.parser import parse_project, parse_source
+from framestack_core.verdict import Observation, Verdict
 
 FIXTURE = Path(__file__).parent / "fixtures" / "mis-annotated"
 EXAMPLE = Path(__file__).resolve().parents[3] / "examples" / "fastapi-service"

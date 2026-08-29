@@ -21,7 +21,7 @@ from pathlib import Path
 import pytest
 from test_api import validate, wire_form
 
-from aibuilder_core.api import (
+from framestack_core.api import (
     TALK_SCHEMA,
     talk_close,
     talk_open,
@@ -29,7 +29,7 @@ from aibuilder_core.api import (
     talk_say,
     talk_state,
 )
-from aibuilder_core.converse import (
+from framestack_core.converse import (
     TALK_STATE_PATH,
     conversations_held,
     poll_talk,
@@ -38,7 +38,7 @@ from aibuilder_core.converse import (
     stop_talk,
     talk_status,
 )
-from aibuilder_core.observe import probe_script
+from framestack_core.observe import probe_script
 
 EXAMPLE = Path(__file__).resolve().parents[3] / "examples" / "rag-pipeline"
 
@@ -196,7 +196,7 @@ def talking(tmp_path: Path, monkeypatch) -> Path:
 
     Which nodes may be talked to at all is P17.2's question; this one is about the process.
     """
-    from aibuilder_core import converse
+    from framestack_core import converse
 
     a_project(
         tmp_path,
@@ -304,7 +304,7 @@ def test_asking_twice_for_the_open_one_does_not_start_a_second(talking: Path) ->
 def test_a_project_that_refuses_never_leaves_a_record_behind(tmp_path: Path, monkeypatch) -> None:
     """A refusal has to leave nothing to stop, or `talk.state` reports a conversation that
     is not there and the button to close it does nothing."""
-    from aibuilder_core import converse
+    from framestack_core import converse
 
     a_project(tmp_path, "greeting = 'hello'\n")
     monkeypatch.setattr(
@@ -329,7 +329,7 @@ def test_a_project_that_refuses_never_leaves_a_record_behind(tmp_path: Path, mon
 def test_the_way_in_is_read_out_of_the_graph_and_the_registry(tmp_path: Path) -> None:
     """A conversation addresses a node, and what a node *is* is a carrier object (I-3).
     **Whether** it can be talked to comes from its kind, which opts in by naming a way in."""
-    from aibuilder_core.converse import _way_to
+    from framestack_core.converse import _way_to
 
     way, refusal = _way_to(EXAMPLE, "rag")
 
@@ -342,7 +342,7 @@ def test_the_way_in_is_read_out_of_the_graph_and_the_registry(tmp_path: Path) ->
 def test_a_kind_that_has_not_opted_in_is_refused_rather_than_tried(tmp_path: Path) -> None:
     """The failure mode this codebase minds most is a button that appears to work. Calling
     anything callable would construct `Chunker` and report its `repr` as an answer."""
-    from aibuilder_core.converse import _way_to
+    from framestack_core.converse import _way_to
 
     way, refusal = _way_to(EXAMPLE, "rag.chunking")
 
@@ -351,7 +351,7 @@ def test_a_kind_that_has_not_opted_in_is_refused_rather_than_tried(tmp_path: Pat
 
 
 def test_a_node_that_is_not_there_is_named_in_the_refusal(tmp_path: Path) -> None:
-    from aibuilder_core.converse import _way_to
+    from framestack_core.converse import _way_to
 
     _, refusal = _way_to(EXAMPLE, "no.such.node")
 
@@ -361,7 +361,7 @@ def test_a_node_that_is_not_there_is_named_in_the_refusal(tmp_path: Path) -> Non
 def test_only_the_kinds_that_named_a_way_in_can_be_talked_to() -> None:
     """The registry is the whole rule: a kind joins by naming a convention, and the
     mechanism learns nothing new when the next one does."""
-    from aibuilder_core.kinds import REGISTRY
+    from framestack_core.kinds import REGISTRY
 
     talkable = {name: kind.converses for name, kind in REGISTRY.items() if kind.converses}
 
@@ -503,7 +503,7 @@ def test_an_answer_is_evidence_and_a_closed_conversation_keeps_none(talking: Pat
 
 
 def test_a_question_that_broke_the_node_is_evidence_of_breakage(tmp_path: Path, monkeypatch):
-    import aibuilder_core.converse as converse
+    import framestack_core.converse as converse
 
     a_project(tmp_path, "def answer(question):\n    raise RuntimeError('no')\n")
     monkeypatch.setattr(
@@ -525,7 +525,7 @@ def test_the_ranking_lives_in_the_probe_and_the_tests_still_win() -> None:
     A conversation outranks a direct check and loses to a passing test, and both halves are
     decided in `run_plan` -- so both are asked of `run_plan`, with the plan as the only input.
     """
-    from aibuilder_core.probe import _conversation
+    from framestack_core.probe import _conversation
 
     plan = {"conversations": {"n": {"status": "passed", "detail": "answered 1 question(s)"}}}
     spoken = _conversation({"id": "n", "kind": "rag.pipeline"}, plan)
@@ -538,8 +538,8 @@ def test_the_ranking_lives_in_the_probe_and_the_tests_still_win() -> None:
 
 def test_the_pipeline_is_green_off_the_conversation_it_had() -> None:
     """The phase, end to end: a node nothing else could prove, proven by being talked to."""
-    from aibuilder_core.observe import run_observations
-    from aibuilder_core.project import read_project
+    from framestack_core.observe import run_observations
+    from framestack_core.project import read_project
 
     graph = read_project(EXAMPLE)
     talk_until_answered(EXAMPLE, "rag", "what do ravens do?")
@@ -563,8 +563,8 @@ def test_the_agent_is_green_off_the_conversation_it_had() -> None:
     `graph.compiles`, `rag.stages_load` -- and neither proves the thing a person cares
     about. A conversation does, which is why it outranks them.
     """
-    from aibuilder_core.observe import run_observations
-    from aibuilder_core.project import read_project
+    from framestack_core.observe import run_observations
+    from framestack_core.project import read_project
 
     graph = read_project(AGENT)
     talk_until_answered(AGENT, "agent", "tell me about ravens")

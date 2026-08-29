@@ -26,7 +26,7 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
 
-from aibuilder_core.ir import Graph
+from framestack_core.ir import Graph
 
 __all__ = [
     "SNAPSHOT_PATH",
@@ -47,7 +47,7 @@ SNAPSHOT_VERSION = 3
 #: Where the reference lives, relative to the project root. A build artifact, like a lock
 #: file for a state rather than for dependencies -- safe to delete, and the next successful
 #: gate run writes it again.
-SNAPSHOT_PATH = Path(".aibuilder") / "snapshot.json"
+SNAPSHOT_PATH = Path(".framestack") / "snapshot.json"
 
 
 @dataclass(frozen=True)

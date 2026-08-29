@@ -76,7 +76,7 @@ state, the probe imports **every** module rather than only the annotated ones, a
 not import costs the claim rather than the nodes. Kinds opt in through `NodeKind.completeness`.
 
 **The person owns the layout; the code owns the graph** (Q13). Node positions live in
-`.aibuilder/layout.json` — tooling state beside `run.json` and the snapshot, reached through
+`.framestack/layout.json` — tooling state beside `run.json` and the snapshot, reached through
 `layout.read` / `layout.write` because the webview may call `core_request` and nothing else. **The core
 stores it and refuses to understand it**: the contract is `"<opaque>"`, and the refusal is the
 protection — a core that knew what a coordinate was would end up being asked to produce a layout. It
@@ -92,7 +92,7 @@ node" is a generation, and the new ids are a set difference the canvas computes 
 keeps, a record on disk survives a crash, and **nothing starts implicitly**. The agent being one of
 them is Q16 amended about *where the process lives* and nothing else: the core still holds no HTTP
 client to a model and no SDK, and every decision about what to ask and what to do with the answer
-stays in the application. The agent is denied writes to `.aibuilder/`, because an agent that could
+stays in the application. The agent is denied writes to `.framestack/`, because an agent that could
 edit the snapshot would be forging evidence about itself.
 
 **A permission is a question with an answer** (Q21, amending Q17). `--permission-prompt-tool stdio`
@@ -102,7 +102,7 @@ rather than being retried after a settings change. `updatedInput` is echoed back
 a response carrying anything else would be this toolchain editing a command on its way to a shell —
 and "Always" sends back **the rules the agent itself suggested**, which it writes into the project's
 own `.claude/settings.local.json`. Because a person is on the other end, the deny-list is only
-`.aibuilder/`: a denied tool never asks, so anything refused by name is the one thing they cannot
+`.framestack/`: a denied tool never asks, so anything refused by name is the one thing they cannot
 overrule. What is stored on this side is which requests were answered and nothing about policy —
 the stream carries no line for an answer, so without it every re-read would resurrect a decision.
 
@@ -171,6 +171,47 @@ is a node with no evidence, by design.
 Note: the git repository root is the **parent** directory (`Awesome Blueprints/`), a monorepo holding
 this project alongside `Awesome AI Blueprints` and `Awesome Blueprints Website`.
 
+## The direction, and who this is for
+
+Settled by a competitive read of the visual-builder market, recorded in full as Q25. Read it before
+proposing anything that changes the shape of the product.
+
+**It looks like StackAI, it is built like Dagster, and it proves what nobody else proves.**
+
+Visual builders are the most crowded niche in AI tooling — three of the top five agent repositories
+on GitHub are one (Langflow ~146k stars and owned by DataStax/IBM, Dify ~136k, Flowise ~51k),
+alongside n8n and a long tail, and reviews of that market say plainly that the moat is thin and
+switching costs are low. Building another one loses by default and inherits the defect: in every one
+of them a node is green **because it exists**, since the flow document is the source of truth and the
+code is an export.
+
+The square nobody occupies is a graph over the user's own project, written back through a concrete
+syntax tree, with a verdict that comes from running the project's own tests. LangGraph Studio draws a
+graph from code but is read-only, framework-locked and cloud-tied; Nodezator, Ryven and the other
+Python node editors keep their own graph file as the truth; Dagster and Prefect are the precedent
+that code-first wins a category from a UI-first incumbent. **Evidence is the moat** — it requires the
+code to be real and runnable, which is exactly what the flow-document architectures traded away.
+
+What follows from that, day to day:
+
+- **The architecture does not move to meet the surface.** I-1, I-3 and I-5 are not negotiable against
+  a nicer gesture. A palette that added a node without writing code, a template that shipped its own
+  verdict, an edge stored anywhere but in the code — each is the product becoming Flowise.
+- **The surface is borrowed on purpose, and completely.** Legibility, a searchable library of what
+  may be built, dense node cards showing their main knobs without being opened, one control cluster.
+  Blueprints decides what a thing *is*; StackAI decides how it is *shown* (Q26). The existing layout
+  is not defended — it grew a panel per phase.
+- **The palette is the fast path, never the boundary.** `kinds.REGISTRY` is already the honest limit
+  of what can be proven; showing it answers "what can I build" at no architectural cost, and a
+  catalog entry carrying real annotated code makes the common case deterministic and free of tokens.
+  The agent stays for everything the catalog does not have — a user reaches the edge of any palette
+  in week one, and that is the reason to be code-first and open source.
+- **The audience is the engineer.** StackAI sells to a non-technical buyer; "the same legibility with
+  more technical detail" is a different person, and every trade-off resolves toward them.
+- **The differentiator does not survive a screenshot.** "Green because `test_retrieval.py` entered
+  it" belongs on the node card, not three clicks away, or the project is compared to Langflow on
+  looks and found to be the same thing.
+
 ## Commands
 
 ```bash
@@ -194,51 +235,51 @@ Single test / subset: `uv run pytest packages/core/tests/test_ping.py -q`, or
 Read the graph out of a project, or strip its markup (the mechanical form of I-2):
 
 ```bash
-uv run python -m aibuilder_core graph examples/fastapi-service
-uv run python -m aibuilder_core check examples/fastapi-service
-uv run python -m aibuilder_core check examples/fastapi-service --observe   # runs the project
-uv run python -m aibuilder_core snapshot examples/fastapi-service
-uv run python -m aibuilder_core status examples/fastapi-service
-uv run python -m aibuilder_core set-knob examples/fastapi-service api.settings page_size 50
-uv run python -m aibuilder_core set-body examples/fastapi-service health app.api.health.health -
-uv run python -m aibuilder_core repairs examples/fastapi-service
-uv run python -m aibuilder_core blueprints
-uv run python -m aibuilder_core brief examples/fastapi-service --request "add a users router"
-uv run python -m aibuilder_core failures examples/fastapi-service
-uv run python -m aibuilder_core work examples/service-with-worker
-uv run python -m aibuilder_core inspect examples/mcp-agent agent.notes
-uv run python -m aibuilder_core tool examples/mcp-agent agent.notes summarize '{"text": "One. Two."}'
-uv run python -m aibuilder_core index examples/rag-pipeline rag
-uv run python -m aibuilder_core commands .
-uv run python -m aibuilder_core command . web:dev
-uv run python -m aibuilder_core command-logs .
-uv run python -m aibuilder_core command-stop .
+uv run python -m framestack_core graph examples/fastapi-service
+uv run python -m framestack_core check examples/fastapi-service
+uv run python -m framestack_core check examples/fastapi-service --observe   # runs the project
+uv run python -m framestack_core snapshot examples/fastapi-service
+uv run python -m framestack_core status examples/fastapi-service
+uv run python -m framestack_core set-knob examples/fastapi-service api.settings page_size 50
+uv run python -m framestack_core set-body examples/fastapi-service health app.api.health.health -
+uv run python -m framestack_core repairs examples/fastapi-service
+uv run python -m framestack_core blueprints
+uv run python -m framestack_core brief examples/fastapi-service --request "add a users router"
+uv run python -m framestack_core failures examples/fastapi-service
+uv run python -m framestack_core work examples/service-with-worker
+uv run python -m framestack_core inspect examples/mcp-agent agent.notes
+uv run python -m framestack_core tool examples/mcp-agent agent.notes summarize '{"text": "One. Two."}'
+uv run python -m framestack_core index examples/rag-pipeline rag
+uv run python -m framestack_core commands .
+uv run python -m framestack_core command . web:dev
+uv run python -m framestack_core command-logs .
+uv run python -m framestack_core command-stop .
 ```
 
 The brief is the agent's whole input: the system prompt verbatim, the request (a sentence, a
 blueprint's specification text, or both), and the project as it stands. **Both inputs carry the same
 prompt, byte for byte** — §3's rule that the annotation rules live in the prompt and not in the
 blueprints is a test, not a convention. **A blueprint catalog is never discovered** — its location is
-passed in by the caller or set in `AIBUILDER_BLUEPRINTS`, and with neither, input B is simply
+passed in by the caller or set in `FRAMESTACK_BLUEPRINTS`, and with neither, input B is simply
 unavailable. Nothing reads a directory because it happens to sit next to the project: what the agent
 is told must not depend on the shape of someone's disk. When a catalog is given, only `blueprint.md`
 is read from an entry, never the `architecture.mmd` beside it.
 
 The system prompt is package data at
-[packages/core/src/aibuilder_core/prompts/system-prompt-claude-code.md](packages/core/src/aibuilder_core/prompts/system-prompt-claude-code.md),
+[packages/core/src/framestack_core/prompts/system-prompt-claude-code.md](packages/core/src/framestack_core/prompts/system-prompt-claude-code.md),
 not documentation: the core reads it at runtime, a test asserts its `kind` table against the registry,
 and the frozen sidecar bundles it. Never add a second copy anywhere — two files would mean two sets of
 rules, and the one in force would be whichever was found first.
 
 
 ```bash
-uv run python -m aibuilder_core strip examples/fastapi-service /tmp/stripped
+uv run python -m framestack_core strip examples/fastapi-service /tmp/stripped
 ```
 
 Talk to the core by hand, no app involved:
 
 ```bash
-echo '{"id":1,"method":"ping"}' | uv run python -m aibuilder_core
+echo '{"id":1,"method":"ping"}' | uv run python -m framestack_core
 ```
 
 A Rust toolchain (rustup) is required — Tauri will not build without it. `.app`/`.dmg` can only be
@@ -246,7 +287,7 @@ built on macOS; see the README's signing section before planning a release.
 
 ### The sidecar shim
 
-`apps/desktop/src-tauri/binaries/aibuilder-core-<target-triple>` is a **tracked shell shim** that
+`apps/desktop/src-tauri/binaries/framestack-core-<target-triple>` is a **tracked shell shim** that
 execs `scripts/dev-sidecar.sh`, so dev mode runs the core from source with no PyInstaller step.
 `npm run build` overwrites that file with the frozen binary; `git checkout -- apps/desktop/src-tauri/binaries`
 restores the shim. Do not commit the frozen binary.
@@ -259,7 +300,7 @@ Four layers, and the boundaries between them are load-bearing:
 | --- | --- | --- |
 | React 19 + React Flow | `apps/desktop/src/` | Renders the graph the core returns; never a second source of truth. |
 | Tauri 2 / Rust shell | `apps/desktop/src-tauri/src/` | Transport only. Spawn the core, move JSON, match responses by `id`. |
-| Python core | `packages/core/` (`aibuilder_core`) | Parser, gates, snapshot, writer, repair, orchestration. All decisions live here. |
+| Python core | `packages/core/` (`framestack_core`) | Parser, gates, snapshot, writer, repair, orchestration. All decisions live here. |
 
 Inside the core: `markup.py` (how `bp` is spelled — the one place that knows) and `paths.py` (what
 counts as project source) are shared by everything; `kinds.py` is the node-kind registry; `ir.py` is
@@ -304,7 +345,7 @@ in ways that look right.
 echoed; logs are polled with an offset the caller keeps, and `run.start` returns as soon as the
 application answers. Adding a second message shape is a protocol version decision, available later
 and additive — do not reach for it as a convenience. A process the core starts is recorded in
-`.aibuilder/run.json` so `stop` works across a crash, and a session is the **sidecar's** lifetime, not
+`.framestack/run.json` so `stop` works across a crash, and a session is the **sidecar's** lifetime, not
 any process exit: the CLI's `run` deliberately leaves the application running.
 
 **Nothing starts a service implicitly** (P11). Observing never brings a container up, never creates
@@ -326,7 +367,7 @@ nodes: a broken test suite is not a broken application.
 
 **`probe.py` is handed to the project's own interpreter as a plain file**, which works only because
 it imports nothing from this package — a project's virtual environment has never heard of
-`aibuilder_core`. Never add an import from the toolchain to it, and never resolve it by importing it
+`framestack_core`. Never add an import from the toolchain to it, and never resolve it by importing it
 here; `observe.probe_script()` finds it by path, and the frozen build ships it as data.
 
 **`probe.py` is the only module that imports the user's project, and the toolchain never imports it**
@@ -342,17 +383,17 @@ at most one parent. The edges the parser draws are a different relation — a ty
 — and a node referenced by two carriers still has one parent.
 
 **The Rust shell exposes exactly one IPC command, `core_request`.** A new capability is a new
-*method in the Python core* (registered in `HANDLERS` in [handlers.py](packages/core/src/aibuilder_core/handlers.py)),
+*method in the Python core* (registered in `HANDLERS` in [handlers.py](packages/core/src/framestack_core/handlers.py)),
 never a new Tauri command. Anything in Rust that inspects a method name or interprets a result is
 misplaced logic.
 
 **The wire is NDJSON over the sidecar's stdio** — one JSON object per line, shape defined in
-[protocol.py](packages/core/src/aibuilder_core/protocol.py). `id` is opaque to the core and echoed
+[protocol.py](packages/core/src/framestack_core/protocol.py). `id` is opaque to the core and echoed
 verbatim. **stdout carries the wire and nothing else**; every log line goes to stderr, or the stream
 is corrupted (there is a test asserting this). A handler that raises is turned into an error
 response, never a crash.
 
-`aibuilder_core` may import `bp`; **`bp` must never import `aibuilder_core`**, and `bp` must have zero
+`framestack_core` may import `bp`; **`bp` must never import `framestack_core`**, and `bp` must have zero
 third-party dependencies — enforced by a test that AST-walks the package for non-stdlib imports.
 
 ### The invariants everything follows from
@@ -370,15 +411,15 @@ work:
 - **I-2 The markup layer is inert.** `@node`, `@editable`, `group_node` return their carrier — *the
   same object*, not a wrapper (`test_inert.py` asserts identity, not equivalence). `Param` is
   metadata inside `Annotated`. Putting behavior into `bp` breaks the only thing separating this from
-  Flowise/Langflow. Its mechanical form is `aibuilder-core strip`
-  ([strip.py](packages/core/src/aibuilder_core/strip.py)), and the test that runs the example and its
+  Flowise/Langflow. Its mechanical form is `framestack-core strip`
+  ([strip.py](packages/core/src/framestack_core/strip.py)), and the test that runs the example and its
   stripped copy in separate processes and demands identical answers.
 - **I-3 Every visible node has a carrier object** — class, function, or module. Every top-level node
   is a `group_node`, even a one-member one; every function inside a carrier is explicitly `@editable`
   or `@generated`, never classified by absence.
 - **I-4 Markup is real Python syntax.** Decorators and `Annotated`, never comments — the AST must see it.
 - **I-5 A green node parses AND passes its observable checks.** `verdict_for` in
-  [verdict.py](packages/core/src/aibuilder_core/verdict.py) is that one implementation. Never add a
+  [verdict.py](packages/core/src/framestack_core/verdict.py) is that one implementation. Never add a
   second path to a green verdict, never let an absent observation read as a passing one, and never
   report green from the static gate alone — that is the agent fitting to the parser, and it is the
   invariant most likely to be eroded by a convenience. A check that could not run reports `skipped`
@@ -399,24 +440,28 @@ agent's system prompt used to and was moved into the package for exactly that re
 
 - [architecture.md](docs/architecture.md) — the v0 spec. Sections 2 (invariants) and 7 (the parser as
   a gate) carry everything load-bearing.
-- [roadmap.md](docs/roadmap.md) — **P17 only**. P0–P16 are finished and their record was cleared
-  from the file deliberately, so what is left is the work in front of us; the reasoning behind the
-  decisions those phases settled is in open-questions.md, which is where it belonged anyway. Current
-  position: 17.1–17.7 are done — P17 closes with a person able to index a pipeline, talk to what they
-  built, and run the project's front end without a terminal at any point.
+- [roadmap.md](docs/roadmap.md) — **P18–P22 only**. P0–P17 are finished and their record was
+  cleared from the file deliberately, so what is left is the work in front of us; the reasoning
+  behind the decisions those phases settled is in open-questions.md, which is where it belonged
+  anyway. It opens with the direction the remaining phases serve (Q25), and P18 — the workspace
+  rebuilt as StackAI's, against the reference in `assets/` — is the one in front of us.
 - [design.md](docs/design.md) — the plan for the UI: what the design has to answer, which method sits
   behind each surface, and what it may not invent. Written before the design, so the design can be
-  judged against it.
-- [open-questions.md](docs/open-questions.md) — nothing open; Q1–Q20 are settled, with the reasoning
+  judged against it. **Its layout sections (§3, §5, §6, §8) are superseded by roadmap P18**; its
+  rules about colour, marks, wire geometry and controls derived from types stand (Q26).
+- [open-questions.md](docs/open-questions.md) — nothing open; Q1–Q28 are settled, with the reasoning
   kept in the log.
   **Read before starting any phase**, and add an entry the moment two documents disagree — an
   unrecorded conflict is worse than an open one.
-- [prompts/system-prompt-claude-code.md](packages/core/src/aibuilder_core/prompts/system-prompt-claude-code.md)
+- [prompts/system-prompt-claude-code.md](packages/core/src/framestack_core/prompts/system-prompt-claude-code.md)
   — in the package, not in `docs/`. The prompt for the agent that generates user code. It **fixes the `bp` syntax** the toolchain parses; where it and the
   architecture doc disagree, the prompt wins and the disagreement is recorded in open-questions.
 
-Known naming drift: the roadmap calls the toolchain package `aibuilder`; it exists as
-`aibuilder-core` / `aibuilder_core` (the sidecar). The `bp` name is fixed and must not change.
+The product is **Framestack AI Builder**. The toolchain package is `framestack-core` /
+`framestack_core` (the sidecar); the state directory it writes in a user's project is `.framestack/`;
+the catalog variable is `FRAMESTACK_BLUEPRINTS`. **The `bp` name is fixed and must not change** — it
+is the markup layer, and it is imported by every generated user file, so renaming it would rewrite
+strangers' code.
 
 A new node `kind` is a new entry in `kinds.REGISTRY` **and** a row in the system prompt's `kind`
 table — a test holds the two together, because an agent told about a kind the checker cannot dispatch

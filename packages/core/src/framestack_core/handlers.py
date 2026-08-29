@@ -15,7 +15,7 @@ import sys
 from collections.abc import Callable
 from typing import Any
 
-from aibuilder_core.api import (
+from framestack_core.api import (
     agent_account,
     agent_blueprints,
     agent_brief,
@@ -81,8 +81,8 @@ from aibuilder_core.api import (
     write_knob,
     write_node_title,
 )
-from aibuilder_core.gate import GateMode
-from aibuilder_core.protocol import PROTOCOL_VERSION, ProtocolError
+from framestack_core.gate import GateMode
+from framestack_core.protocol import PROTOCOL_VERSION, ProtocolError
 
 Handler = Callable[[dict[str, Any]], Any]
 

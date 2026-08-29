@@ -1,7 +1,7 @@
 # Example: an annotated FastAPI service
 
 The reference project the toolchain is proven against. It is written the way the
-[system prompt](../../packages/core/src/aibuilder_core/prompts/system-prompt-claude-code.md) requires the agent to write, so every rule
+[system prompt](../../packages/core/src/framestack_core/prompts/system-prompt-claude-code.md) requires the agent to write, so every rule
 in that prompt has a working instance here:
 
 - the service is a **group node** (`app/api/__node__.py`), members by object reference;
@@ -11,7 +11,7 @@ in that prompt has a working instance here:
 - **no function inside a carrier is unmarked**.
 
 It has no dependency on the toolchain, and `bp` only ever contributes no-ops — which is what
-`aibuilder-core strip` proves: strip the markup and this same service still serves the same
+`framestack-core strip` proves: strip the markup and this same service still serves the same
 responses.
 
 `tests/` is the service's own suite, and it is also **the run the graph observes**: the builder

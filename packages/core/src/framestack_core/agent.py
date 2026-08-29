@@ -38,11 +38,11 @@ from enum import Enum
 from pathlib import Path
 from typing import Any
 
-from aibuilder_core.catalog import Blueprint, load_blueprint
-from aibuilder_core.gate import GateMode
-from aibuilder_core.ir import Graph
-from aibuilder_core.kinds import REGISTRY, installed_version, technology_of
-from aibuilder_core.project import read_project
+from framestack_core.catalog import Blueprint, load_blueprint
+from framestack_core.gate import GateMode
+from framestack_core.ir import Graph
+from framestack_core.kinds import REGISTRY, installed_version, technology_of
+from framestack_core.project import read_project
 
 __all__ = [
     "AGENT_LOG_PATH",
@@ -64,7 +64,7 @@ PROMPT_FILE = Path("prompts") / "system-prompt-claude-code.md"
 
 #: Appended to, never read from by the graph. Kept beside the snapshot for the same reason:
 #: it belongs to the tooling's view of the project, not to the project.
-AGENT_LOG_PATH = Path(".aibuilder") / "agent-log.jsonl"
+AGENT_LOG_PATH = Path(".framestack") / "agent-log.jsonl"
 
 
 class InputSource(str, Enum):
@@ -88,7 +88,7 @@ def prompt_path() -> Path:
     candidates = [Path(__file__).resolve().parent / PROMPT_FILE]
     if getattr(sys, "frozen", False):
         bundled = Path(getattr(sys, "_MEIPASS", Path(sys.executable).parent))
-        candidates.append(bundled / "aibuilder_core" / PROMPT_FILE)
+        candidates.append(bundled / "framestack_core" / PROMPT_FILE)
 
     for candidate in candidates:
         if candidate.is_file():
@@ -353,7 +353,7 @@ def record_outcome(
     of pretending to be self-contained. Both are `None` when nothing drove this from a
     session, and that is a real answer rather than a missing one.
     """
-    from aibuilder_core.api import read_graph  # imported here: api assembles, agent supplies
+    from framestack_core.api import read_graph  # imported here: api assembles, agent supplies
 
     root = Path(project)
     result = read_graph(root, mode=GateMode.SOFT, observe=observe)

@@ -6,7 +6,7 @@ no runtime behavior:
     from bp import node, group_node, editable, generated, Param
 
 An application annotated with these executes identically to one without them.
-That property is invariant I-2 in docs/architecture.md, and `aibuilder strip`
+That property is invariant I-2 in docs/architecture.md, and `framestack strip`
 checks it mechanically.
 """
 

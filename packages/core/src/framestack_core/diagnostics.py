@@ -20,7 +20,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from enum import Enum
 
-from aibuilder_core.ir import Location
+from framestack_core.ir import Location
 
 __all__ = ["CATALOGUE", "Code", "Diagnostic", "Severity", "describe"]
 

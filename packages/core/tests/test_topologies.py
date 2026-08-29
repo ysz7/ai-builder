@@ -30,15 +30,15 @@ from pathlib import Path
 
 import pytest
 
-from aibuilder_core.api import snapshot_status
-from aibuilder_core.gate import check_graph
-from aibuilder_core.observe import run_observations
-from aibuilder_core.parser import parse_project
-from aibuilder_core.repair import apply_repair
-from aibuilder_core.snapshot import save_snapshot, take_snapshot
-from aibuilder_core.strip import strip_project
-from aibuilder_core.verdict import Verdict
-from aibuilder_core.writer import set_knob
+from framestack_core.api import snapshot_status
+from framestack_core.gate import check_graph
+from framestack_core.observe import run_observations
+from framestack_core.parser import parse_project
+from framestack_core.repair import apply_repair
+from framestack_core.snapshot import save_snapshot, take_snapshot
+from framestack_core.strip import strip_project
+from framestack_core.verdict import Verdict
+from framestack_core.writer import set_knob
 
 EXAMPLES = Path(__file__).resolve().parents[3] / "examples"
 
@@ -107,7 +107,7 @@ def topology(request: pytest.FixtureRequest) -> Topology:
 def project(tmp_path: Path, name: str) -> Path:
     root = tmp_path / name
     shutil.copytree(
-        EXAMPLES / name, root, ignore=shutil.ignore_patterns("__pycache__", ".aibuilder")
+        EXAMPLES / name, root, ignore=shutil.ignore_patterns("__pycache__", ".framestack")
     )
     return root
 
@@ -275,7 +275,7 @@ def test_the_recorded_version_is_the_one_the_suite_proves() -> None:
     updated by whoever moved it rather than discovered to be a lie by a user on a different
     version.
     """
-    from aibuilder_core.kinds import TECHNOLOGIES, installed_version
+    from framestack_core.kinds import TECHNOLOGIES, installed_version
 
     drifted = {
         technology.name: (technology.verified, installed_version(technology.distribution))
@@ -297,7 +297,7 @@ def test_a_technology_is_recorded_only_where_a_check_reads_its_internals() -> No
     Recording a version there would be a claim about a dependency our code never looks at
     -- knowledge we do not have, which is precisely what this table is not for.
     """
-    from aibuilder_core.kinds import REGISTRY, TECHNOLOGIES
+    from framestack_core.kinds import REGISTRY, TECHNOLOGIES
 
     prefixes = {kind.partition(".")[0] for kind in REGISTRY}
 
@@ -306,7 +306,7 @@ def test_a_technology_is_recorded_only_where_a_check_reads_its_internals() -> No
 
 
 def test_the_version_note_appears_only_on_a_mismatch() -> None:
-    from aibuilder_core.probe import version_note
+    from framestack_core.probe import version_note
 
     plan = {
         "technologies": {
@@ -321,8 +321,8 @@ def test_the_version_note_appears_only_on_a_mismatch() -> None:
 
 
 def test_the_version_note_is_silent_when_the_versions_agree() -> None:
-    from aibuilder_core.kinds import TECHNOLOGIES
-    from aibuilder_core.probe import version_note
+    from framestack_core.kinds import TECHNOLOGIES
+    from framestack_core.probe import version_note
 
     langgraph = TECHNOLOGIES["langgraph"]
     plan = {

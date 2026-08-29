@@ -12,8 +12,8 @@ from pathlib import Path
 
 from test_api import validate, wire_form
 
-from aibuilder_core.api import NODE_SOURCE_SCHEMA, read_source
-from aibuilder_core.source import node_source
+from framestack_core.api import NODE_SOURCE_SCHEMA, read_source
+from framestack_core.source import node_source
 
 EXAMPLE = Path(__file__).resolve().parents[3] / "examples" / "fastapi-service"
 
@@ -77,7 +77,7 @@ def test_reading_source_never_writes(tmp_path: Path) -> None:
 
 def test_reading_a_nodes_code_is_a_method_in_the_core() -> None:
     """The extension point is `HANDLERS`, never a new command in the Rust shell."""
-    from aibuilder_core.handlers import dispatch
+    from framestack_core.handlers import dispatch
 
     answer = dispatch("node.source", {"project": str(EXAMPLE), "node": "health"})
 

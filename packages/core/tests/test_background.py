@@ -25,16 +25,16 @@ from pathlib import Path
 
 import pytest
 
-from aibuilder_core.api import read_graph
-from aibuilder_core.observe import run_observations
-from aibuilder_core.project import read_project
-from aibuilder_core.runner import (
+from framestack_core.api import read_graph
+from framestack_core.observe import run_observations
+from framestack_core.project import read_project
+from framestack_core.runner import (
     WORKER_STATE_PATH,
     start_worker,
     stop_worker,
     worker_status,
 )
-from aibuilder_core.verdict import Verdict
+from framestack_core.verdict import Verdict
 
 EXAMPLES = Path(__file__).resolve().parents[3] / "examples"
 WORKER = EXAMPLES / "service-with-worker"
@@ -98,7 +98,7 @@ def test_a_queue_whose_broker_is_down_is_unproven_and_names_the_button() -> None
 
 def test_with_the_broker_down_nothing_in_the_project_is_broken() -> None:
     """The standing promise since P12, on the project that has a queue in it."""
-    from aibuilder_core.gate import check_graph
+    from framestack_core.gate import check_graph
 
     graph = read_project(WORKER)
     run = run_observations(graph, WORKER)
@@ -161,8 +161,8 @@ def test_a_project_with_no_queue_is_refused_with_the_reason(tmp_path: Path) -> N
 
 def test_where_the_queue_is_comes_from_the_project(tmp_path: Path) -> None:
     """§5.8: `-A proj` is a convention, and a convention is wrong on the first odd layout."""
-    from aibuilder_core.environment import project_interpreter
-    from aibuilder_core.runner import _ask_project, _project_modules
+    from framestack_core.environment import project_interpreter
+    from framestack_core.runner import _ask_project, _project_modules
 
     root = queue_project(tmp_path)
     interpreter, _ = project_interpreter(root)
@@ -304,7 +304,7 @@ def test_starting_twice_adopts_rather_than_doubling(queued: Path) -> None:
 
 def test_stopping_works_on_a_worker_this_session_did_not_start(queued: Path) -> None:
     """The crashed-session case, which is the only reason the record is on disk (P13)."""
-    from aibuilder_core import runner
+    from framestack_core import runner
 
     assert start_worker(queued).ok is True
     runner._STARTED_HERE.clear()  # as if this session had never known about it
@@ -315,7 +315,7 @@ def test_stopping_works_on_a_worker_this_session_did_not_start(queued: Path) -> 
 
 
 def test_the_workers_output_is_polled_like_everything_else(queued: Path) -> None:
-    from aibuilder_core.runner import read_worker_logs
+    from framestack_core.runner import read_worker_logs
 
     start_worker(queued)
 
@@ -332,7 +332,7 @@ def test_the_application_and_the_worker_are_recorded_apart(queued: Path) -> None
     One record for both would mean stopping the application stopped the worker, and a
     project can perfectly well run one without the other.
     """
-    from aibuilder_core.runner import RUN_STATE_PATH
+    from framestack_core.runner import RUN_STATE_PATH
 
     assert start_worker(queued).ok is True
 
@@ -342,7 +342,7 @@ def test_the_application_and_the_worker_are_recorded_apart(queued: Path) -> None
 
 def test_ending_the_session_ends_the_worker_it_started(queued: Path) -> None:
     """A session is the sidecar's lifetime, and it takes its worker with it (P13)."""
-    from aibuilder_core.runner import stop_everything_started_here
+    from framestack_core.runner import stop_everything_started_here
 
     assert start_worker(queued).ok is True
 
@@ -357,7 +357,7 @@ def test_the_new_verbs_are_methods_in_the_core(queued: Path) -> None:
     A capability that arrived as a Tauri command would put logic in the transport layer,
     and the shell would stop being transport.
     """
-    from aibuilder_core.handlers import dispatch
+    from framestack_core.handlers import dispatch
 
     answer = dispatch("work.status", {"project": str(queued)})
 
@@ -371,7 +371,7 @@ def test_the_new_verbs_are_methods_in_the_core(queued: Path) -> None:
 def test_the_example_still_reads_the_same_after_it_is_copied(tmp_path: Path) -> None:
     """Nothing in the graph depends on where the project sits."""
     root = tmp_path / "copy"
-    shutil.copytree(WORKER, root, ignore=shutil.ignore_patterns("__pycache__", ".aibuilder"))
+    shutil.copytree(WORKER, root, ignore=shutil.ignore_patterns("__pycache__", ".framestack"))
 
     here = {node.id: node.kind for node in read_project(root).nodes}
     there = {node.id: node.kind for node in read_project(WORKER).nodes}

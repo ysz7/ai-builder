@@ -23,7 +23,7 @@ from pathlib import Path
 import pytest
 from test_api import validate, wire_form
 
-from aibuilder_core.api import (
+from framestack_core.api import (
     COMMAND_LIST_SCHEMA,
     RAG_INDEX_SCHEMA,
     RUN_SCHEMA,
@@ -34,8 +34,8 @@ from aibuilder_core.api import (
     command_stop,
     rag_index,
 )
-from aibuilder_core.kinds import REGISTRY
-from aibuilder_core.runner import COMMAND_STATE_PATH, project_commands
+from framestack_core.kinds import REGISTRY
+from framestack_core.runner import COMMAND_STATE_PATH, project_commands
 
 EXAMPLES = Path(__file__).resolve().parents[3] / "examples"
 PIPELINE = EXAMPLES / "rag-pipeline"
@@ -85,7 +85,7 @@ def test_indexing_answers_in_the_shape_it_declares() -> None:
 
 def test_indexing_is_a_method_in_the_core() -> None:
     """The extension point is `HANDLERS`, never a new command in the Rust shell."""
-    from aibuilder_core.handlers import dispatch
+    from framestack_core.handlers import dispatch
 
     assert dispatch("rag.index", {"project": str(PIPELINE), "node": "rag"})["ok"] is True
 
@@ -260,14 +260,14 @@ def test_the_command_payloads_match_the_declared_contract(with_commands: Path) -
 @needs_npm
 def test_the_command_verbs_are_methods_in_the_core(with_commands: Path) -> None:
     """The extension point is `HANDLERS`, never a new command in the Rust shell."""
-    from aibuilder_core.handlers import dispatch
+    from framestack_core.handlers import dispatch
 
     assert dispatch("command.list", {"project": str(with_commands)})["ok"] is True
 
 
 def test_a_front_end_is_not_on_the_graph(with_commands: Path) -> None:
     """Q20, asserted rather than trusted: running something must not model it."""
-    from aibuilder_core.api import read_graph
+    from framestack_core.api import read_graph
 
     before = read_graph(with_commands)["graph"]["nodes"]
     command_list(with_commands)

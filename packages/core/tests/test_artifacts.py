@@ -20,15 +20,15 @@ from pathlib import Path
 
 import pytest
 
-from aibuilder_core.artifacts import read_artifacts
-from aibuilder_core.environment import Environment, Service
-from aibuilder_core.gate import check_graph
-from aibuilder_core.ir import Location, Node
-from aibuilder_core.kinds import REGISTRY, CarrierType
-from aibuilder_core.parser import parse_project
-from aibuilder_core.project import read_project
-from aibuilder_core.runner import artifact_nodes, check_artifacts
-from aibuilder_core.verdict import Verdict
+from framestack_core.artifacts import read_artifacts
+from framestack_core.environment import Environment, Service
+from framestack_core.gate import check_graph
+from framestack_core.ir import Location, Node
+from framestack_core.kinds import REGISTRY, CarrierType
+from framestack_core.parser import parse_project
+from framestack_core.project import read_project
+from framestack_core.runner import artifact_nodes, check_artifacts
+from framestack_core.verdict import Verdict
 
 EXAMPLES = Path(__file__).resolve().parents[3] / "examples"
 CACHED = EXAMPLES / "service-with-cache"
@@ -177,7 +177,7 @@ def artifact(kind: str, name: str) -> Node:
 
 
 def graph_of(*nodes: Node) -> object:
-    from aibuilder_core.ir import Graph
+    from framestack_core.ir import Graph
 
     return Graph(root=".", nodes=tuple(nodes))
 
@@ -275,7 +275,7 @@ def test_docker_being_absent_is_the_reason_rather_than_a_verdict() -> None:
 
 def test_the_probe_is_never_told_about_an_artifact() -> None:
     """A file carries no Python object; there is nothing there to import or call."""
-    from aibuilder_core.observe import build_plan
+    from framestack_core.observe import build_plan
 
     graph = read_project(CACHED)
     plan = build_plan(graph, CACHED)
@@ -290,7 +290,7 @@ def test_the_probe_is_never_told_about_an_artifact() -> None:
 
 def test_the_compose_node_lands_on_the_graph_of_a_real_project(tmp_path: Path) -> None:
     root = tmp_path / "project"
-    shutil.copytree(CACHED, root, ignore=shutil.ignore_patterns("__pycache__", ".aibuilder"))
+    shutil.copytree(CACHED, root, ignore=shutil.ignore_patterns("__pycache__", ".framestack"))
 
     graph = read_project(root)
     compose = graph.node("compose.yaml")
@@ -307,7 +307,7 @@ def test_a_service_that_is_not_up_costs_nobody_a_red_badge(example: str) -> None
     Every node is green or unproven; nothing is broken. On a machine with the services down
     -- a laptop, or CI before anyone presses the button -- that is the whole of the truth.
     """
-    from aibuilder_core.observe import run_observations
+    from framestack_core.observe import run_observations
 
     root = EXAMPLES / example
     graph = read_project(root)

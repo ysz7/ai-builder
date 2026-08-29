@@ -27,8 +27,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from aibuilder_core.ir import Location, Node
-from aibuilder_core.kinds import REGISTRY, CarrierType
+from framestack_core.ir import Location, Node
+from framestack_core.kinds import REGISTRY, CarrierType
 
 __all__ = ["read_artifacts"]
 

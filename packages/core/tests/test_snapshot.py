@@ -13,9 +13,9 @@ import shutil
 import textwrap
 from pathlib import Path
 
-from aibuilder_core.parser import parse_project
-from aibuilder_core.reconcile import Fault, Resolution, reconcile
-from aibuilder_core.snapshot import (
+from framestack_core.parser import parse_project
+from framestack_core.reconcile import Fault, Resolution, reconcile
+from framestack_core.snapshot import (
     SNAPSHOT_VERSION,
     load_snapshot,
     save_snapshot,
@@ -277,7 +277,7 @@ def test_a_project_with_no_reference_is_not_an_error(tmp_path: Path) -> None:
 
 def test_a_snapshot_is_refused_while_the_gate_has_errors(tmp_path: Path) -> None:
     """A reference taken from broken code makes the breakage the baseline."""
-    from aibuilder_core.api import take_project_snapshot
+    from framestack_core.api import take_project_snapshot
 
     root = tmp_path / "broken"
     shutil.copytree(Path(__file__).parent / "fixtures" / "mis-annotated", root)
@@ -290,7 +290,7 @@ def test_a_snapshot_is_refused_while_the_gate_has_errors(tmp_path: Path) -> None
 
 
 def test_a_clean_project_gets_its_reference(tmp_path: Path) -> None:
-    from aibuilder_core.api import take_project_snapshot
+    from framestack_core.api import take_project_snapshot
 
     root = tmp_path / "clean"
     shutil.copytree(EXAMPLE, root)
