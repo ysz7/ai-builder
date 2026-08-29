@@ -164,7 +164,9 @@ export function Actions({ project, node, running, services, onActed }: Props) {
     // entry simply has no way in, which is the same answer as a kind that did not opt in.
     void kindRegistry()
       .then((all) => {
-        if (current) setKind(all.find((entry) => entry.name === node.kind) ?? null);
+        if (current) {
+          setKind(all.kinds.find((entry) => entry.name === node.kind) ?? null);
+        }
       })
       .catch(() => undefined);
     return () => {

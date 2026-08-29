@@ -17,6 +17,8 @@ from enum import Enum
 __all__ = [
     "CarrierType",
     "NodeKind",
+    "families",
+    "family_of",
     "REGISTRY",
     "TECHNOLOGIES",
     "Technology",
@@ -427,6 +429,40 @@ TECHNOLOGIES: dict[str, Technology] = {
 def technology_of(kind: str) -> Technology | None:
     """The technology a kind belongs to, by its prefix. `None` when nothing is recorded."""
     return TECHNOLOGIES.get(kind.partition(".")[0])
+
+
+def family_of(kind: str) -> str:
+    """The family a kind belongs to: the part of its name before the dot.
+
+    Deliberately **not** `technology_of`, which answers a different question with a similar
+    word. That one returns the record of a release our checks were written against, and it
+    exists only for the four stacks whose internals a check reads -- `rag` has no entry and
+    is not going to get one. This one is the naming rule itself, and every registered kind
+    has an answer to it.
+
+    It is here rather than in whatever is drawing a list, because a client splitting a kind
+    name on a dot would be a second opinion about how kinds are named -- small, correct
+    today, and the sort of thing that is discovered to be wrong long after the convention
+    changed (§5.6).
+    """
+    return kind.partition(".")[0]
+
+
+def families() -> tuple[str, ...]:
+    """Every family the registry holds, in the order the registry declares them.
+
+    Derived and never listed: **a family exists because a kind named it.** A written-down
+    list of families is exactly the thing that would let a new kind be added and quietly not
+    appear anywhere, which is the failure P19's library exists to make impossible.
+
+    Registry order rather than alphabetical: the registry is already grouped by technology
+    and ordered by the phase that added each one, and that order is more use to a reader
+    than the alphabet.
+    """
+    seen: dict[str, None] = {}
+    for name in REGISTRY:
+        seen.setdefault(family_of(name), None)
+    return tuple(seen)
 
 
 def installed_version(distribution: str) -> str | None:

@@ -62,6 +62,7 @@ export function ping(echo?: string): Promise<PingResult> {
 // -- the graph ---------------------------------------------------------------
 
 import type {
+  Blueprints,
   BodyWrite,
   CallResult,
   CommandList,
@@ -378,6 +379,17 @@ export function workStop(project: string): Promise<RunResult> {
  * the front end: a kind opts in by naming a way in, and a kind that has not opted in shows
  * no button at all rather than one that does nothing (P17.2).
  */
+/**
+ * The blueprint catalog, when one is configured.
+ *
+ * No catalog is a normal answer with `catalog: null`, never an error. Nothing is passed
+ * from here, so the core answers from `FRAMESTACK_BLUEPRINTS` or not at all -- a catalog is
+ * named, never found lying next to something.
+ */
+export function agentBlueprints(): Promise<Blueprints> {
+  return coreRequest<Blueprints>("agent.blueprints", {});
+}
+
 export function graphKinds(): Promise<GraphKinds> {
   return coreRequest<GraphKinds>("graph.kinds", {});
 }

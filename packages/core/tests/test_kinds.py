@@ -2,7 +2,14 @@
 
 from __future__ import annotations
 
-from framestack_core.kinds import REGISTRY, CarrierType, is_registered, lookup
+from framestack_core.kinds import (
+    REGISTRY,
+    CarrierType,
+    families,
+    family_of,
+    is_registered,
+    lookup,
+)
 
 
 def test_every_entry_is_reachable_under_its_own_name() -> None:
@@ -44,3 +51,34 @@ def test_every_kind_declares_an_observable_check() -> None:
     for kind in REGISTRY.values():
         assert kind.check
         assert kind.description
+
+
+def test_every_kind_belongs_to_a_family_the_registry_reports() -> None:
+    """The library groups by family, so a family the registry does not report hides kinds.
+
+    This is the P19 failure written as a test. The first version of that panel had its
+    families spelled out in the front end, and two of them -- `db` and `vector` -- were
+    simply not on the list, so four registered kinds appeared nowhere at all. A library
+    exists to say what can be built; one that can silently omit a kind is worse than none.
+    """
+    for kind in REGISTRY:
+        assert family_of(kind) in families(), f"{kind} is in no reported family"
+
+
+def test_no_family_is_reported_that_no_kind_belongs_to() -> None:
+    """Derived, never listed: a family exists **because a kind named it**."""
+    named = {family_of(kind) for kind in REGISTRY}
+
+    assert set(families()) == named
+
+
+def test_the_families_come_back_in_the_registry_s_own_order() -> None:
+    """Grouped by technology and ordered by the phase that added each one.
+
+    Alphabetical would put `db` above `fastapi`, which tells a reader nothing; the order the
+    registry is written in is the order the technologies arrived, and it is the more useful
+    of the two. Asserted because it is a promise the payload makes to the panel.
+    """
+    first_seen = list(dict.fromkeys(family_of(kind) for kind in REGISTRY))
+
+    assert list(families()) == first_seen

@@ -327,7 +327,7 @@ export default function App() {
   // is the same answer as a project whose kinds start nothing.
   useEffect(() => {
     void kindRegistry()
-      .then(setKinds)
+      .then((answer) => setKinds(answer.kinds))
       .catch(() => undefined);
   }, []);
 

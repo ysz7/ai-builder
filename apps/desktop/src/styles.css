@@ -276,7 +276,7 @@ textarea {
   top: 12px;
   left: 12px;
   bottom: 12px;
-  width: 288px;
+  width: 340px;
   display: flex;
   flex-direction: column;
   border: 1px solid var(--line);
@@ -305,6 +305,13 @@ textarea {
   min-height: 0;
   overflow: auto;
   padding: 12px;
+  background: var(--surface);
+}
+/* The sticky search needs a ground of its own, and one wide enough to cover the padding it
+   is inset by -- otherwise rows scroll through the gap at either side of it. */
+.bp-flyout-body .bp-search {
+  background: var(--surface);
+  box-shadow: 0 0 0 12px var(--surface);
 }
 
 /* The inspector, on the right, over the canvas. No selection, no panel. */
@@ -459,6 +466,9 @@ textarea {
 
 /* A search field, the reference's: a pill-radius box with a hairline, not a bordered slab. */
 .bp-search {
+  position: sticky;
+  top: 0;
+  z-index: 1;
   width: 100%;
   height: 34px;
   padding: 0 12px;
@@ -482,8 +492,11 @@ textarea {
 }
 
 /* ---------- the library, behind `+` ---------- */
+
+/* A searchable list of what the builder can prove, grouped by family. Every row here is a
+   registry entry; nothing in this file decides what appears (P19). */
 .bp-lib-group {
-  margin-bottom: 16px;
+  margin-bottom: 18px;
 }
 .bp-lib-head {
   display: flex;
@@ -496,15 +509,76 @@ textarea {
   color: var(--muted-2);
   margin-bottom: 6px;
 }
-.bp-lib-empty {
-  padding: 9px 11px;
-  border: 1px dashed var(--line);
-  border-radius: var(--radius-2);
-  font-size: 12.5px;
+.bp-lib-n {
+  margin-left: auto;
+  letter-spacing: 0;
+  text-transform: none;
+  font-weight: 500;
   color: var(--muted-3);
 }
-.bp-lib-note {
+.bp-lib-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  padding: 9px 10px;
+  border-radius: var(--radius-2);
+}
+.bp-lib-row:hover {
+  background: var(--bg-2);
+}
+.bp-lib-glyph {
+  flex: 0 0 auto;
+  margin-top: 2px;
+  color: var(--muted-2);
+}
+.bp-lib-body {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.bp-lib-name {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-family: var(--mono);
+  font-size: 12.5px;
+  color: var(--fg);
+}
+/* Only a group may stand at the top level (§5.1), and that is a fact about where a node can
+   go rather than about what it is -- so it is a mark on the name, not another chip below. */
+.bp-lib-flag {
+  font-family: var(--body);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted-3);
+}
+.bp-lib-desc {
+  margin-top: 2px;
+  font-size: 12.5px;
+  line-height: 1.45;
+  color: var(--muted);
+}
+/* What has to exist for the node to exist, and what will be run to prove it works. */
+.bp-lib-facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
   margin-top: 6px;
+  min-width: 0;
+}
+/* `min-width: auto` is a flex item's default, and it is what let a long check name --
+   `graph.branch_registered` -- push its chip past the edge of the panel and be cut there
+   with no ellipsis to say it had been. */
+.bp-lib-facts .bp-chip {
+  min-width: 0;
+}
+.bp-lib-facts .bp-chip {
+  font-family: var(--mono);
+  font-size: 10.5px;
+}
+.bp-lib-note {
+  margin-top: 8px;
   font-size: 12px;
   line-height: 1.6;
   color: var(--muted-2);

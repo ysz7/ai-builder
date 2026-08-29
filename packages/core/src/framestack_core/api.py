@@ -28,7 +28,7 @@ from framestack_core.diagnostics import Code, describe
 from framestack_core.environment import describe_environment, start_services, stop_services
 from framestack_core.gate import GateMode, check_graph
 from framestack_core.ir import Location
-from framestack_core.kinds import REGISTRY
+from framestack_core.kinds import REGISTRY, families, family_of
 from framestack_core.layout import create_project, read_layout, write_layout
 from framestack_core.observe import run_observations
 from framestack_core.project import read_project
@@ -544,10 +544,24 @@ REPAIR_APPLY_SCHEMA = {
 #: The `graph.kinds` payload.
 GRAPH_KINDS_SCHEMA = {
     "api_version": "int",
+    # Every family, in the order the registry declares them -- which is grouped by
+    # technology and ordered by the phase that added each, and is more use to a reader than
+    # the alphabet. Sent rather than derived by the client for the same reason `family` is:
+    # a family exists because a kind named it, and there is no second list to disagree.
+    "families": ["str"],
     "kinds": [
         {
             "name": "str",
+            # The family the kind belongs to, from the registry's own rule rather than from
+            # a client splitting the name on a dot. The library groups by it (P19), and a
+            # family exists because a kind named it -- there is no separate list of families
+            # anywhere, here or in the interface, that could disagree with the registry.
+            "family": "str",
             "carriers": ["str"],
+            # The paths that carry a file-carried kind, or []. For those kinds "what carries
+            # this" is a filename, and answering it with `file` alone tells a reader nothing
+            # about which file (§5.7).
+            "artifact": ["str"],
             "top_level": "bool",
             "check": "str",
             # How a person talks to this kind, or "" for the ones nobody can talk to. This
@@ -1307,10 +1321,13 @@ def describe_kinds() -> dict[str, Any]:
     """The node-kind registry, for a client that has to pick shapes (§5.6)."""
     return {
         "api_version": GRAPH_API_VERSION,
+        "families": list(families()),
         "kinds": [
             {
                 "name": kind.name,
+                "family": family_of(kind.name),
                 "carriers": sorted(carrier.value for carrier in kind.carriers),
+                "artifact": list(kind.artifact),
                 "top_level": kind.top_level,
                 "check": kind.check,
                 "converses": kind.converses,

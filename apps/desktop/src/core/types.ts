@@ -328,7 +328,22 @@ export type CommandList = {
 /** One entry of the node-kind registry. What a client may show comes from here (§5.6). */
 export type NodeKindInfo = {
   name: string;
+  /**
+   * The family this kind belongs to, from the registry's own naming rule.
+   *
+   * Sent rather than split off the name here: a client cutting a kind name at the dot would
+   * be a second opinion about how kinds are named — small, right today, and wrong long
+   * after the convention moved.
+   */
+  family: string;
   carriers: string[];
+  /**
+   * The paths that carry a file-carried kind, or [].
+   *
+   * For those kinds "what carries this" is a filename, and `file` on its own tells a reader
+   * nothing about which file (§5.7).
+   */
+  artifact: string[];
   top_level: boolean;
   check: string;
   /** How a person talks to this kind, or "" for the ones nobody can talk to (P17.2). */
@@ -347,7 +362,40 @@ export type NodeKindInfo = {
   description: string;
 };
 
-export type GraphKinds = { api_version: number; kinds: NodeKindInfo[] };
+export type GraphKinds = {
+  api_version: number;
+  /**
+   * Every family, in the order the registry declares them.
+   *
+   * The library groups by this and holds no list of its own: **a family exists because a
+   * kind named it**, and a written-down list here is exactly what would let a new kind be
+   * added and quietly appear nowhere (P19).
+   */
+  families: string[];
+  kinds: NodeKindInfo[];
+};
+
+/** One entry of a blueprint catalog. Absent entirely when no catalog is configured. */
+export type BlueprintEntry = {
+  id: string;
+  title: string;
+  summary: string;
+  path: string;
+  section: string;
+};
+
+/**
+ * What input B can be given (§3).
+ *
+ * `catalog` is null when there is none, and that is an answer rather than an error: a
+ * catalog is **never discovered**, only named — by the caller or by `FRAMESTACK_BLUEPRINTS`
+ * — because what this tool offers must not depend on the shape of somebody's disk.
+ */
+export type Blueprints = {
+  api_version: number;
+  catalog: string | null;
+  blueprints: BlueprintEntry[];
+};
 
 export type BodyWrite = {
   api_version: number;

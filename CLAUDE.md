@@ -10,7 +10,7 @@ AST-addressable markup layer (`bp`); a parser projects that into a graph; edits 
 written back through the syntax tree with `libcst`. Assembled applications deploy as plain Python
 projects with no runtime dependency on the builder.
 
-Current state: **P0–P18 done.** Window opens, React Flow renders a
+Current state: **P0–P19 done.** Window opens, React Flow renders a
 scaffold canvas, Rust reaches the Python core over NDJSON, the five `bp` primitives exist and are proven inert, and
 `strip` removes the markup with the example service answering identically before and after. The parser
 turns an annotated project into a graph IR, the static gate judges it into addressed diagnostics, and
@@ -86,6 +86,17 @@ primary where the reference puts `Publish`, because the most emphatic button on 
 that produces evidence. Nothing here needed a new core method: the payload gained the test's id as
 data (I-5's evidence, addressable rather than parsed out of prose) and the carrier's first docstring
 line (Q29), and every panel is still a view of one `graph.read`.
+
+**The registry is the boundary, and now it is visible** (P19). `kinds.REGISTRY` has always been the
+honest limit of what can be proven -- a kind outside it has no observable check, so a node of it could
+never be more than unproven -- and nothing had ever shown it to anybody. The library behind `+` is a
+view of `graph.kinds`: every kind under its family, with what carries it and what proves it. **The
+front end holds no list of kinds and no list of families**; `family_of` and `families()` are the
+registry's own rule, sent in the payload, because a family exists *because a kind named it*. The first
+version of that panel had its families hard-coded and silently omitted `db` and `vector` -- four kinds
+that appeared nowhere -- which is what `test_every_kind_belongs_to_a_family_the_registry_reports`
+exists to prevent. A blueprint catalog joins the same panel when one is **named** (`FRAMESTACK_BLUEPRINTS`
+or a caller), and never when one merely happens to be on the disk.
 
 **The person owns the layout; the code owns the graph** (Q13). Node positions live in
 `.framestack/layout.json` — and, since P18, whether a card shows all of its knobs or the first few,
@@ -454,11 +465,12 @@ agent's system prompt used to and was moved into the package for exactly that re
 
 - [architecture.md](docs/architecture.md) — the v0 spec. Sections 2 (invariants) and 7 (the parser as
   a gate) carry everything load-bearing.
-- [roadmap.md](docs/roadmap.md) — **P19–P22 only**. P0–P18 are finished and their record was
-  cleared from the file deliberately, so what is left is the work in front of us; the reasoning
-  behind the decisions those phases settled is in open-questions.md, which is where it belonged
-  anyway. It opens with the direction the remaining phases serve (Q25), and P19 — the library, as a
-  view of the kind registry — is the one in front of us.
+- [roadmap.md](docs/roadmap.md) — **P20–P22 only**, plus a roll-call of what is done. P0–P19 are
+  finished and their detailed record was cleared from the file deliberately, so what is left is the
+  work in front of us; the reasoning behind the decisions those phases settled is in
+  open-questions.md, which is where it belonged anyway. It opens with the direction the remaining
+  phases serve (Q25), and P20 — a blueprint that carries code, and inserting it — is the one in
+  front of us.
 - [design.md](docs/design.md) — the plan for the UI: what the design has to answer, which method sits
   behind each surface, and what it may not invent. Written before the design, so the design can be
   judged against it. **Its layout sections (§3, §5, §6, §8) were superseded by P18** and describe a

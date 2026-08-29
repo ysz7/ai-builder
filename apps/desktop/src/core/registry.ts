@@ -13,12 +13,21 @@
  */
 
 import { graphKinds } from "./client";
-import type { NodeKindInfo } from "./types";
+import type { GraphKinds, NodeKindInfo } from "./types";
 
-let asked: Promise<NodeKindInfo[]> | null = null;
+let asked: Promise<GraphKinds> | null = null;
 
-export function kindRegistry(): Promise<NodeKindInfo[]> {
-  asked ??= graphKinds().then((answer) => answer.kinds);
+/**
+ * The whole answer, not just its kinds.
+ *
+ * It used to hand back `answer.kinds` alone, which was enough while the only question was
+ * "which kinds start a process". The library asks a second one -- what the families are and
+ * in what order -- and that is in the same answer for the same reason: a family exists
+ * because a kind named it, so a client that kept its own order would have a second opinion
+ * about the registry (P19).
+ */
+export function kindRegistry(): Promise<GraphKinds> {
+  asked ??= graphKinds();
   return asked;
 }
 
