@@ -1,11 +1,16 @@
-/* The workspace, in the design's language (assets/app-design.html).
+/* The workspace, in the reference's language (P18).
  *
- * Sharp edges, one-pixel rules, monospaced labels with wide tracking, Onest for anything
- * the interface says. Colour identifies a kind and never a state, and proven has no hue.
+ * Warm off-white grounds, hairline borders, soft shadows, 7-10px radii with 999px for
+ * pills, and one system sans for everything the interface says. The values live in
+ * design/tokens.css, ported by hand --  is gitignored and is never a build input.
+ *
+ * Two rules the reference has no equivalent for, and which survive it: **colour identifies
+ * the kind and never the state** -- the family tab above a card is the tint -- and **the
+ * quiet state is the unproven one**, so a project nobody has run yet is grey rather than a
+ * screen full of warnings (Q23).
  */
 
 @import "./design/tokens.css";
-@import url("https://fonts.googleapis.com/css2?family=Onest:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500&display=swap");
 
 * {
   box-sizing: border-box;
@@ -41,90 +46,211 @@ textarea {
 }
 
 ::placeholder {
-  color: var(--muted-2);
+  color: var(--muted-3);
   opacity: 1;
 }
 
 /* ---------- shell ---------- */
+
+/* An icon rail and a top bar around a full-bleed canvas, and nothing docked (P18.1). The
+   rail is a column of the window's whole height; everything it opens floats over the
+   canvas and gives the window back when it closes. */
 .bp-app {
   display: flex;
-  flex-direction: column;
   height: 100%;
+  background: var(--bg);
 }
 
-.bp-bar {
+.bp-rail {
+  flex: 0 0 48px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 8px 0;
+  border-right: 1px solid var(--line);
+  background: var(--nav-bg);
+}
+.bp-rail-mark {
+  width: 30px;
+  height: 30px;
+  display: grid;
+  place-items: center;
+  margin-bottom: 8px;
+  border: none;
+  border-radius: 9px;
+  background: var(--primary);
+  color: var(--primary-fg);
+  cursor: pointer;
+}
+.bp-rail-btn {
+  position: relative;
+  width: 32px;
+  height: 32px;
+  display: grid;
+  place-items: center;
+  border: none;
+  border-radius: var(--radius-2);
+  background: none;
+  color: var(--muted-2);
+  cursor: pointer;
+}
+.bp-rail-btn:hover {
+  background: var(--bg-2);
+  color: var(--fg-2);
+}
+.bp-rail-btn.is-on {
+  background: var(--bg-3);
+  color: var(--fg);
+}
+.bp-rail-last {
+  margin-top: auto;
+}
+/* A count and never a dot: "3 problems" and "one problem" are different situations. */
+.bp-rail-badge {
+  position: absolute;
+  top: -1px;
+  right: -1px;
+  min-width: 15px;
+  height: 15px;
+  padding: 0 4px;
+  display: grid;
+  place-items: center;
+  border-radius: var(--radius-pill);
+  border: 2px solid var(--nav-bg);
+  background: var(--bad);
+  color: #fff;
+  font-size: 9.5px;
+  font-weight: 600;
+}
+
+.bp-main {
+  position: relative;
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+/* The top bar: name, a segmented tab group, and the control cluster at the right. */
+.bp-top {
+  flex: 0 0 auto;
+  height: 52px;
   display: flex;
   align-items: center;
-  gap: 10px;
-  height: 46px;
+  gap: 16px;
   padding: 0 14px;
   border-bottom: 1px solid var(--line);
   background: var(--nav-bg);
-  backdrop-filter: blur(12px);
-  flex: 0 0 auto;
+}
+.bp-top-name {
+  font-weight: 600;
+  font-size: 14.5px;
+  letter-spacing: -0.01em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 220px;
 }
 
-.bp-brand {
-  font-family: var(--display);
-  font-weight: 800;
-  font-size: 14px;
-  letter-spacing: -0.03em;
-}
-.bp-brand em {
-  font-style: normal;
-  color: var(--muted-2);
-}
-
-.bp-project {
-  flex: 1 1 auto;
-  max-width: 460px;
+/* One tab, in the reference's geometry. A second arrives the moment deploy or a run
+   history does; three invented to fill the row would be drawing a product that does not
+   exist (P18.1). */
+.bp-seg {
+  display: flex;
+  gap: 2px;
+  padding: 3px;
+  border-radius: 9px;
   background: var(--bg-2);
-  border: 1px solid var(--line);
-  padding: 6px 10px;
-  font-family: var(--mono);
-  font-size: 11.5px;
 }
-.bp-project:focus {
-  outline: none;
-  border-color: var(--accent-blue);
+.bp-seg-tab {
+  border: none;
+  border-radius: var(--radius-2);
+  background: none;
+  color: var(--muted);
+  font-size: 13.5px;
+  padding: 5px 14px;
+  cursor: pointer;
+}
+.bp-seg-tab.is-on {
+  background: var(--surface);
+  color: var(--fg);
+  box-shadow: var(--shadow-1);
 }
 
+.bp-cluster {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* One button shape for the whole application, in the reference's proportions: 34px tall,
+   a 10px radius, a hairline, and a weight that says whether it is the emphatic one. */
 .bp-btn {
-  font-family: var(--mono);
-  font-size: 10px;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-  border: 1px solid var(--line-strong);
-  background: none;
-  padding: 6px 11px;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  height: 34px;
+  padding: 0 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--fg-2);
+  font-size: 13.5px;
+  font-weight: 500;
   cursor: pointer;
 }
 .bp-btn:hover {
-  background: var(--surface-2);
+  background: var(--bg-2);
+}
+.bp-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+/* The most emphatic button on the screen is the one that produces evidence. That is the
+   argument of the whole product, and it is why `Observe` stands where `Publish` does. */
+.bp-btn.is-primary {
+  background: var(--primary);
+  border-color: var(--primary);
+  color: var(--primary-fg);
+  font-weight: 600;
+}
+.bp-btn.is-primary:hover {
+  opacity: 0.88;
+  background: var(--primary);
+}
+.bp-btn.is-quiet {
+  border-color: transparent;
+  background: none;
+  color: var(--muted);
+}
+.bp-btn.is-quiet:hover {
+  background: var(--bg-2);
+}
+/* A process this window started is up. Not a verdict -- see the live dot on the card. */
+.bp-btn.is-live {
+  border-color: var(--ok);
+  color: var(--ok);
+}
+.bp-btn-go {
+  font-weight: 600;
+}
+.bp-btn-hand {
+  border-style: dashed;
 }
 
-.bp-live {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  font-family: var(--mono);
-  font-size: 9.5px;
-  letter-spacing: 0.18em;
-  text-transform: uppercase;
-  color: var(--muted-2);
-}
-.bp-livedot {
-  width: 5px;
-  height: 5px;
+/* A statement about the button beside it: this picture was earned by a run, or nothing has
+   been run yet. */
+.bp-evidence-dot {
+  width: 7px;
+  height: 7px;
   border-radius: 50%;
-  background: var(--accent);
-  box-shadow: 0 0 8px rgba(var(--accent-rgb), 0.6);
-  animation: bp-pulse 2.2s ease-in-out infinite;
+  background: var(--unknown);
 }
-.bp-livedot.is-off {
-  background: var(--muted-2);
-  box-shadow: none;
-  animation: none;
+.bp-evidence-dot.is-on {
+  background: var(--ok);
+  animation: bp-pulse 2.4s ease-in-out infinite;
 }
 @keyframes bp-pulse {
   0%,
@@ -132,49 +258,179 @@ textarea {
     opacity: 1;
   }
   50% {
-    opacity: 0.35;
+    opacity: 0.4;
   }
 }
 
-.bp-grid {
+/* The canvas keeps the window; the flyout and the inspector sit on top of it. */
+.bp-stage {
+  position: relative;
   flex: 1 1 auto;
-  display: grid;
-  grid-template-columns: 216px 1fr 258px;
-  /* The dock sizes itself: it is draggable, and a fixed row would fight the drag. */
-  grid-template-rows: 1fr auto;
   min-height: 0;
+  display: flex;
 }
 
-/* A shell that does not scroll, so the grip stays on the border. An absolutely positioned
-   handle inside a scrolling box scrolls away with the content -- correct-looking until
-   somebody scrolls the pane, which is exactly when they cannot resize it any more. */
-.bp-pane {
-  position: relative;
-  overflow: hidden;
+.bp-flyout {
+  position: absolute;
+  z-index: 5;
+  top: 12px;
+  left: 12px;
+  bottom: 12px;
+  width: 288px;
   display: flex;
   flex-direction: column;
-  min-width: 0;
+  border: 1px solid var(--line);
+  border-radius: 12px;
   background: var(--surface);
+  box-shadow: var(--shadow-3);
+  overflow: hidden;
 }
-.bp-pane-scroll {
+.bp-flyout-head {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  height: 44px;
+  padding: 0 8px 0 14px;
+  border-bottom: 1px solid var(--line);
+}
+.bp-flyout-title {
+  font-weight: 600;
+  font-size: 13.5px;
+}
+.bp-flyout-head .bp-icon {
+  margin-left: auto;
+}
+.bp-flyout-body {
   flex: 1 1 auto;
   min-height: 0;
   overflow: auto;
+  padding: 12px;
+}
+
+/* The inspector, on the right, over the canvas. No selection, no panel. */
+.bp-inspector-wrap {
+  position: absolute;
+  z-index: 4;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  border-left: 1px solid var(--line);
+  background: var(--surface);
+}
+.bp-inspector {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: auto;
   padding: 14px;
 }
-.bp-pane-left {
-  border-right: 1px solid var(--line);
+.bp-inspector-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin-bottom: 4px;
 }
-.bp-pane-right {
-  border-left: 1px solid var(--line);
+.bp-inspector-title {
+  font-weight: 600;
+  font-size: 16px;
+  letter-spacing: -0.015em;
 }
+.bp-inspector-kind {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--muted-2);
+}
+.bp-inspector-head .bp-icon {
+  margin-left: auto;
+}
+.bp-inspector-desc {
+  margin: 6px 0 14px;
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--muted);
+}
+.bp-inspector-addr {
+  margin-top: 16px;
+  padding-top: 10px;
+  border-top: 1px solid var(--line-2);
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--muted-2);
+  word-break: break-all;
+}
+
+/* The bottom sheet: summoned and dismissed, never present by default. */
+.bp-sheet {
+  position: relative;
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  border-top: 1px solid var(--line);
+  background: var(--surface);
+}
+.bp-sheet-head {
+  flex: 0 0 auto;
+  height: 38px;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 0 8px 0 12px;
+  border-bottom: 1px solid var(--line);
+  user-select: none;
+}
+.bp-sheet-tab {
+  border: none;
+  border-radius: var(--radius-2);
+  background: none;
+  color: var(--muted-2);
+  font-size: 13px;
+  padding: 5px 11px;
+  cursor: pointer;
+}
+.bp-sheet-tab.is-on {
+  background: var(--bg-2);
+  color: var(--fg);
+}
+.bp-sheet-close {
+  margin-left: auto;
+}
+.bp-sheet-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  padding: 11px 14px;
+}
+/* The way back to a shell when nothing is open. Quiet, in the corner the dock used to
+   occupy entirely. */
+.bp-sheet-summon {
+  position: absolute;
+  left: 12px;
+  bottom: 12px;
+  z-index: 3;
+  height: 28px;
+  padding: 0 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-pill);
+  background: var(--surface);
+  color: var(--muted);
+  font-size: 12px;
+  cursor: pointer;
+  box-shadow: var(--shadow-1);
+}
+.bp-sheet-summon:hover {
+  color: var(--fg);
+}
+
+/* A caption. Uppercase and tracked, but in the body face now: the reference has no
+   monospace anywhere it is not showing code. */
 .bp-cap {
   display: flex;
   align-items: center;
   gap: 9px;
-  font-family: var(--mono);
-  font-size: 9.5px;
-  letter-spacing: 0.2em;
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.09em;
   text-transform: uppercase;
   color: var(--muted-2);
   margin: 0 0 11px;
@@ -184,13 +440,13 @@ textarea {
 }
 .bp-cap-n {
   margin-left: auto;
-  letter-spacing: 0.06em;
+  letter-spacing: 0;
   text-transform: none;
+  font-weight: 500;
 }
 
 .bp-empty {
-  font-family: var(--mono);
-  font-size: 11px;
+  font-size: 12.5px;
   color: var(--muted-2);
   line-height: 1.7;
 }
@@ -199,6 +455,87 @@ textarea {
   display: flex;
   align-items: center;
   justify-content: center;
+}
+
+/* A search field, the reference's: a pill-radius box with a hairline, not a bordered slab. */
+.bp-search {
+  width: 100%;
+  height: 34px;
+  padding: 0 12px;
+  margin-bottom: 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+  font-size: 13.5px;
+}
+.bp-search:focus {
+  outline: none;
+  border-color: var(--line-strong);
+}
+
+/* The panels a flyout holds. The flyout gives them their box; these say only how their own
+   rows are spaced, which is why two of the three are empty of everything else. */
+.bp-library,
+.bp-problems,
+.bp-evidence {
+  display: block;
+}
+
+/* ---------- the library, behind `+` ---------- */
+.bp-lib-group {
+  margin-bottom: 16px;
+}
+.bp-lib-head {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--muted-2);
+  margin-bottom: 6px;
+}
+.bp-lib-empty {
+  padding: 9px 11px;
+  border: 1px dashed var(--line);
+  border-radius: var(--radius-2);
+  font-size: 12.5px;
+  color: var(--muted-3);
+}
+.bp-lib-note {
+  margin-top: 6px;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--muted-2);
+}
+
+/* ---------- a dialog, for the one write that needs a field of its own ---------- */
+.bp-modal-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  display: grid;
+  place-items: center;
+  background: rgba(24, 24, 27, 0.28);
+}
+.bp-modal {
+  width: 340px;
+  padding: 16px;
+  border-radius: 12px;
+  background: var(--surface);
+  box-shadow: var(--shadow-3);
+}
+.bp-modal-title {
+  font-weight: 600;
+  font-size: 14px;
+  margin-bottom: 10px;
+}
+.bp-modal-acts {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 14px;
 }
 
 /* ---------- tree ---------- */
@@ -245,7 +582,7 @@ textarea {
 .bp-tree-item.is-on {
   color: var(--fg);
   background: var(--surface-2);
-  border-left-color: var(--accent-blue);
+  border-left-color: var(--select);
 }
 
 .bp-dot {
@@ -265,35 +602,23 @@ textarea {
 }
 
 /* ---------- canvas ---------- */
+
+/* A warm off-white ground with a fine dotted grid, and no glow. The dark theme's radial
+   bloom was a decoration on a void; the reference's canvas is a surface, and a surface
+   does not need to be lit to be seen. */
 .bp-canvas {
   position: relative;
+  flex: 1 1 auto;
   min-width: 0;
-  background-color: var(--bg);
-}
-.bp-canvas::before {
-  content: "";
-  position: absolute;
-  left: 50%;
-  top: 46%;
-  transform: translate(-50%, -50%);
-  width: 820px;
-  height: 820px;
-  pointer-events: none;
-  filter: blur(10px);
-  opacity: var(--glow-opacity);
-  z-index: 0;
-  background: radial-gradient(
-    circle at center,
-    rgba(var(--accent-blue-rgb), 0.13) 0%,
-    rgba(var(--accent-blue-rgb), 0.05) 30%,
-    transparent 62%
-  );
+  background-color: var(--bg-2);
 }
 .bp-canvas .react-flow__attribution {
   display: none;
 }
 .bp-canvas .react-flow__controls {
-  box-shadow: none;
+  box-shadow: var(--shadow-2);
+  border-radius: var(--radius-2);
+  overflow: hidden;
 }
 .bp-canvas .react-flow__controls button {
   background: var(--surface);
@@ -301,69 +626,190 @@ textarea {
   fill: var(--muted);
 }
 
-/* node */
-.bp-node {
-  background: var(--surface);
-  border: 1px solid var(--line);
-  border-left: 2px solid var(--tint, var(--k-none));
+/* ---------- the node card ---------- */
+
+/* The reference's card, element for element (P18.3): a category tab above and inset from
+   the left edge, a white rounded rectangle with a soft shadow and a hairline, a header of
+   glyph, title and `⋮`, a grey description line, inset field blocks, a pill, and a footer
+   row of chips. What fills each of those is ours; the anatomy is theirs. */
+.bp-card-wrap {
   width: 100%;
 }
-.bp-node.is-selected {
+.bp-card-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: 14px;
+  margin-bottom: -6px;
+  padding: 5px 12px 9px;
+  border-radius: 8px 8px 0 0;
+  background: var(--tint-bg, var(--k-none-bg));
+  color: var(--tint, var(--k-none));
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1;
+}
+.bp-card {
+  position: relative;
+  border: 1px solid var(--line);
+  border-radius: 11px;
+  background: var(--surface);
+  box-shadow: var(--shadow-2);
+  padding: 12px 13px 11px;
+}
+.bp-card-wrap.is-selected .bp-card {
   border-color: var(--select);
-  border-left-color: var(--select);
-  box-shadow: 0 0 0 1px var(--select);
+  box-shadow: 0 0 0 1px var(--select), var(--shadow-2);
 }
-/* the site's lifted row, applied to what the agent is editing right now */
-.bp-node.is-lit {
-  background: rgba(var(--accent-rgb), 0.1);
-  border-color: rgba(var(--accent-rgb), 0.45);
-}
-
-.bp-node-head {
-  display: flex;
-  align-items: baseline;
-  gap: 8px;
-  padding: 8px 10px 7px;
-  border-bottom: 1px solid var(--line);
-}
-.bp-node-title {
-  font-family: var(--display);
-  font-weight: 600;
-  font-size: 12.5px;
-  letter-spacing: -0.015em;
-}
-.bp-node-kind {
-  font-family: var(--mono);
-  font-size: 9px;
-  letter-spacing: 0.08em;
-  color: var(--muted-2);
-}
-.bp-node-body {
-  padding: 9px 10px;
-}
-.bp-node-why {
-  font-family: var(--mono);
-  font-size: 10.5px;
-  line-height: 1.55;
-  color: var(--muted);
+/* What the agent is editing right now. Not a verdict and not a kind -- a third thing, and
+   the only one that is allowed to wash the whole card. */
+.bp-card-wrap.is-lit .bp-card {
+  border-color: var(--accent-line);
+  background: var(--accent-soft);
 }
 
-/* The mark. A question is not a warning -- so unproven is grey, not amber -- and green is
-   spent on the one state that had to be earned. */
-.bp-mark {
-  margin-left: auto;
-  align-self: center;
-  flex: 0 0 auto;
-  width: 14px;
-  height: 14px;
+.bp-card-head {
   display: flex;
   align-items: center;
-  justify-content: center;
+  gap: 8px;
+}
+.bp-card-glyph {
+  flex: 0 0 auto;
+  color: var(--fg-2);
+}
+.bp-card-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-weight: 600;
+  font-size: 14.5px;
+  letter-spacing: -0.01em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.bp-card-menu {
+  flex: 0 0 auto;
+  width: 22px;
+  height: 22px;
+  display: grid;
+  place-items: center;
+  border: none;
+  border-radius: 6px;
+  background: none;
+  color: var(--muted-2);
+  font-size: 15px;
+  line-height: 1;
+  cursor: pointer;
+}
+.bp-card-menu:hover {
+  background: var(--bg-2);
+  color: var(--fg);
+}
+.bp-card-desc {
+  margin-top: 6px;
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--muted-2);
+}
+.bp-card-more {
+  margin-top: 8px;
+  border: none;
+  background: none;
+  padding: 0;
+  color: var(--muted-2);
+  font-size: 12px;
+  cursor: pointer;
+}
+.bp-card-more:hover {
+  color: var(--fg);
+}
+.bp-card-pill-row {
+  display: flex;
+  gap: 6px;
+  margin-top: 10px;
+}
+/* The pill the reference gives the model name. Ours carries the kind: the tab says the
+   family, and this says which member of it. */
+.bp-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 11px;
+  border-radius: var(--radius-pill);
+  background: var(--bg-3);
+  color: var(--fg-2);
+  font-size: 12px;
+  font-weight: 500;
+}
+
+/* The footer. Their telemetry, our evidence -- `Green because test_retrieval.py entered it`
+   in the pixels a competitor spends on a token count. A node nothing has run has no chips
+   at all, because a chip reading `0.0 sec` would be invented telemetry. */
+.bp-card-foot,
+.bp-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 9px;
+}
+.bp-chip {
+  display: inline-flex;
+  align-items: center;
+  max-width: 100%;
+  padding: 3px 9px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-2);
+  background: var(--surface);
+  color: var(--muted);
+  font-size: 11.5px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.bp-chip.is-ok {
+  border-color: transparent;
+  background: var(--ok-bg);
+  color: var(--ok);
+}
+.bp-chip.is-bad {
+  border-color: transparent;
+  background: var(--bad-bg);
+  color: var(--bad);
+}
+.bp-chip.is-quiet {
+  color: var(--muted-2);
+}
+.bp-card-why {
+  margin-top: 8px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--muted-2);
+}
+
+/* The mark. Kept, because the reference has nothing like it: their node cannot be red, since
+   nothing in it was ever proven (§18.6). A question is not a warning -- unproven is grey --
+   and green is spent on the one state that had to be earned. */
+.bp-mark {
+  flex: 0 0 auto;
+  width: 16px;
+  height: 16px;
+  display: grid;
+  place-items: center;
   border: 1px solid currentColor;
   border-radius: 50%;
-  font-family: var(--mono);
   font-size: 10px;
+  line-height: 1;
 }
+.bp-card-live,
+.bp-node-live {
+  flex: 0 0 auto;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--ok);
+  animation: bp-pulse 2.2s ease-in-out infinite;
+}
+
 .bp-mark.is-green {
   color: var(--ok);
 }
@@ -374,18 +820,18 @@ textarea {
   color: var(--bad);
 }
 
-/* pins: round for a contract, triangular for execution */
+/* pins: round for a contract, triangular for execution -- and only where an edge lands. */
 .bp-canvas .react-flow__handle {
   border: none;
   min-width: 0;
   min-height: 0;
 }
 .bp-canvas .pin-data {
-  width: 7px;
-  height: 7px;
+  width: 8px;
+  height: 8px;
   border-radius: 50%;
   background: var(--pin-hollow);
-  border: 1.4px solid var(--tint, var(--k-none));
+  border: 1.5px solid var(--tint, var(--k-none));
 }
 .bp-canvas .pin-exec {
   width: 0;
@@ -402,135 +848,151 @@ textarea {
   width: 100%;
   height: 100%;
   border: 1px solid var(--line);
-  background: rgba(255, 255, 255, 0.015);
+  border-radius: 12px;
+  background: var(--surface-3);
 }
-:root[data-theme="light"] .bp-frame {
-  background: rgba(0, 0, 0, 0.02);
+.bp-frame.is-selected {
+  border-color: var(--select);
 }
 .bp-frame-bar {
   display: flex;
   align-items: center;
-  gap: 9px;
+  gap: 8px;
   width: 100%;
-  height: 26px;
-  padding: 0 10px;
+  height: 32px;
+  padding: 0 12px;
   border: none;
   border-bottom: 1px solid var(--line);
-  background: var(--surface-glass);
-  font-family: var(--mono);
-  font-size: 10px;
-  letter-spacing: 0.16em;
-  text-transform: uppercase;
-  color: var(--muted);
+  border-radius: 12px 12px 0 0;
+  background: var(--tint-bg, var(--k-none-bg));
+  color: var(--tint, var(--k-none));
+  font-size: 12.5px;
+  font-weight: 600;
   cursor: pointer;
   pointer-events: all;
 }
 .bp-frame.is-collapsed .bp-frame-bar {
   border-bottom: none;
+  border-radius: 12px;
 }
 .bp-chev {
-  font-size: 8px;
-  color: var(--muted-2);
+  font-size: 9px;
+  opacity: 0.75;
 }
 .bp-count {
-  color: var(--muted-2);
+  margin-left: auto;
+  font-weight: 500;
+  opacity: 0.7;
+}
+.bp-frame-bar .bp-mark {
+  margin-left: 0;
 }
 
 /* wires */
 .bp-canvas .bp-edge-contract .react-flow__edge-text {
-  font-family: var(--mono);
-  font-size: 9px;
+  font-size: 10px;
   fill: var(--muted-2);
 }
 .bp-canvas .bp-edge-contract .react-flow__edge-textbg {
-  fill: var(--bg);
+  fill: var(--bg-2);
 }
 .bp-canvas .bp-edge-flow path {
   stroke-linecap: round;
 }
 
-/* ---------- details ---------- */
-.bp-detail-head {
-  margin-bottom: 10px;
-}
-.bp-detail-title {
-  font-family: var(--display);
-  font-weight: 700;
-  font-size: 15px;
-  letter-spacing: -0.02em;
-}
-.bp-detail-kind,
-.bp-detail-addr {
-  font-family: var(--mono);
-  font-size: 10px;
-  color: var(--muted-2);
-  letter-spacing: 0.04em;
-}
+/* ---------- fields: a knob block, and the controls a type implies ---------- */
 
-.bp-knob {
-  display: flex;
-  flex-direction: column;
-  gap: 5px;
-  margin-bottom: 13px;
+/* The reference's field block: an inset panel with a small label chip over its content.
+   Theirs hold a prompt; ours hold a knob -- the thing this architecture can actually
+   address through the syntax tree (Q3, Q5). One block, drawn on the card and in the
+   inspector, because there is one write verb behind both. */
+.bp-block {
+  margin-top: 10px;
+  padding: 9px 10px 10px;
+  border-radius: var(--radius-2);
+  background: var(--bg-3);
 }
-.bp-knob-label {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  font-family: var(--mono);
-  font-size: 9.5px;
-  letter-spacing: 0.14em;
+.bp-block-label {
+  display: inline-block;
+  margin-bottom: 7px;
+  padding: 2px 7px;
+  border-radius: 5px;
+  background: var(--surface);
+  color: var(--muted);
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
   text-transform: uppercase;
-  color: var(--muted-2);
 }
-.bp-knob-default {
-  margin-left: auto;
-  letter-spacing: 0;
-  text-transform: none;
-}
+.bp-block-note,
 .bp-knob-note {
-  font-family: var(--mono);
-  font-size: 10px;
+  margin-top: 6px;
+  font-size: 11.5px;
+  line-height: 1.5;
   color: var(--muted-2);
 }
 
 .bp-field {
-  border: 1px solid var(--line);
-  background: var(--bg-2);
-  padding: 6px 9px;
-  font-family: var(--mono);
-  font-size: 11px;
   width: 100%;
+  height: 32px;
+  padding: 0 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-2);
+  background: var(--surface);
+  font-size: 13px;
+}
+textarea.bp-field {
+  height: auto;
+  padding: 8px 10px;
 }
 .bp-field:focus {
   outline: none;
-  border-color: var(--accent-blue);
+  border-color: var(--line-strong);
 }
 
+/* A switch that looks like one: the reference has no bordered box reading "True". */
 .bp-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  height: 32px;
+  padding: 0 12px 0 5px;
   border: 1px solid var(--line);
-  background: var(--bg-2);
-  padding: 6px 9px;
-  font-family: var(--mono);
-  font-size: 11px;
+  border-radius: var(--radius-pill);
+  background: var(--surface);
+  font-size: 13px;
   cursor: pointer;
-  text-align: left;
 }
-.bp-switch.is-on {
-  border-color: var(--line-strong);
+.bp-switch-knob {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: var(--line);
+  transition: background 120ms ease;
+}
+.bp-switch.is-on .bp-switch-knob {
+  background: var(--ok);
+}
+.bp-switch-word {
+  color: var(--muted);
+}
+.bp-switch.is-on .bp-switch-word {
+  color: var(--fg);
 }
 
 .bp-slider {
   position: relative;
   display: block;
-  height: 18px;
+  height: 32px;
   border: 1px solid var(--line);
-  background: var(--bg-2);
+  border-radius: var(--radius-2);
+  background: var(--surface);
+  overflow: hidden;
 }
 .bp-slider-fill {
   position: absolute;
   inset: 0 auto 0 0;
-  background: rgba(var(--accent-blue-rgb), 0.3);
+  background: var(--bg-3);
 }
 .bp-slider-value {
   position: absolute;
@@ -538,9 +1000,8 @@ textarea {
   display: flex;
   align-items: center;
   justify-content: flex-end;
-  padding-right: 7px;
-  font-family: var(--mono);
-  font-size: 10.5px;
+  padding-right: 10px;
+  font-size: 13px;
   pointer-events: none;
 }
 .bp-slider input {
@@ -549,6 +1010,14 @@ textarea {
   width: 100%;
   opacity: 0;
   cursor: pointer;
+}
+
+/* The address a node's carrier sits at. Mono, because it is a path. */
+.bp-detail-addr {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--muted-2);
+  word-break: break-all;
 }
 
 /* ---------- problems ---------- */
@@ -580,7 +1049,8 @@ textarea {
 }
 .bp-sev.is-error {
   color: var(--bad);
-  border-color: rgba(var(--bad-rgb), 0.5);
+  border-color: transparent;
+  background: var(--bad-bg);
 }
 /* Unproven is the quiet one. It is what a project looks like the moment it is opened --
    nothing has been run, and nothing is wrong -- so it must not read as a page of warnings. */
@@ -590,8 +1060,8 @@ textarea {
 }
 .bp-sev.is-green {
   color: var(--ok);
-  border-color: rgba(var(--ok-rgb), 0.45);
-  background: rgba(var(--ok-rgb), 0.08);
+  border-color: transparent;
+  background: var(--ok-bg);
 }
 .bp-sev.is-broken {
   color: var(--bad);
@@ -622,15 +1092,7 @@ textarea {
   width: 1100px;
   height: 1100px;
   pointer-events: none;
-  filter: blur(10px);
-  opacity: var(--glow-opacity);
-  background: radial-gradient(
-    circle at center,
-    rgba(var(--accent-blue-rgb), 0.2) 0%,
-    rgba(var(--accent-blue-rgb), 0.09) 25%,
-    rgba(var(--accent-blue-rgb), 0.02) 45%,
-    transparent 65%
-  );
+  display: none;
 }
 .bp-welcome-inner {
   position: relative;
@@ -678,10 +1140,8 @@ textarea {
   gap: 9px;
 }
 .bp-cta-sub {
-  font-family: var(--mono);
-  font-size: 10px;
+  font-size: 12.5px;
   font-weight: 400;
-  letter-spacing: 0.06em;
   color: var(--muted-2);
 }
 .bp-recent {
@@ -712,33 +1172,50 @@ textarea {
 }
 
 /* the top bar's project name, now that the path field is gone */
-.bp-project {
-  font-family: var(--mono);
-  font-size: 11px;
-  color: var(--muted);
-  max-width: 460px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  direction: rtl;
-  text-align: left;
-}
 
-/* ---------- chat, docked bottom right ---------- */
+/* ---------- Ask AI: one panel, or nothing at all ---------- */
+
+/* It used to be two pieces -- a transcript that appeared and a composer that never left --
+   so "closed" was still a box in the corner of a canvas that is meant to keep the whole
+   window (P18.1). Now it is one card in the reference's chrome: a header, the conversation,
+   and the field, opened by `Ask AI` and put away whole. */
 .bp-chat {
   position: fixed;
-  right: 18px;
-  bottom: 18px;
+  right: 14px;
+  bottom: 14px;
+  top: 66px;
   z-index: 40;
-  width: 420px;
+  width: 440px;
   display: flex;
   flex-direction: column;
-  gap: 7px;
 }
-/* Open, it takes the height it needs: a transcript read through a letterbox is not read. */
-.bp-chat.is-open {
-  top: 64px;
-  width: 460px;
+
+/* What is left when the panel is shut and the agent is not. A turn running with nothing on
+   screen to say so is the application working behind the person's back. */
+.bp-chat-working {
+  position: fixed;
+  right: 14px;
+  bottom: 14px;
+  z-index: 40;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 320px;
+  height: 32px;
+  padding: 0 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-pill);
+  background: var(--surface);
+  color: var(--muted);
+  font-size: 12.5px;
+  cursor: pointer;
+  box-shadow: var(--shadow-2);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.bp-chat-working:hover {
+  color: var(--fg);
 }
 
 .bp-chat-panel {
@@ -747,20 +1224,30 @@ textarea {
   display: flex;
   flex-direction: column;
   border: 1px solid var(--line);
-  background: var(--surface-glass);
-  backdrop-filter: blur(10px);
+  border-radius: 12px;
+  background: var(--surface);
+  box-shadow: var(--shadow-3);
+  overflow: hidden;
 }
 .bp-chat-head {
   flex: 0 0 auto;
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  padding: 9px 8px 9px 12px;
+  gap: 8px;
+  height: 46px;
+  padding: 0 8px 0 14px;
   border-bottom: 1px solid var(--line);
+}
+.bp-chat-title {
+  font-weight: 600;
+  font-size: 13.5px;
+}
+.bp-chat-head .bp-icon {
+  margin-left: auto;
 }
 .bp-chat-sessions {
   flex: 0 0 auto;
-  padding: 11px 12px;
+  padding: 10px 12px;
   border-bottom: 1px solid var(--line);
 }
 .bp-sess {
@@ -773,11 +1260,11 @@ textarea {
   display: inline-flex;
   align-items: stretch;
   border: 1px solid var(--line);
-  background: none;
+  border-radius: var(--radius-pill);
+  background: var(--surface);
   color: var(--muted-2);
-  font-family: var(--mono);
-  font-size: 10px;
-  letter-spacing: 0.06em;
+  font-size: 12px;
+  overflow: hidden;
 }
 .bp-sess-chip:hover {
   color: var(--fg);
@@ -785,8 +1272,8 @@ textarea {
 }
 .bp-sess-chip.is-on {
   color: var(--fg);
-  border-color: var(--line-strong);
-  background: var(--surface-2);
+  border-color: transparent;
+  background: var(--bg-3);
 }
 /* The two verbs that are not a conversation carry their own padding: the chip gave its
    away to the buttons nested inside it. */
@@ -794,8 +1281,8 @@ textarea {
   align-items: center;
   justify-content: center;
   gap: 6px;
-  padding: 4px 9px;
-  min-width: 84px;
+  padding: 4px 12px;
+  min-width: 78px;
   cursor: pointer;
 }
 .bp-sess-act:disabled {
@@ -804,21 +1291,19 @@ textarea {
 }
 
 .bp-sess-open {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   border: none;
   background: none;
   color: inherit;
   font: inherit;
-  letter-spacing: inherit;
   cursor: pointer;
-}
-.bp-sess-open {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  padding: 4px 9px;
+  padding: 4px 12px;
   /* Wide enough that a short name is still a tab. A chip that says "new" was three
      characters of border and read as a fragment rather than as somewhere to go. */
-  min-width: 84px;
+  min-width: 78px;
+  max-width: 150px;
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
@@ -827,13 +1312,26 @@ textarea {
   opacity: 0.4;
   cursor: not-allowed;
 }
+.bp-sess-name {
+  border: none;
+  background: none;
+  font: inherit;
+  color: var(--fg);
+  padding: 4px 12px;
+  min-width: 78px;
+  max-width: 150px;
+}
+.bp-sess-name:focus {
+  outline: none;
+}
 
 .bp-chat-log {
   flex: 1 1 auto;
   min-height: 0;
   overflow: auto;
-  padding: 12px;
+  padding: 14px;
 }
+
 /* A turn is a block, not a row in a table. The captioned column was what made this read as
    a log: every line, whoever said it, arrived in the same shape with a label in front. */
 .bp-turn {
@@ -965,9 +1463,11 @@ textarea {
   text-overflow: ellipsis;
 }
 
+/* The composer, inside the panel rather than instead of it. It is a section of the card
+   now, not a floating box, so it wears a rule at the top and the card's own ground. */
 .bp-chat-box {
   flex: 0 0 auto;
-  border: 1px solid var(--line-strong);
+  border-top: 1px solid var(--line);
   background: var(--surface);
   display: flex;
   flex-direction: column;
@@ -978,14 +1478,15 @@ textarea {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
-  padding: 8px 10px 2px;
+  padding: 10px 12px 2px;
 }
 .bp-shot {
   position: relative;
   width: 46px;
   height: 46px;
-  border: 1px solid var(--line-strong);
-  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-2);
+  background: var(--bg-3);
   overflow: hidden;
 }
 .bp-shot img {
@@ -1000,7 +1501,7 @@ textarea {
   top: 0;
   right: 0;
   border: none;
-  background: rgba(0, 0, 0, 0.6);
+  background: rgba(24, 24, 27, 0.6);
   color: #fff;
   font-size: 9px;
   line-height: 1;
@@ -1027,26 +1528,27 @@ textarea {
   background: none;
   color: var(--muted);
   font-family: var(--mono);
-  font-size: 11.5px;
+  font-size: 12px;
   text-align: left;
-  padding: 5px 12px;
+  padding: 6px 14px;
   cursor: pointer;
 }
 .bp-slash-item.is-picked {
-  background: var(--surface-2);
-  color: var(--text);
+  background: var(--bg-3);
+  color: var(--fg);
 }
 
+/* The field is the panel's own, so it has no border of its own -- a box inside a box is
+   what made the composer read as a separate thing docked under a transcript. */
 .bp-chat-field {
   border: none;
   background: none;
   resize: none;
-  padding: 12px 12px 6px;
-  font-family: var(--mono);
-  font-size: 11.5px;
+  padding: 12px 14px 6px;
+  font-size: 13.5px;
   line-height: 1.6;
-  min-height: 44px;
-  max-height: 180px;
+  min-height: 46px;
+  max-height: 200px;
 }
 .bp-chat-field:focus {
   outline: none;
@@ -1055,71 +1557,88 @@ textarea {
   color: var(--muted-2);
 }
 
-/* the row under the input: attach, context, transcript, send */
+/* the row under the input: attach, context, mode, send */
 .bp-chat-tools {
   display: flex;
   align-items: center;
   gap: 4px;
-  padding: 4px 6px 6px;
+  padding: 4px 8px 8px;
 }
 .bp-icon,
-.bp-send,
 .bp-ring {
   border: none;
+  border-radius: var(--radius-2);
   background: none;
-  color: var(--muted);
+  color: var(--muted-2);
   cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 26px;
-  height: 26px;
-  font-size: 13px;
+  width: 28px;
+  height: 28px;
+  font-size: 14px;
   padding: 0;
 }
 .bp-icon:hover,
 .bp-ring:hover:not(:disabled) {
   color: var(--fg);
-  background: var(--surface-2);
+  background: var(--bg-2);
 }
 .bp-chat-count {
-  font-family: var(--mono);
-  font-size: 9.5px;
-  color: var(--muted-2);
+  font-size: 11px;
+  color: var(--muted-3);
   margin-right: auto;
+  padding-left: 4px;
 }
 /* What the agent may do on its own, named rather than iconified: this is the one control
    in the row whose value a person needs to be able to read without hovering. */
 .bp-mode {
   border: none;
+  border-radius: var(--radius-2);
   background: none;
   color: var(--muted);
-  font-family: var(--body);
-  font-size: 11px;
+  font-size: 12px;
   display: flex;
   align-items: center;
-  gap: 3px;
-  padding: 3px 6px;
+  gap: 4px;
+  padding: 4px 8px;
   cursor: pointer;
   white-space: nowrap;
 }
 .bp-mode:hover {
   color: var(--fg);
-  background: var(--surface-2);
+  background: var(--bg-2);
 }
 .bp-mode-caret {
   font-size: 8px;
   opacity: 0.7;
 }
 
+/* Send is the panel's primary, in the same black the bar's `Observe` wears -- one emphatic
+   shape in the application, used for the one thing each surface is for. */
 .bp-send {
-  background: var(--accent);
-  color: var(--on-accent);
-  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: none;
+  border-radius: var(--radius-2);
+  background: var(--primary);
+  color: var(--primary-fg);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
 }
 .bp-send:disabled {
-  opacity: 0.35;
+  opacity: 0.3;
   cursor: not-allowed;
+}
+/* Stopping is a different intention from sending, so it is a different button. */
+.bp-send.is-stop {
+  background: var(--bad);
+  color: #fff;
 }
 
 .bp-ring:disabled {
@@ -1131,7 +1650,7 @@ textarea {
 }
 .bp-ring-track {
   fill: none;
-  stroke: var(--line-strong);
+  stroke: var(--line);
   stroke-width: 2;
 }
 .bp-ring-fill {
@@ -1144,66 +1663,95 @@ textarea {
   stroke: var(--unknown);
 }
 
+/* Nobody to talk to: no agent installed, or nobody signed in. The panel and everything said
+   in it stay visible -- hiding it all behind a login would hide the thing the login is for. */
 .bp-chat-row {
   display: flex;
   align-items: center;
-  gap: 4px;
-  padding-right: 6px;
+  gap: 8px;
+  padding: 12px 14px;
 }
 .bp-chat-row > :first-child {
   flex: 1 1 auto;
 }
 
 .bp-chat-connect {
-  width: 100%;
-  border: none;
-  background: none;
-  color: var(--fg);
-  padding: 13px 12px;
+  flex: 0 0 auto;
+  height: 30px;
+  padding: 0 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--fg-2);
+  font-size: 12.5px;
   cursor: pointer;
-  font-family: var(--mono);
-  font-size: 10.5px;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
-  text-align: left;
 }
 .bp-chat-connect:hover {
-  background: var(--surface-2);
+  background: var(--bg-2);
 }
 .bp-chat-absent {
-  padding: 13px 12px;
-  font-family: var(--mono);
-  font-size: 10.5px;
+  font-size: 12.5px;
+  line-height: 1.5;
   color: var(--muted-2);
 }
 
-/* ---------- tabs: what the selection is set to, and what it is made of ---------- */
-.bp-tabs {
+/* ---------- the inspector's sections ---------- */
+
+/* A heading and a chevron, in the reference's configuration chrome -- flat, one after
+   another, replacing the `Details` / `Code` tab pair that put a node's buttons inside its
+   details for no reason anybody could state (P18.4). */
+.bp-sect {
+  border-top: 1px solid var(--line-2);
+}
+.bp-sect:first-of-type {
+  border-top: none;
+}
+.bp-sect-head {
   display: flex;
-  gap: 2px;
-  border-bottom: 1px solid var(--line);
-  margin: -4px 0 12px;
-}
-.bp-tab {
-  font-family: var(--mono);
-  font-size: 10px;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 11px 0;
   border: none;
-  border-bottom: 1px solid transparent;
   background: none;
-  color: var(--muted-2);
-  padding: 7px 10px;
-  margin-bottom: -1px;
   cursor: pointer;
+  text-align: left;
 }
-.bp-tab.is-on {
-  color: var(--fg);
-  border-bottom-color: var(--accent-blue);
+.bp-sect-title {
+  font-size: 13.5px;
+  font-weight: 600;
 }
-.bp-tab:disabled {
-  opacity: 0.35;
-  cursor: default;
+.bp-sect-n {
+  padding: 1px 7px;
+  border-radius: var(--radius-pill);
+  background: var(--bg-3);
+  color: var(--muted-2);
+  font-size: 11px;
+}
+.bp-sect-chev {
+  margin-left: auto;
+  color: var(--muted-2);
+  font-size: 11px;
+}
+.bp-sect-body {
+  padding-bottom: 14px;
+}
+
+/* ---------- one node's evidence ---------- */
+.bp-evidence-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.bp-evidence-row .bp-chips {
+  margin-top: 0;
+}
+.bp-evidence-why {
+  margin: 9px 0 0;
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: var(--muted);
 }
 
 /* ---------- a node's code ---------- */
@@ -1234,38 +1782,29 @@ textarea {
   color: var(--muted-2);
 }
 .bp-zone {
-  font-family: var(--mono);
-  font-size: 9px;
-  letter-spacing: 0.1em;
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
   text-transform: uppercase;
-  padding: 2px 6px;
-  border: 1px solid var(--line);
+  padding: 2px 8px;
+  border-radius: var(--radius-pill);
+  background: var(--bg-3);
   color: var(--muted);
 }
 /* A generated zone is marked, not hidden: it is edited through the graph, and seeing it is
    how a person understands why the editor will not open here. */
 .bp-zone.is-generated {
-  border-color: var(--accent-blue);
-  color: var(--accent-blue);
-}
-.bp-zone.is-editable {
-  border-color: var(--line-strong);
-  color: var(--fg);
-}
-.bp-lock {
-  font-family: var(--mono);
-  font-size: 9px;
-  color: var(--unknown);
-  letter-spacing: 0.06em;
-}
-.bp-btn-go {
-  border-color: var(--accent);
+  background: var(--accent-soft);
   color: var(--accent);
 }
-.bp-btn-hand {
-  border-style: dashed;
+.bp-zone.is-editable {
+  background: var(--bg-3);
+  color: var(--fg-2);
 }
-
+.bp-lock {
+  font-size: 11.5px;
+  color: var(--unknown);
+}
 .bp-src,
 .bp-editor {
   font-family: var(--mono);
@@ -1287,7 +1826,7 @@ textarea {
 }
 .bp-editor:focus {
   outline: none;
-  border-color: var(--accent-blue);
+  border-color: var(--select);
 }
 
 /* VS Code's palette, so a node's code reads the way the file will in an editor. */
@@ -1402,19 +1941,19 @@ textarea {
   color: var(--unknown);
 }
 .bp-fault {
-  font-family: var(--mono);
-  font-size: 9px;
+  font-size: 10.5px;
+  font-weight: 600;
   text-transform: uppercase;
-  letter-spacing: 0.12em;
-  color: var(--muted-2);
+  letter-spacing: 0.07em;
+  color: var(--muted-3);
 }
 .bp-repair-msg {
   font-size: 12.5px;
   line-height: 1.5;
 }
 .bp-repair-rule {
-  font-family: var(--mono);
-  font-size: 10px;
+  font-size: 12px;
+  line-height: 1.5;
   color: var(--muted-2);
 }
 
@@ -1424,16 +1963,8 @@ textarea {
   cursor: default;
 }
 
-/* ---------- the bottom dock ---------- */
-.bp-dock {
-  grid-column: 1 / -1;
-  position: relative;
-  display: flex;
-  flex-direction: column;
-  min-height: 0;
-  background: var(--surface);
-  border-top: 1px solid var(--line);
-}
+/* ---------- the grips that size a pane ---------- */
+
 /* The handle overhangs the border it sits on, because a 1px target is a target missed. */
 .bp-grip {
   position: absolute;
@@ -1466,7 +1997,7 @@ textarea {
 .bp-grip::after {
   content: "";
   position: absolute;
-  background: var(--accent-blue);
+  background: var(--select);
   opacity: 0;
   transition: opacity 90ms ease;
 }
@@ -1496,42 +2027,6 @@ textarea {
 body.is-resizing {
   user-select: none;
   cursor: inherit;
-}
-.bp-dock-head {
-  flex: 0 0 auto;
-  height: 34px;
-  display: flex;
-  align-items: stretch;
-  gap: 2px;
-  padding: 0 8px 0 14px;
-  border-bottom: 1px solid var(--line);
-  user-select: none;
-}
-.bp-dock-tab {
-  font-family: var(--mono);
-  font-size: 10px;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-  border: none;
-  border-bottom: 1px solid transparent;
-  background: none;
-  color: var(--muted-2);
-  padding: 0 10px;
-  margin-bottom: -1px;
-  cursor: pointer;
-}
-.bp-dock-tab.is-on {
-  color: var(--fg);
-  border-bottom-color: var(--accent-blue);
-}
-.bp-dock-fold {
-  margin-left: auto;
-}
-.bp-dock-body {
-  flex: 1 1 auto;
-  min-height: 0;
-  overflow: auto;
-  padding: 11px 14px;
 }
 
 /* ---------- terminal ---------- */
@@ -1661,36 +2156,45 @@ body.is-resizing {
   display: flex;
   align-items: baseline;
   gap: 9px;
-  border-left: 2px solid var(--line-strong);
-  padding: 6px 4px 6px 9px;
-  font-family: var(--mono);
-  font-size: 10.5px;
+  margin: 8px 0;
+  padding: 9px 6px 9px 11px;
+  border-radius: var(--radius-2);
+  background: var(--bg-3);
+  font-size: 12.5px;
   line-height: 1.5;
   color: var(--muted);
 }
+/* A refusal is an ordinary answer, and a failure is not -- but both are the same shape:
+   what changes is the ground, not the geometry. */
 .bp-notice.is-refused,
 .bp-notice.is-failed {
-  border-left-color: var(--bad);
+  background: var(--bad-bg);
+  color: var(--bad);
+}
+.bp-notice.is-refused .bp-notice-label,
+.bp-notice.is-failed .bp-notice-label {
+  color: inherit;
+  opacity: 0.72;
 }
 /* The one notice that floats. Everywhere else a notice sits inside a panel and borrows its
    ground; this one hangs in `.bp-chat`, which is a fixed column with no background of its
    own, so without a ground of its own the canvas showed straight through the words. */
 .bp-notice.is-blocked {
-  border: 1px solid var(--bad);
-  border-radius: 6px;
-  background: var(--surface);
+  margin: 0 12px 10px;
+  background: var(--bad-bg);
   color: var(--bad);
-  padding: 8px 4px 8px 11px;
 }
 .bp-notice.is-said {
-  border-left-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--fg-2);
 }
 .bp-notice-label {
   flex: 0 0 auto;
-  font-size: 9px;
-  letter-spacing: 0.12em;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.07em;
   text-transform: uppercase;
-  color: var(--muted-2);
+  color: var(--muted-3);
 }
 .bp-notice-text {
   flex: 1 1 auto;
@@ -1710,21 +2214,6 @@ body.is-resizing {
 }
 .bp-notice-shut:hover {
   color: var(--fg);
-}
-
-/* Renaming happens in place: the chip becomes the field, so the name is edited where it is
-   read rather than in a dialog about a chip. */
-.bp-sess-name {
-  border: none;
-  background: none;
-  font: inherit;
-  letter-spacing: inherit;
-  padding: 4px 4px 4px 9px;
-  width: 11ch;
-  min-width: 0;
-}
-.bp-sess-name:focus {
-  outline: none;
 }
 
 /* ---------- markdown, in what the agent says ---------- */
@@ -1797,53 +2286,79 @@ body.is-resizing {
 }
 
 /* ---------- our own menu ---------- */
+
+/* A floating surface like every other one in this application: white, a hairline, a soft
+   shadow and a 10px radius -- it used to be a square slab on the second surface with a
+   black 45% shadow, which was the dark theme's menu wearing the light theme's ground.
+   Bounded in both directions, because these lists are as long as the agent's own options:
+   too wide and an item wraps, too tall and the last choice is under the edge of the
+   window. */
 .bp-menu {
   position: fixed;
   z-index: 60;
-  min-width: 148px;
-  padding: 4px;
-  background: var(--surface-2);
-  border: 1px solid var(--line-strong);
-  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
+  min-width: 180px;
+  max-width: 264px;
+  max-height: calc(100vh - 16px);
+  overflow-y: auto;
+  padding: 5px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+  box-shadow: var(--shadow-3);
   display: flex;
   flex-direction: column;
 }
 .bp-menu-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
   border: none;
+  border-radius: var(--radius-2);
   background: none;
-  color: var(--fg);
-  font-family: var(--body);
-  font-size: 12.5px;
+  color: var(--fg-2);
+  font-size: 13px;
+  line-height: 1.4;
   text-align: left;
-  padding: 6px 10px;
+  padding: 6px 9px;
   cursor: pointer;
 }
 .bp-menu-item:hover {
-  background: var(--surface);
+  background: var(--bg-2);
+  color: var(--fg);
+}
+.bp-menu-item.is-destructive {
+  color: var(--danger);
 }
 .bp-menu-item.is-destructive:hover {
-  color: var(--bad);
+  background: var(--danger-soft);
+  color: var(--danger);
 }
 .bp-menu-item.is-checked {
   color: var(--fg);
+  font-weight: 500;
 }
-/* A fixed column, so nothing shifts under the pointer when a choice is made. */
+/* A fixed column, so nothing shifts under the pointer when a choice is made -- and so a
+   label that wraps keeps its second line under the first rather than under the tick. */
 .bp-menu-tick {
-  display: inline-block;
-  width: 12px;
-  color: var(--accent);
+  flex: 0 0 auto;
+  width: 11px;
+  color: var(--fg);
+}
+.bp-menu-label {
+  flex: 1 1 auto;
+  min-width: 0;
 }
 .bp-menu-head {
-  font-family: var(--body);
-  font-size: 10px;
-  letter-spacing: 0.08em;
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.07em;
   text-transform: uppercase;
-  color: var(--muted-2);
-  padding: 8px 10px 4px;
+  color: var(--muted-3);
+  padding: 8px 9px 4px;
 }
 .bp-menu-head:not(:first-child) {
-  border-top: 1px solid var(--line);
-  margin-top: 4px;
+  border-top: 1px solid var(--line-2);
+  margin-top: 5px;
 }
 
 /* The browser's own behaviours, turned off. This is an application, not a page: text is not
@@ -1869,25 +2384,36 @@ textarea {
 }
 
 /* The folder being worked in, and the way to read it again. */
-.bp-folder {
-  border: none;
-  background: none;
-  color: inherit;
-  font: inherit;
-  letter-spacing: inherit;
-  text-transform: inherit;
-  padding: 0;
-  width: 100%;
-  cursor: pointer;
-}
-.bp-folder:hover {
-  color: var(--fg);
-}
 
 /* ---------- settings ---------- */
-.bp-sheet.is-settings {
+
+/* A dialog of its own. It used to be spelled as a modal wrapping a sheet, and P18 gave both
+   of those names to other surfaces, so it inherited a rename field's box and hung off the
+   side of the window. */
+.bp-dialog {
   width: min(560px, 92vw);
-  gap: 10px;
+  max-height: min(680px, 88vh);
+  display: flex;
+  flex-direction: column;
+  padding: 4px 18px 16px;
+  border-radius: 12px;
+  background: var(--surface);
+  box-shadow: var(--shadow-3);
+  overflow: auto;
+}
+.bp-dialog-head {
+  display: flex;
+  align-items: center;
+  height: 48px;
+  margin-bottom: 4px;
+}
+.bp-dialog-title {
+  font-weight: 600;
+  font-size: 16px;
+  letter-spacing: -0.015em;
+}
+.bp-dialog-head .bp-icon {
+  margin-left: auto;
 }
 .bp-set {
   display: flex;
@@ -1913,17 +2439,32 @@ textarea {
   word-break: break-word;
 }
 .bp-set-help {
-  font-family: var(--mono);
-  font-size: 10px;
+  font-size: 12px;
   color: var(--muted-2);
   line-height: 1.5;
 }
 .bp-set-pick {
   display: flex;
-  gap: 4px;
+  gap: 2px;
+  padding: 3px;
+  border-radius: 9px;
+  background: var(--bg-2);
+}
+.bp-set-pick .bp-seg-tab {
+  text-transform: capitalize;
 }
 
-/* ---------- observe & repair, as faces of the dock ---------- */
+/* The chat's own live dot. The bar's readout became the evidence dot beside `Observe`
+   (P18.1); this one says a session is running, which is a different claim entirely. */
+.bp-livedot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--ok);
+  animation: bp-pulse 2.2s ease-in-out infinite;
+}
+
+/* ---------- the evidence list, and what diverged ---------- */
 .bp-observe,
 .bp-repairs {
   display: flex;
@@ -1941,8 +2482,8 @@ textarea {
   gap: 10px;
 }
 .bp-observe-note {
-  font-family: var(--mono);
-  font-size: 10px;
+  font-size: 12.5px;
+  line-height: 1.5;
   color: var(--muted-2);
 }
 
@@ -2042,26 +2583,6 @@ textarea {
   word-break: break-word;
   max-height: 220px;
   overflow: auto;
-}
-
-/* Stopping is a different intention from sending, so it is a different button. */
-.bp-send.is-stop {
-  background: var(--bad);
-  color: var(--bg);
-  border-color: var(--bad);
-}
-
-.bp-gear {
-  margin-left: auto;
-  border: none;
-  background: none;
-  color: var(--muted-2);
-  padding: 4px;
-  display: inline-flex;
-  cursor: pointer;
-}
-.bp-gear:hover {
-  color: var(--fg);
 }
 
 /* -- talking to a node (P17.3) ------------------------------------------------
@@ -2202,37 +2723,18 @@ textarea {
 /* **A live dot is not a mark.** The mark says what has been proven about the code; this says
    a process is up on this machine right now. A service can be running and have nothing
    proven about it, and a node has to be able to say both at once -- so they are two things,
-   at opposite ends of the header. */
-.bp-node-live {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  flex: 0 0 auto;
-  background: var(--ok);
-  box-shadow: 0 0 7px rgba(var(--ok-rgb), 0.75);
-  animation: bp-breathe 2.4s ease-in-out infinite;
-}
-@keyframes bp-breathe {
-  0%,
-  100% {
-    opacity: 1;
-  }
-  50% {
-    opacity: 0.45;
-  }
-}
-.bp-node.is-running {
-  border-color: rgba(var(--ok-rgb), 0.5);
+   side by side in the header rather than one standing in for the other.
+
+   The dot itself is defined with the card; what is here is what a *running* card and frame
+   look like. */
+.bp-card.is-running {
+  border-color: var(--ok);
 }
 /* The frame gets it too, and it is the frame a person looks at first: the service is the
    group, and "is my API up?" is answered by the box around it rather than by a row of
    members that each answer something narrower. */
 .bp-frame.is-running {
-  border-color: rgba(var(--ok-rgb), 0.42);
-  background: rgba(var(--ok-rgb), 0.04);
-}
-.bp-frame.is-selected {
-  border-color: var(--select);
+  border-color: var(--ok);
 }
 
 /* ---------- start and stop ---------- */
@@ -2240,17 +2742,14 @@ textarea {
 /* One button, and its colour is the verb rather than the state it is in: green is a thing
    that starts, red is a thing that stops. Which one is drawn is decided by what is running. */
 .bp-btn-stop {
-  border-color: rgba(var(--bad-rgb), 0.55);
+  border-color: var(--bad);
   color: var(--bad);
 }
 .bp-btn-stop:hover {
-  background: rgba(var(--bad-rgb), 0.1);
+  background: var(--bad-bg);
 }
 .bp-acts-state {
-  font-family: var(--mono);
-  font-size: 9px;
-  letter-spacing: 0.16em;
-  text-transform: uppercase;
+  font-size: 12px;
   color: var(--muted-2);
   align-self: center;
 }
@@ -2396,7 +2895,6 @@ textarea {
 .bp-service-dot.is-up {
   background: var(--ok);
   border-color: var(--ok);
-  box-shadow: 0 0 7px rgba(var(--ok-rgb), 0.6);
 }
 .bp-service-name {
   color: var(--fg);

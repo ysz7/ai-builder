@@ -20,7 +20,8 @@
         "users",
         "api.settings"
       ],
-      "unresolved_members": []
+      "unresolved_members": [],
+      "summary": ""
     },
     {
       "id": "api.settings",
@@ -116,7 +117,8 @@
         }
       ],
       "members": [],
-      "unresolved_members": []
+      "unresolved_members": [],
+      "summary": "The knobs, and the node they are edited from."
     },
     {
       "id": "health",
@@ -137,7 +139,8 @@
       },
       "knobs": [],
       "members": [],
-      "unresolved_members": []
+      "unresolved_members": [],
+      "summary": ""
     },
     {
       "id": "users",
@@ -161,7 +164,8 @@
         "users.list",
         "users.create"
       ],
-      "unresolved_members": []
+      "unresolved_members": [],
+      "summary": ""
     },
     {
       "id": "users.create",
@@ -188,7 +192,8 @@
       },
       "knobs": [],
       "members": [],
-      "unresolved_members": []
+      "unresolved_members": [],
+      "summary": ""
     },
     {
       "id": "users.list",
@@ -215,7 +220,8 @@
       },
       "knobs": [],
       "members": [],
-      "unresolved_members": []
+      "unresolved_members": [],
+      "summary": ""
     }
   ],
   "functions": [

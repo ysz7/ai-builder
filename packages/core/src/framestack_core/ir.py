@@ -141,6 +141,11 @@ class Node:
     #: a member the parser cannot find is missing from the graph, and silence about it
     #: would make the graph quietly smaller than the code.
     unresolved_members: tuple[str, ...] = ()
+    #: The first line of the carrier's docstring, or "". What the node says about itself,
+    #: in the author's own words rather than in ours (Q29). Nothing decides anything by it:
+    #: no gate reads it and no verdict depends on it, so a carrier that gains or loses a
+    #: docstring changes what a card *says* and never what the graph *is*.
+    summary: str = ""
 
 
 @dataclass(frozen=True)

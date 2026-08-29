@@ -39,6 +39,12 @@ class Observation:
     passed: bool
     check: str
     detail: str | None = None
+    #: What produced this, named rather than described -- a test id, where a test is what
+    #: entered the node. `detail` says the same thing in a sentence, and a sentence is the
+    #: right answer wherever there is room for one; this is for the places that have to draw
+    #: the evidence rather than read it, so nothing has to parse the prose to find the name.
+    #: Empty when the evidence has no name beyond `check`.
+    by: str = ""
 
 
 def verdict_for(*, static_clean: bool, observation: Observation | None) -> Verdict:

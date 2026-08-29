@@ -22,9 +22,19 @@ type Props = {
   onDone: () => void;
   /** Handing a repair to the agent is the chat's job; this only supplies the words. */
   onHandOver: (request: string) => void;
+  /**
+   * Only this node's divergences, where a node is what is being looked at.
+   *
+   * The list itself is still the project's -- `repair.list` is asked one question and
+   * answers it about the whole project -- and this narrows what is *shown*, not what is
+   * asked. Repairs are a node's business now (P18.4): the dock face that used to hold them
+   * is gone, and a divergence in code the reader is not looking at is not their problem
+   * this second.
+   */
+  node?: string;
 };
 
-export function Repairs({ project, onDone, onHandOver }: Props) {
+export function Repairs({ project, onDone, onHandOver, node }: Props) {
   const [repairs, setRepairs] = useState<Repair[] | null>(null);
   const [note, setNote] = useState<string | null>(null);
   const [busy, setBusy] = useState("");
@@ -72,6 +82,11 @@ export function Repairs({ project, onDone, onHandOver }: Props) {
     }
   }
 
+  const shown =
+    node === undefined
+      ? repairs
+      : (repairs ?? []).filter((repair) => repair.node === node);
+
   return (
     <div className="bp-repairs">
       <div className="bp-observe-bar">
@@ -85,13 +100,13 @@ export function Repairs({ project, onDone, onHandOver }: Props) {
       </div>
 
       {repairs === null ? <div className="bp-empty">Reading…</div> : null}
-      {repairs !== null && repairs.length === 0 ? (
+      {shown !== null && shown.length === 0 ? (
         <div className="bp-empty">
           Nothing has diverged from the last valid state.
         </div>
       ) : null}
 
-      {(repairs ?? []).map((repair) => (
+      {(shown ?? []).map((repair) => (
         <div
           className="bp-repair"
           key={`${repair.code}:${repair.location.object}`}

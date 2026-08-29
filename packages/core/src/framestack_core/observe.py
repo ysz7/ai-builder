@@ -305,6 +305,7 @@ def run_observations(
                 passed=result["status"] == "passed",
                 check=result["check"],
                 detail=result["detail"],
+                by=result.get("by", ""),
             )
 
     # The artifact nodes' answers join the probe's. Two runners, one set of evidence --

@@ -55,6 +55,12 @@ type Props = {
   onSelect: (id: string | null) => void;
   onMove: (positions: Record<string, Placement>) => void;
   onToggleCollapse: (id: string) => void;
+  /** Show every knob on this card, or the first few. Layout state, never graph state. */
+  onToggleExpand: (id: string) => void;
+  /** The one write verb a card has, and it is the inspector's (P18.3). */
+  onKnob: (node: string, knob: string, value: unknown) => void;
+  /** The `⋮`. The caller decides what it offers, from the registry. */
+  onMenu: (id: string, at: { x: number; y: number }) => void;
 };
 
 export function Canvas({
@@ -66,6 +72,9 @@ export function Canvas({
   onSelect,
   onMove,
   onToggleCollapse,
+  onToggleExpand,
+  onKnob,
+  onMenu,
 }: Props) {
   const nodes = graph.graph.nodes;
 
@@ -122,7 +131,7 @@ export function Canvas({
       const collapsed = layout[group.id]?.collapsed ?? false;
       // Collapsed, it keeps the corner its members occupy -- it does not move. A frame
       // that jumped somewhere else when folded would lose the place the person put it.
-      const open = frameBox(group, placed);
+      const open = frameBox(group, placed, nodes, layout);
       const box = collapsed ? { x: open.x, y: open.y, width: 260, height: 27 } : open;
 
       result.push({
@@ -163,8 +172,13 @@ export function Canvas({
           node,
           verdict: (graph.verdicts[node.id] ?? "unproven") as never,
           reason: reasonFor(node.id),
+          observation: graph.observations[node.id] ?? null,
           lit: litFiles.has(node.location.file),
           running: runningKinds.has(node.kind),
+          expanded: layout[node.id]?.expanded ?? false,
+          onExpand: onToggleExpand,
+          onKnob,
+          onMenu,
           pins: pinsOf(node.id),
         },
       });
@@ -183,6 +197,9 @@ export function Canvas({
     pinsOf,
     onSelect,
     onToggleCollapse,
+    onToggleExpand,
+    onKnob,
+    onMenu,
   ]);
 
   const flowEdges = useMemo<Edge[]>(() => {
@@ -277,8 +294,8 @@ export function Canvas({
         maxZoom={1.6}
         fitView
       >
-        <Background variant={BackgroundVariant.Dots} gap={26} size={1} color="var(--grid-coarse)" />
-        <Controls showInteractive={false} />
+        <Background variant={BackgroundVariant.Dots} gap={22} size={1} color="var(--grid-coarse)" />
+        <Controls showInteractive={false} position="bottom-right" />
       </ReactFlow>
     </div>
   );

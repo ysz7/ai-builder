@@ -4,11 +4,19 @@
  * One `graph.read` is the whole picture -- nodes, verdicts, evidence, flow, diagnostics --
  * and every panel is a view of that one answer. There is deliberately no store of graph
  * state here: a second copy would be a second opinion, and I-1 says the code is the only
- * source of truth.
+ * source of truth. **The redesign changed none of that** (P18): every surface below is a
+ * view of the same call, and no button appeared whose answer the core cannot give. A
+ * redesign that needed a new source of truth would be the design failing, not the
+ * architecture.
+ *
+ * The shape is the reference's (P18.1): an icon rail and a top bar around a full-bleed
+ * canvas, everything else summoned over it and dismissed. The dock is gone -- its five
+ * faces went to the rail, onto the node, and into a sheet nobody has to look at.
  *
  * The one thing this owns is the layout, and it owns it the way Q13 describes: a cache of
- * where the person put things, written on drag-end, which cannot add, remove or rename a
- * node. Everything else is asked for and rendered.
+ * where the person put things -- and now of which cards they unfolded -- written on
+ * drag-end, which cannot add, remove or rename a node. Everything else is asked for and
+ * rendered.
  *
  * **Observing is never automatic.** `graph.read --observe` runs the project's own tests in a
  * subprocess, so it happens because somebody pressed a button and for no other reason (P11).
@@ -16,29 +24,36 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import { Actions } from "./panels/Actions";
-import { Dock } from "./panels/Dock";
 import { Grip } from "./panels/Grip";
 import { Notice } from "./panels/Notice";
 import { Terminal } from "./panels/Terminal";
 import { Commands } from "./panels/Commands";
-import { Code } from "./panels/Code";
-import { Observe } from "./panels/Observe";
-import { Repairs } from "./panels/Repairs";
 import { Settings } from "./panels/Settings";
 import { Canvas } from "./graph/Canvas";
 import { Chat } from "./panels/Chat";
 import { Welcome } from "./panels/Welcome";
-import { Details } from "./panels/Details";
+import { Evidence } from "./panels/Evidence";
+import { Inspector } from "./panels/Inspector";
+import { Library } from "./panels/Library";
 import { Problems } from "./panels/Problems";
 import { Tree } from "./panels/Tree";
+import { Menu, type Placed } from "./panels/Menu";
+import { Rail } from "./shell/Rail";
+import { TopBar } from "./shell/TopBar";
+import { Flyout } from "./shell/Flyout";
+import { Sheet } from "./shell/Sheet";
 import {
+  envDown,
   envStatus,
+  envUp,
   graphRead,
   knobSet,
   layoutRead,
   layoutWrite,
+  nodeSetTitle,
+  runStart,
   runStatus,
+  runStop,
   workStatus,
 } from "./core/client";
 import { kindRegistry, startsByKind } from "./core/registry";
@@ -46,6 +61,7 @@ import type {
   Environment,
   GraphRead,
   Layout,
+  NodeKindInfo,
   Placement,
   RunState,
 } from "./core/types";
@@ -74,17 +90,19 @@ const ALIVE_MS = 2000;
 const LAST_PROJECT = "framestack.last-project";
 
 /**
- * How wide the person made the side panes.
+ * How wide the person made the inspector.
  *
  * Browser storage for the same reason as the last project: a pane width is a fact about this
- * window, not about the code, and writing it into the project would put one person's habit
- * into everybody's repository. Node positions are the opposite case -- they *are* about the
+ * window, not about the code. Node positions are the opposite case -- they *are* about the
  * graph -- which is why those go through `layout.write` instead.
  */
-const PANES = { left: "framestack.pane-left", right: "framestack.pane-right" };
+const PANE = "framestack.pane-right";
 
-/** Whatever the canvas must keep, so a pane cannot be dragged over the whole window. */
-const CANVAS_FLOOR = 320;
+/** Light is the base now (P18.5). Dark is the exception, and it is chosen in Settings. */
+const THEME = "framestack.theme";
+
+/** Whatever the canvas must keep, so the inspector cannot be dragged over the whole window. */
+const CANVAS_FLOOR = 360;
 
 function widthOf(key: string, fallback: number): number {
   const raw = Number(localStorage.getItem(key));
@@ -103,13 +121,11 @@ type Load =
  * Every action here ends with `open(project, observed)` — a knob written, a service started,
  * a route called, a repair applied — because what is on screen is a claim about older code.
  * That is right. What was wrong is that the re-read went through `loading`, so `graph` became
- * null for the length of a subprocess and **the whole workspace unmounted**: the canvas, the
- * panes, and the dock with whichever face the person was reading. It came back with the dock
- * on its first tab and the screen flashing once per press.
+ * null for the length of a subprocess and **the whole workspace unmounted**.
  *
- * So the previous answer is kept until the next one arrives. `busy` says a read is in flight;
- * nothing disappears while it is. The first read of a project is the one exception — there is
- * nothing to keep — and that one still says "Reading…".
+ * So the previous answer is kept until the next one arrives. `reading` says a read is in
+ * flight; nothing disappears while it is. The first read of a project is the one exception —
+ * there is nothing to keep — and that one still says "Reading…".
  */
 
 /**
@@ -119,6 +135,11 @@ type Load =
 function relative(file: string, project: string): string {
   const root = project.endsWith("/") ? project : `${project}/`;
   return file.startsWith(root) ? file.slice(root.length) : file;
+}
+
+/** The folder's own name. What the top bar calls this project, and what a person calls it. */
+function nameOf(path: string): string {
+  return path.replace(/\/+$/, "").split("/").pop() ?? path;
 }
 
 export default function App() {
@@ -133,16 +154,24 @@ export default function App() {
   /** A `graph.read` is in flight. The picture stays; this is what says it is being checked. */
   const [reading, setReading] = useState(false);
   const [refused, setRefused] = useState<string | null>(null);
-  const [theme, setTheme] = useState<"dark" | "light">("dark");
+  const [theme, setTheme] = useState<"dark" | "light">(
+    () => (localStorage.getItem(THEME) === "dark" ? "dark" : "light"),
+  );
   /** Files the agent is touching right now. The canvas lights the nodes in them. */
   const [touched, setTouched] = useState<Set<string>>(new Set());
-  /** Which face of the selection is showing: what it is set to, or what it is made of. */
-  const [tab, setTab] = useState<"details" | "code">("details");
   const [settling, setSettling] = useState(false);
-  const [leftWidth, setLeftWidth] = useState(() => widthOf(PANES.left, 216));
-  const [rightWidth, setRightWidth] = useState(() => widthOf(PANES.right, 258));
+  const [paneWidth, setPaneWidth] = useState(() => widthOf(PANE, 320));
   /** A repair the toolchain cannot carry out, on its way to the chat's field. */
   const [handOver, setHandOver] = useState<string | null>(null);
+  /** Which rail flyout is open, or "". Nothing is docked; the canvas keeps the window. */
+  const [rail, setRail] = useState("");
+  /** Which face of the bottom sheet is showing, or "" for no sheet at all. */
+  const [sheet, setSheet] = useState("");
+  const [terminalTab, setTerminalTab] = useState("");
+  const [menu, setMenu] = useState<Placed>(null);
+  const [renaming, setRenaming] = useState<{ id: string; value: string } | null>(null);
+  /** Presses of `Agent`. A counter, because the second press of an open panel is not a close. */
+  const [summon, setSummon] = useState(0);
   /**
    * Which processes are alive, by the verb family that starts them.
    *
@@ -162,38 +191,28 @@ export default function App() {
    * entry here on purpose — a compose project is several containers and no pid of ours.
    */
   const [processes, setProcesses] = useState<Record<string, RunState>>({});
-  /** Which verb family starts each kind, from the registry. Never a list of our own. */
-  const [starts, setStarts] = useState<Record<string, string>>({});
+  /** The registry, whole. What a node's own verbs are is its answer, never a list here. */
+  const [kinds, setKinds] = useState<NodeKindInfo[]>([]);
   /** What the compose file declares and where it stands. Null until docker has been asked. */
   const [services, setServices] = useState<Environment | null>(null);
-  /**
-   * A dock face, and a terminal tab inside it, asked for by something that just happened.
-   *
-   * Starting a service opens its output: a person who pressed Run is asking "did it come
-   * up?", and making them go and find the answer is making them ask twice. Requests rather
-   * than modes -- each is cleared the moment it has been honoured, so nothing here takes the
-   * choice of panel away from the person for longer than one event.
-   */
-  const [face, setFace] = useState("");
-  const [terminalTab, setTerminalTab] = useState("");
 
   const pending = useRef<number | null>(null);
   const opened = useRef(false);
 
   useEffect(() => {
     document.documentElement.setAttribute("data-theme", theme);
+    localStorage.setItem(THEME, theme);
   }, [theme]);
 
   useEffect(() => {
-    localStorage.setItem(PANES.left, String(leftWidth));
-    localStorage.setItem(PANES.right, String(rightWidth));
-  }, [leftWidth, rightWidth]);
+    localStorage.setItem(PANE, String(paneWidth));
+  }, [paneWidth]);
 
   const open = useCallback(async (path: string, observe: boolean) => {
     if (!path) return;
     localStorage.setItem(LAST_PROJECT, path);
     // Kept, not cleared: see the note on `Load`. A re-read that emptied the workspace is
-    // what made every action flash and reset the dock.
+    // what made every action flash.
     setLoad((previous) =>
       previous.status === "ready" ? previous : { status: "loading" },
     );
@@ -261,7 +280,22 @@ export default function App() {
         // 0,0 for one is how a collapsed group ends up in the corner of the canvas.
         const next = {
           ...previous,
-          [id]: { collapsed: !previous[id]?.collapsed },
+          [id]: { ...previous[id], collapsed: !previous[id]?.collapsed },
+        };
+        void layoutWrite(project, next).catch(() => undefined);
+        return next;
+      });
+    },
+    [project],
+  );
+
+  /** Every knob on this card, or the first few. Beside the coordinates, for the same reason. */
+  const onToggleExpand = useCallback(
+    (id: string) => {
+      setLayout((previous) => {
+        const next = {
+          ...previous,
+          [id]: { ...previous[id], expanded: !previous[id]?.expanded },
         };
         void layoutWrite(project, next).catch(() => undefined);
         return next;
@@ -293,9 +327,11 @@ export default function App() {
   // is the same answer as a project whose kinds start nothing.
   useEffect(() => {
     void kindRegistry()
-      .then((kinds) => setStarts(startsByKind(kinds)))
+      .then(setKinds)
       .catch(() => undefined);
   }, []);
+
+  const starts = startsByKind(kinds);
 
   const readAlive = useCallback(async () => {
     if (!project) return;
@@ -338,7 +374,7 @@ export default function App() {
     ] as const) {
       const up = Boolean(alive[family]);
       if (up && !wasAlive.current[family]) {
-        setFace("terminal");
+        setSheet("terminal");
         setTerminalTab(tab);
       }
       wasAlive.current[family] = up;
@@ -353,6 +389,63 @@ export default function App() {
   );
 
   const graph = load.status === "ready" ? load.graph : null;
+
+  /**
+   * The `⋮` on a card.
+   *
+   * Three verbs of the workspace's own, and then **whatever the registry says this kind can
+   * do** -- talk to it, hand it documents, start it. Nothing about those is listed here: a
+   * kind opts in by naming a way in (§5.6), so a kind that has not opted in gets no item
+   * rather than one that does nothing. Choosing one selects the node, which is where the
+   * buttons and their state actually live; the menu is a way in, never a second way to act.
+   */
+  const onMenu = useCallback(
+    (id: string, at: { x: number; y: number }) => {
+      const node = graph?.graph.nodes.find((one) => one.id === id);
+      if (!node) return;
+      const info = kinds.find((kind) => kind.name === node.kind);
+      const verbs: { label: string; run: () => void }[] = [];
+      const reveal = () => setSelected(id);
+      if (info?.converses) verbs.push({ label: `Talk (${info.converses})`, run: reveal });
+      if (info?.indexes) verbs.push({ label: `Index (${info.indexes})`, run: reveal });
+      if (info?.starts) verbs.push({ label: `Start / stop (${info.starts})`, run: reveal });
+
+      setMenu({
+        x: at.x,
+        y: at.y,
+        items: [
+          {
+            section: "Node",
+            label: "Rename…",
+            run: () => setRenaming({ id, value: node.title ?? "" }),
+          },
+          { section: "Node", label: "Open code", run: () => setSelected(id) },
+          {
+            section: "Node",
+            label: "Copy node id",
+            run: () => void navigator.clipboard.writeText(id).catch(() => undefined),
+          },
+          ...verbs.map((verb) => ({ ...verb, section: "Verbs" })),
+        ],
+      });
+    },
+    [graph, kinds],
+  );
+
+  const rename = useCallback(async () => {
+    if (!renaming) return;
+    setBusy(true);
+    try {
+      const result = await nodeSetTitle(project, renaming.id, renaming.value);
+      if (!result.ok) setRefused(result.refused ?? "the rename was refused");
+      else await open(project, observed);
+    } catch (error) {
+      setRefused(error instanceof Error ? error.message : String(error));
+    } finally {
+      setBusy(false);
+      setRenaming(null);
+    }
+  }, [renaming, project, observed, open]);
 
   // No project, no workspace. The path field it replaces was a developer's affordance --
   // the first thing a person needs is a way in, not a text box.
@@ -371,207 +464,174 @@ export default function App() {
 
   const node =
     graph?.graph.nodes.find((candidate) => candidate.id === selected) ?? null;
-  const reasonFor = (id: string | null) =>
-    id ? (graph?.observations[id]?.detail ?? graph?.skipped[id] ?? "") : "";
+
+  const problems = graph
+    ? graph.diagnostics.length + Object.keys(graph.skipped).length
+    : 0;
+
+  const flyout = (() => {
+    if (!rail) return null;
+    if (rail === "library") return { title: "Library", body: <Library /> };
+    if (!graph) return null;
+    if (rail === "outline")
+      return {
+        title: "Outline",
+        body: <Tree graph={graph} selected={selected} onSelect={setSelected} />,
+      };
+    if (rail === "problems")
+      return {
+        title: "Problems",
+        body: <Problems graph={graph} onSelect={setSelected} />,
+      };
+    if (rail === "evidence")
+      return {
+        title: "Evidence",
+        body: <Evidence graph={graph} observed={observed} onSelect={setSelected} />,
+      };
+    return null;
+  })();
 
   return (
     <div className="bp-app">
-      <header className="bp-bar">
-        <span className="bp-brand">
-          Framestack <em>AI Builder</em>
-        </span>
+      <Rail
+        open={rail}
+        problems={problems}
+        onOpen={setRail}
+        onProject={(at) =>
+          setMenu({
+            x: at.x,
+            y: at.y,
+            items: [
+              { label: nameOf(project), run: () => undefined, checked: true },
+              { label: "Close this project", run: () => setProject(""), destructive: true },
+            ],
+          })
+        }
+        onSettings={() => setSettling(true)}
+      />
 
-        {/* The bar carries no readouts and no verbs of its own any more. The project's path
-            was for whoever was building this; `Read` did what opening, an agent turn and
-            `Observe` already do; and observing and repairing are lists to read rather than
-            buttons to press and forget, so they are faces of the dock. What stays is the one
-            thing that is true of the whole workspace: whether anything has been run. */}
-        {graph ? (
-          // Said as a fact about what has happened rather than as a state a project is in:
-          // "not observed" reads like a fault, and a project that has just been opened has
-          // nothing wrong with it -- nobody has run anything yet, which is different.
-          <span
-            className="bp-live"
-            title={
-              observed
-                ? "the project's tests were run for this picture"
-                : "nothing has been run yet -- Observe is where green comes from"
-            }
-          >
-            <span className={`bp-livedot${observed ? "" : " is-off"}`} />
-            {observed ? "observed" : "nothing run yet"}
-            {reading ? " · reading…" : ""}
-          </span>
+      <div className="bp-main">
+        <TopBar
+          name={nameOf(project)}
+          observed={observed}
+          reading={reading}
+          running={Boolean(alive.run)}
+          servicesUp={Boolean(alive.env)}
+          onObserve={() => void open(project, true)}
+          onRun={() => {
+            const act = alive.run ? runStop : runStart;
+            void act(project)
+              .then(() => readAlive())
+              .catch((error: unknown) =>
+                setRefused(error instanceof Error ? error.message : String(error)),
+              );
+          }}
+          onEnv={() => {
+            const act = alive.env ? envDown : envUp;
+            void act(project)
+              .then(() => readAlive())
+              .catch((error: unknown) =>
+                setRefused(error instanceof Error ? error.message : String(error)),
+              );
+          }}
+          onAgent={() => setSummon((n) => n + 1)}
+        />
+
+        {load.status === "failed" ? (
+          <Notice
+            tone="failed"
+            label="failed"
+            text={load.message}
+            onClose={() => setLoad({ status: "idle" })}
+          />
         ) : null}
 
-        {/* A gear and nothing round it: settings are not a verb of the workspace, and a
-            bordered button among no other buttons reads as the bar's one action. */}
-        <button
-          className="bp-gear"
-          onClick={() => setSettling(true)}
-          title="Settings"
-          aria-label="Settings"
-        >
-          <svg
-            viewBox="0 0 24 24"
-            width="17"
-            height="17"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="1.7"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            aria-hidden="true"
-          >
-            {/* Teeth around the ring. Rays out of the centre draw a sun, which is what the
-                first attempt at this was. */}
-            <path d="M12.2 2h-.4a2 2 0 0 0-2 2v.2a2 2 0 0 1-1 1.7l-.4.3a2 2 0 0 1-2 0l-.2-.1a2 2 0 0 0-2.7.7l-.2.4a2 2 0 0 0 .7 2.7l.2.1a2 2 0 0 1 1 1.7v.5a2 2 0 0 1-1 1.7l-.2.1a2 2 0 0 0-.7 2.7l.2.4a2 2 0 0 0 2.7.7l.2-.1a2 2 0 0 1 2 0l.4.3a2 2 0 0 1 1 1.7v.2a2 2 0 0 0 2 2h.4a2 2 0 0 0 2-2v-.2a2 2 0 0 1 1-1.7l.4-.3a2 2 0 0 1 2 0l.2.1a2 2 0 0 0 2.7-.7l.2-.4a2 2 0 0 0-.7-2.7l-.2-.1a2 2 0 0 1-1-1.7v-.5a2 2 0 0 1 1-1.7l.2-.1a2 2 0 0 0 .7-2.7l-.2-.4a2 2 0 0 0-2.7-.7l-.2.1a2 2 0 0 1-2 0l-.4-.3a2 2 0 0 1-1-1.7V4a2 2 0 0 0-2-2Z" />
-            <circle cx="12" cy="12" r="3" />
-          </svg>
-        </button>
-      </header>
-
-      {load.status === "failed" ? (
-        <Notice
-          tone="failed"
-          label="failed"
-          text={load.message}
-          onClose={() => setLoad({ status: "idle" })}
-        />
-      ) : null}
-
-      {graph ? (
-        <div
-          className="bp-grid"
-          style={{
-            gridTemplateColumns: node
-              ? `${leftWidth}px 1fr ${rightWidth}px`
-              : `${leftWidth}px 1fr`,
-          }}
-        >
-          <aside className="bp-pane bp-pane-left">
-            <Grip
-              side="left"
-              min={150}
-              max={() => window.innerWidth - rightWidth - CANVAS_FLOOR}
-              onSize={setLeftWidth}
-            />
-            <div className="bp-pane-scroll">
-              <div className="bp-cap">
-                Project{" "}
-                <span className="bp-cap-n">{graph.graph.nodes.length}</span>
-              </div>
-              <Tree graph={graph} selected={selected} onSelect={setSelected} />
-            </div>
-          </aside>
-
-          <Canvas
-            graph={graph}
-            layout={layout}
-            litFiles={touched}
-            runningKinds={runningKinds}
-            selected={selected}
-            onSelect={setSelected}
-            onMove={onMove}
-            onToggleCollapse={onToggleCollapse}
+        {/* A refusal with nothing selected used to go nowhere: `refused` was only drawn
+            inside the inspector, and the cluster's own verbs -- `Run`, `Env` -- can be
+            refused with no node open at all. A refusal is an answer, and an answer nobody
+            is shown is the same as no answer. */}
+        {refused && !node ? (
+          <Notice
+            tone="refused"
+            label="refused"
+            text={refused}
+            onClose={() => setRefused(null)}
           />
+        ) : null}
 
-          {/* No selection, no pane. It held two dead tabs and the words "Select a node." --
-              a column of nothing, taking a fifth of the window away from the canvas. The
-              canvas takes the space back until there is something to say. */}
-          {node ? (
-            <aside className="bp-pane bp-pane-right">
-              <Grip
-                side="right"
-                min={190}
-                max={() => window.innerWidth - leftWidth - CANVAS_FLOOR}
-                onSize={setRightWidth}
-              />
-              <div className="bp-pane-scroll">
-                <div className="bp-tabs">
-                  <button
-                    className={`bp-tab${tab === "details" ? " is-on" : ""}`}
-                    onClick={() => setTab("details")}
-                  >
-                    Details
-                  </button>
-                  <button
-                    className={`bp-tab${tab === "code" ? " is-on" : ""}`}
-                    onClick={() => setTab("code")}
-                  >
-                    Code
-                  </button>
-                </div>
+        <div className="bp-stage">
+          {graph ? (
+            <Canvas
+              graph={graph}
+              layout={layout}
+              litFiles={touched}
+              runningKinds={runningKinds}
+              selected={selected}
+              onSelect={setSelected}
+              onMove={onMove}
+              onToggleCollapse={onToggleCollapse}
+              onToggleExpand={onToggleExpand}
+              onKnob={onKnob}
+              onMenu={onMenu}
+            />
+          ) : (
+            <div className="bp-empty bp-empty-full">
+              {load.status === "loading"
+                ? "Reading…"
+                : "This project has nothing on its graph yet."}
+            </div>
+          )}
 
-                {tab === "code" ? (
-                  <Code
-                    project={project}
-                    node={node.id}
-                    onWritten={() => void open(project, observed)}
-                  />
-                ) : (
-                  <>
-                    <Details
-                      node={node}
-                      reason={reasonFor(selected)}
-                      busy={busy}
-                      refused={refused}
-                      onKnob={onKnob}
-                      onDismiss={() => setRefused(null)}
-                    />
-                    <Actions
-                      project={project}
-                      node={node}
-                      running={Boolean(alive[starts[node.kind] ?? ""])}
-                      services={services}
-                      onActed={() => {
-                        void readAlive();
-                        void open(project, observed);
-                      }}
-                    />
-                  </>
-                )}
-              </div>
-            </aside>
+          {/* Over the canvas, not beside it: closing gives the whole window back. */}
+          {flyout ? (
+            <Flyout title={flyout.title} onClose={() => setRail("")}>
+              {flyout.body}
+            </Flyout>
           ) : null}
 
-          <Dock
-            face={face}
-            onFace={setFace}
+          {/* No selection, no panel. It used to hold two dead tabs and the words "Select a
+              node." -- a column of nothing, taking a fifth of the window from the canvas. */}
+          {graph && node ? (
+            <div className="bp-inspector-wrap" style={{ width: paneWidth }}>
+              <Grip
+                side="right"
+                min={260}
+                max={() => window.innerWidth - CANVAS_FLOOR}
+                onSize={setPaneWidth}
+              />
+              <Inspector
+                project={project}
+                graph={graph}
+                node={node}
+                busy={busy}
+                refused={refused}
+                running={Boolean(alive[starts[node.kind] ?? ""])}
+                services={services}
+                onKnob={onKnob}
+                onDismiss={() => setRefused(null)}
+                onActed={() => {
+                  void readAlive();
+                  void open(project, observed);
+                }}
+                onWritten={() => void open(project, observed)}
+                onHandOver={(request) => {
+                  setHandOver(request);
+                  setSummon((n) => n + 1);
+                }}
+                onClose={() => setSelected(null)}
+              />
+            </div>
+          ) : null}
+        </div>
+
+        {/* Summoned and dismissed. Nothing sits at the bottom of the window by default:
+            the reference gives the canvas the whole window and so do we (P18.1). */}
+        {sheet ? (
+          <Sheet
+            face={sheet}
+            onFace={setSheet}
+            onClose={() => setSheet("")}
             faces={[
-              {
-                id: "problems",
-                label: "Problems",
-                badge:
-                  graph.diagnostics.length + Object.keys(graph.skipped).length,
-                content: <Problems graph={graph} onSelect={setSelected} />,
-              },
-              {
-                // Where green comes from (I-5), and a face rather than a bar button because
-                // the evidence is a list to read, not a verb to press and forget.
-                id: "observe",
-                label: "Observe",
-                content: (
-                  <Observe
-                    graph={graph}
-                    observed={observed}
-                    busy={reading}
-                    onRun={() => void open(project, true)}
-                    onSelect={setSelected}
-                  />
-                ),
-              },
-              {
-                id: "repair",
-                label: "Repair",
-                content: (
-                  <Repairs
-                    project={project}
-                    onDone={() => void open(project, observed)}
-                    onHandOver={setHandOver}
-                  />
-                ),
-              },
               {
                 id: "terminal",
                 label: "Terminal",
@@ -585,26 +645,30 @@ export default function App() {
                 ),
               },
               {
-                // The commands the project already has (P17.6). A face and not a node:
-                // a front end is run, not modelled, and nothing here turns a colour (Q20).
+                // The commands the project already has (P17.6). Not a node: a front end is
+                // run, not modelled, and nothing here turns a colour (Q20).
                 id: "commands",
                 label: "Commands",
                 content: <Commands project={project} />,
               },
             ]}
           />
-        </div>
-      ) : (
-        <div className="bp-empty bp-empty-full">
-          {load.status === "loading"
-            ? "Reading…"
-            : "This project has nothing on its graph yet."}
-        </div>
-      )}
+        ) : null}
 
-      {/* Always docked, project or not: it is how a project gets its first line of code. */}
+        {/* The one thing that is always reachable without opening a panel: a shell and the
+            project's commands are how a person gets out of a corner the buttons cannot. */}
+        {!sheet ? (
+          <button className="bp-sheet-summon" onClick={() => setSheet("terminal")}>
+            Terminal
+          </button>
+        ) : null}
+      </div>
+
+      {/* Folded until `Agent` is pressed: it is how a project gets its first line of code,
+          and it is now a button in the cluster rather than a panel nobody asked for. */}
       <Chat
         project={project}
+        summon={summon}
         onTouch={(files) =>
           setTouched(new Set(files.map((file) => relative(file, project))))
         }
@@ -615,6 +679,39 @@ export default function App() {
         handOver={handOver}
         onHandedOver={() => setHandOver(null)}
       />
+
+      <Menu at={menu} onClose={() => setMenu(null)} />
+
+      {renaming ? (
+        <div className="bp-modal-scrim" onClick={() => setRenaming(null)}>
+          <div className="bp-modal" onClick={(event) => event.stopPropagation()}>
+            <div className="bp-modal-title">Rename node</div>
+            {/* The title and nothing else: an id is an address other code refers to, and a
+                rename that moved it would break every reference silently. `node.set_title`
+                writes the one thing that is safe to change. */}
+            <input
+              className="bp-field"
+              autoFocus
+              value={renaming.value}
+              onChange={(event) =>
+                setRenaming({ ...renaming, value: event.target.value })
+              }
+              onKeyDown={(event) => {
+                if (event.key === "Enter") void rename();
+                if (event.key === "Escape") setRenaming(null);
+              }}
+            />
+            <div className="bp-modal-acts">
+              <button className="bp-btn" onClick={() => setRenaming(null)}>
+                Cancel
+              </button>
+              <button className="bp-btn is-primary" disabled={busy} onClick={() => void rename()}>
+                Rename
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       {settling ? (
         <Settings

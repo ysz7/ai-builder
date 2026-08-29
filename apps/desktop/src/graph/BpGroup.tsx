@@ -12,7 +12,7 @@
 import type { NodeProps } from "@xyflow/react";
 
 import type { GraphNode, Verdict } from "../core/types";
-import { MARKS, tintOf } from "./kinds";
+import { glyphOf, MARKS, tintBgOf, tintOf } from "./kinds";
 
 export type BpGroupData = {
   node: GraphNode;
@@ -45,7 +45,10 @@ export function BpGroup({ data }: NodeProps) {
       className={`bp-frame${collapsed ? " is-collapsed" : ""}${
         selected ? " is-selected" : ""
       }${running ? " is-running" : ""}`}
-      style={{ ["--tint" as string]: tintOf(node.kind) }}
+      style={{
+        ["--tint" as string]: tintOf(node.kind),
+        ["--tint-bg" as string]: tintBgOf(node.kind),
+      }}
     >
       {/* **The bar is the node.** A group is a node like any other -- it has a kind, a
           verdict, knobs and the buttons that start it -- and drawing it as nothing but a
@@ -69,6 +72,16 @@ export function BpGroup({ data }: NodeProps) {
         >
           {collapsed ? "▸" : "▾"}
         </span>
+        <svg viewBox="0 0 24 24" width="13" height="13" aria-hidden="true">
+          <path
+            d={glyphOf(node.kind)}
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.9"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+        </svg>
         {running ? <span className="bp-node-live" title="running" /> : null}
         {node.title ?? node.id}
         <span className="bp-count">{memberCount}</span>

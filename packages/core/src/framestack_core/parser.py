@@ -56,6 +56,22 @@ def _code(node: cst.CSTNode | None) -> str | None:
     return None if node is None else _RENDERER.code_for_node(node).strip()
 
 
+def _summary(carrier: cst.FunctionDef | cst.ClassDef) -> str:
+    """The first line of the carrier's docstring, or "" (Q29).
+
+    Asked of `libcst`, which already holds the tree -- never cut out of source text by
+    whoever is drawing the node. It is what the node says about itself in the author's own
+    words, and nothing reads it to decide anything: no gate, no verdict, no check.
+
+    The **first line** and not the whole thing, because the surface it exists for is one
+    grey line under a card's title. A docstring that opens with a summary line gives that
+    line; one that does not gives its first line anyway, which is the author's problem to
+    fix in the place the convention is already written down.
+    """
+    doc = carrier.get_docstring()
+    return "" if doc is None else doc.strip().splitlines()[0].strip()
+
+
 @dataclass
 class _RawNode:
     """A node as one module can describe it: members and references are still local names."""
@@ -70,6 +86,7 @@ class _RawNode:
     signature: Signature | None = None
     knobs: tuple[Knob, ...] = ()
     member_names: tuple[str, ...] = ()
+    summary: str = ""
 
 
 @dataclass
@@ -287,6 +304,7 @@ class _ModuleParser:
                     zone=zone,
                     signature=signature,
                     member_names=members,
+                    summary=_summary(function),
                 )
             )
         self._record_references(path, function.body)
@@ -316,6 +334,7 @@ class _ModuleParser:
                     zone=zone,
                     knobs=knobs,
                     member_names=members,
+                    summary=_summary(klass),
                 )
             )
         self._record_references(path, klass.body)
@@ -635,6 +654,7 @@ def parse_project(root: Path) -> Graph:
                     knobs=raw.knobs,
                     members=members,
                     unresolved_members=unresolved_members,
+                    summary=raw.summary,
                 )
             )
             edges.extend(resolver.edges(fact, raw))

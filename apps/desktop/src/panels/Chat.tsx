@@ -150,6 +150,14 @@ type Props = {
    */
   handOver: string | null;
   onHandedOver: () => void;
+  /**
+   * A press of `Agent` in the control cluster, counted.
+   *
+   * A counter and not a boolean, because the question it answers is "has somebody just
+   * asked for me again?" -- and a boolean that was already true says nothing the second
+   * time. It unfolds the panel and never folds it: closing is the person's own verb.
+   */
+  summon: number;
 };
 
 /**
@@ -178,24 +186,13 @@ function Spark() {
   );
 }
 
-function Toggle({ open, onToggle }: { open: boolean; onToggle: () => void }) {
-  return (
-    <button
-      className="bp-icon"
-      onClick={onToggle}
-      title={open ? "Hide the conversation" : "Show the conversation"}
-    >
-      {open ? "▾" : "▴"}
-    </button>
-  );
-}
-
 export function Chat({
   project,
   onTouch,
   onSettled,
   handOver,
   onHandedOver,
+  summon,
 }: Props) {
   const [available, setAvailable] = useState<boolean | null>(null);
   const [running, setRunning] = useState(false);
@@ -297,12 +294,22 @@ export function Chat({
   const [writing, setWriting] = useState("");
   const [musing, setMusing] = useState("");
   /**
-   * Open from the start.
+   * Folded until it is asked for.
    *
-   * The chat is the way a project gets its first line of code, and a panel that begins folded
-   * is a feature a person has to already know about. Closed is now something they chose.
+   * It used to begin open, because the chat is how a project gets its first line of code and
+   * a panel that begins folded is a feature a person has to already know about. What changed
+   * is that `Agent` is now a button in the control cluster (P18.1), so it is no longer
+   * something to discover -- and the canvas gets the whole window, which is the reference's
+   * behaviour and the thing a permanently docked panel takes away.
    */
-  const [open, setOpen] = useState(true);
+  const [open, setOpen] = useState(false);
+
+  // Asked for from the cluster. It only ever unfolds: a press of `Agent` by somebody who
+  // already has the panel open is not a request to close it.
+  useEffect(() => {
+    if (summon > 0) setOpen(true);
+  }, [summon]);
+
   /**
    * The next message starts a new conversation.
    *
@@ -993,14 +1000,36 @@ export function Chat({
     field.current?.focus();
   }
 
+  /**
+   * Closed is **closed**, not folded.
+   *
+   * The composer used to stay on screen whatever `open` said, so "hidden" was a box in the
+   * corner of a canvas that is supposed to keep the whole window (P18.1) -- and the panel
+   * arrived in two pieces, a transcript that appeared above a field that had never left.
+   * Now `Ask AI` opens one thing and closing puts all of it away.
+   *
+   * The exception is a turn that is still running. An agent editing files with nothing on
+   * screen to say so is the application doing work behind the person's back, so a running
+   * turn leaves a chip that says so and opens the panel again.
+   */
+  if (!open) {
+    return busy ? (
+      <button
+        className="bp-chat-working"
+        onClick={() => setOpen(true)}
+        title="The agent is working — open the conversation"
+      >
+        <span className="bp-livedot" />
+        {status || "working"}
+      </button>
+    ) : null;
+  }
+
   return (
-    <div ref={shell} className={`bp-chat${open ? " is-open" : ""}`}>
-      {open ? (
-        <div className="bp-chat-panel">
+    <div ref={shell} className="bp-chat">
+      <div className="bp-chat-panel">
           <div className="bp-chat-head">
-            <span className="bp-cap" style={{ margin: 0 }}>
-              Conversations
-            </span>
+            <span className="bp-chat-title">Ask AI</span>
             {/* Closing by hand as well as by looking away: a panel that only closes when
                 attention moves cannot be put away while attention stays here. */}
             <button
@@ -1246,273 +1275,265 @@ export function Chat({
                 on the canvas.
               </div>
             ) : null}
-          </div>
         </div>
-      ) : null}
 
-      <Menu at={menu} onClose={() => setMenu(null)} />
+        {blocked ? (
+          <Notice
+            tone="blocked"
+            label="blocked"
+            text={blocked}
+            onClose={() => setBlocked(null)}
+          />
+        ) : null}
 
-      {blocked ? (
-        <Notice
-          tone="blocked"
-          label="blocked"
-          text={blocked}
-          onClose={() => setBlocked(null)}
-        />
-      ) : null}
-
-      <div className="bp-chat-box">
-        {available === false ? (
-          <div className="bp-chat-row">
-            <div className="bp-chat-absent">
-              No agent on this machine — install Claude Code.
-            </div>
-            <Toggle open={open} onToggle={() => setOpen(!open)} />
-          </div>
-        ) : who !== null && !who.signed_in ? (
-          // Nobody is signed in, so there is nothing to talk to. Everything stays visible --
-          // the panel, the conversations, what was said in them -- and only writing is off:
-          // hiding it all behind a login would hide the thing the login is for.
-          <div className="bp-chat-row">
-            <Spark />
-            <div className="bp-chat-absent">
-              Not signed in — the agent runs on your own Claude account.
-            </div>
-            <button
-              className="bp-chat-connect"
-              disabled={connecting}
-              onClick={() => {
-                setConnecting(true);
-                void attempt(() => agentSignIn())
-                  .then((told) => told && setWho(told))
-                  .finally(() => setConnecting(false));
-              }}
-              title="opens the agent's own sign-in page in your browser"
-            >
-              {connecting ? "Waiting for the browser…" : "Connect"}
-            </button>
-            <Toggle open={open} onToggle={() => setOpen(!open)} />
-          </div>
-        ) : (
-          <>
-            {/* The pictures this message is carrying. Above the field because they belong to
-                the line being written -- and they go when it is sent, the same way the words
-                in the field do. */}
-            {pasted.length > 0 ? (
-              <div className="bp-shots">
-                {pasted.map((picture, index) => (
-                  <div className="bp-shot" key={`${index}-${picture.data.slice(0, 24)}`}>
-                    <img
-                      src={`data:${picture.media_type};base64,${picture.data}`}
-                      alt="pasted"
-                    />
-                    <button
-                      className="bp-shot-drop"
-                      title="Remove from this message"
-                      onClick={() =>
-                        setPasted((previous) =>
-                          previous.filter((_, other) => other !== index),
-                        )
-                      }
-                    >
-                      ✕
-                    </button>
-                  </div>
-                ))}
+        <div className="bp-chat-box">
+          {available === false ? (
+            <div className="bp-chat-row">
+              <div className="bp-chat-absent">
+                No agent on this machine — install Claude Code.
               </div>
-            ) : null}
-
-            {suggestions.length > 0 ? (
-              <div className="bp-slash" role="listbox">
-                {suggestions.map((name, index) => (
-                  <button
-                    key={name}
-                    className={`bp-slash-item${index === at ? " is-picked" : ""}`}
-                    role="option"
-                    aria-selected={index === at}
-                    // The field must not lose focus, or the list it belongs to closes
-                    // under the press that was choosing from it.
-                    onMouseDown={(event) => event.preventDefault()}
-                    onMouseEnter={() => setPicked(index)}
-                    onClick={() => complete(name)}
-                  >
-                    /{name}
-                  </button>
-                ))}
+            </div>
+          ) : who !== null && !who.signed_in ? (
+            // Nobody is signed in, so there is nothing to talk to. Everything stays visible --
+            // the panel, the conversations, what was said in them -- and only writing is off:
+            // hiding it all behind a login would hide the thing the login is for.
+            <div className="bp-chat-row">
+              <Spark />
+              <div className="bp-chat-absent">
+                Not signed in — the agent runs on your own Claude account.
               </div>
-            ) : null}
-
-            <textarea
-              ref={field}
-              className="bp-chat-field"
-              // Typing is the moment the conversation becomes relevant, so focusing the
-              // field is what opens it -- rather than a separate press that means the same.
-              onFocus={() => setOpen(true)}
-              value={draft}
-              rows={1}
-              placeholder={
-                busy
-                  ? "ask the next thing — it waits its turn"
-                  : "ask for a change"
-              }
-              spellCheck={false}
-              disabled={connecting}
-              onPaste={absorbPaste}
-              onChange={(event) => {
-                setDraft(event.target.value);
-                setPicked(0);
-              }}
-              onKeyDown={(event) => {
-                // While the list is up the arrows and Enter belong to it. Tab completes
-                // without sending, which is the difference between choosing a command and
-                // asking for it -- a command usually wants an argument typed after it.
-                if (suggestions.length > 0) {
-                  if (event.key === "ArrowDown" || event.key === "ArrowUp") {
-                    event.preventDefault();
-                    const step = event.key === "ArrowDown" ? 1 : -1;
-                    setPicked(
-                      (at + step + suggestions.length) % suggestions.length,
-                    );
-                    return;
-                  }
-                  if (event.key === "Tab") {
-                    event.preventDefault();
-                    complete(suggestions[at]);
-                    return;
-                  }
-                  if (event.key === "Escape") {
-                    event.preventDefault();
-                    setDraft("");
-                    return;
-                  }
-                }
-                if (event.key === "Enter" && !event.shiftKey) {
-                  event.preventDefault();
-                  if (suggestions.length > 0 && suggestions[at] !== typing) {
-                    complete(suggestions[at]);
-                    return;
-                  }
-                  void send(draft);
-                }
-              }}
-            />
-
-            <div className="bp-chat-tools">
               <button
-                className="bp-icon"
-                onClick={() => void attach()}
-                title="Attach files"
+                className="bp-chat-connect"
+                disabled={connecting}
+                onClick={() => {
+                  setConnecting(true);
+                  void attempt(() => agentSignIn())
+                    .then((told) => told && setWho(told))
+                    .finally(() => setConnecting(false));
+                }}
+                title="opens the agent's own sign-in page in your browser"
               >
-                ＋
+                {connecting ? "Waiting for the browser…" : "Connect"}
               </button>
+            </div>
+          ) : (
+            <>
+              {/* The pictures this message is carrying. Above the field because they belong to
+                  the line being written -- and they go when it is sent, the same way the words
+                  in the field do. */}
+              {pasted.length > 0 ? (
+                <div className="bp-shots">
+                  {pasted.map((picture, index) => (
+                    <div className="bp-shot" key={`${index}-${picture.data.slice(0, 24)}`}>
+                      <img
+                        src={`data:${picture.media_type};base64,${picture.data}`}
+                        alt="pasted"
+                      />
+                      <button
+                        className="bp-shot-drop"
+                        title="Remove from this message"
+                        onClick={() =>
+                          setPasted((previous) =>
+                            previous.filter((_, other) => other !== index),
+                          )
+                        }
+                      >
+                        ✕
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              ) : null}
 
-              {/* What this conversation is being had with. Beside the attachments because
-                  both are about the turn being prepared rather than about the answer. */}
-              {choices ? (
+              {suggestions.length > 0 ? (
+                <div className="bp-slash" role="listbox">
+                  {suggestions.map((name, index) => (
+                    <button
+                      key={name}
+                      className={`bp-slash-item${index === at ? " is-picked" : ""}`}
+                      role="option"
+                      aria-selected={index === at}
+                      // The field must not lose focus, or the list it belongs to closes
+                      // under the press that was choosing from it.
+                      onMouseDown={(event) => event.preventDefault()}
+                      onMouseEnter={() => setPicked(index)}
+                      onClick={() => complete(name)}
+                    >
+                      /{name}
+                    </button>
+                  ))}
+                </div>
+              ) : null}
+
+              <textarea
+                ref={field}
+                className="bp-chat-field"
+                value={draft}
+                rows={1}
+                placeholder={
+                  busy
+                    ? "ask the next thing — it waits its turn"
+                    : "ask for a change"
+                }
+                spellCheck={false}
+                disabled={connecting}
+                onPaste={absorbPaste}
+                onChange={(event) => {
+                  setDraft(event.target.value);
+                  setPicked(0);
+                }}
+                onKeyDown={(event) => {
+                  // While the list is up the arrows and Enter belong to it. Tab completes
+                  // without sending, which is the difference between choosing a command and
+                  // asking for it -- a command usually wants an argument typed after it.
+                  if (suggestions.length > 0) {
+                    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+                      event.preventDefault();
+                      const step = event.key === "ArrowDown" ? 1 : -1;
+                      setPicked(
+                        (at + step + suggestions.length) % suggestions.length,
+                      );
+                      return;
+                    }
+                    if (event.key === "Tab") {
+                      event.preventDefault();
+                      complete(suggestions[at]);
+                      return;
+                    }
+                    if (event.key === "Escape") {
+                      event.preventDefault();
+                      setDraft("");
+                      return;
+                    }
+                  }
+                  if (event.key === "Enter" && !event.shiftKey) {
+                    event.preventDefault();
+                    if (suggestions.length > 0 && suggestions[at] !== typing) {
+                      complete(suggestions[at]);
+                      return;
+                    }
+                    void send(draft);
+                  }
+                }}
+              />
+
+              <div className="bp-chat-tools">
                 <button
                   className="bp-icon"
-                  title={`Model: ${settings.model || "the agent's own"} · effort: ${
-                    settings.effort || "the agent's own"
-                  } — changing either restarts the conversation`}
-                  onClick={(event) =>
-                    openMenu(event.currentTarget, [
-                      ...settingItems("Model", "model", choices.models),
-                      ...settingItems("Effort", "effort", choices.efforts),
-                    ])
-                  }
+                  onClick={() => void attach()}
+                  title="Attach files"
                 >
-                  <svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true">
-                    <path
-                      d="M2 4h12M2 8h12M2 12h12"
-                      stroke="currentColor"
-                      strokeWidth="1.3"
-                      fill="none"
-                    />
-                    <circle cx="5" cy="4" r="1.9" fill="currentColor" />
-                    <circle cx="10" cy="8" r="1.9" fill="currentColor" />
-                    <circle cx="6" cy="12" r="1.9" fill="currentColor" />
-                  </svg>
+                  ＋
                 </button>
-              ) : null}
 
-              {/* The ring fills against the window of the model the agent said it is
-                  using, so it is only ever drawn when that window is known. Clicking asks
-                  the agent to compact -- its own command, not ours. */}
-              {showRing ? (
-                <button
-                  className={`bp-ring${filled > 0.7 ? " is-full" : ""}`}
-                  title={`${context.toLocaleString()} of ${
-                    limit >= 1_000_000 ? `${limit / 1_000_000}M` : `${limit / 1000}k`
-                  } tokens · ${model} · compact`}
-                  onClick={() => void send("/compact")}
-                  disabled={busy}
-                >
-                  <svg viewBox="0 0 20 20" width="18" height="18">
-                    <circle cx="10" cy="10" r="8" className="bp-ring-track" />
-                    <circle
-                      cx="10"
-                      cy="10"
-                      r="8"
-                      className="bp-ring-fill"
-                      strokeDasharray={`${filled * circumference} ${circumference}`}
-                    />
-                  </svg>
-                </button>
-              ) : null}
+                {/* What this conversation is being had with. Beside the attachments because
+                    both are about the turn being prepared rather than about the answer. */}
+                {choices ? (
+                  <button
+                    className="bp-icon"
+                    title={`Model: ${settings.model || "the agent's own"} · effort: ${
+                      settings.effort || "the agent's own"
+                    } — changing either restarts the conversation`}
+                    onClick={(event) =>
+                      openMenu(event.currentTarget, [
+                        ...settingItems("Model", "model", choices.models),
+                        ...settingItems("Effort", "effort", choices.efforts),
+                      ])
+                    }
+                  >
+                    <svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true">
+                      <path
+                        d="M2 4h12M2 8h12M2 12h12"
+                        stroke="currentColor"
+                        strokeWidth="1.3"
+                        fill="none"
+                      />
+                      <circle cx="5" cy="4" r="1.9" fill="currentColor" />
+                      <circle cx="10" cy="8" r="1.9" fill="currentColor" />
+                      <circle cx="6" cy="12" r="1.9" fill="currentColor" />
+                    </svg>
+                  </button>
+                ) : null}
 
-              <span className="bp-chat-count">
-                {context > 0 ? `${Math.round(context / 1000)}k` : ""}
-              </span>
+                {/* The ring fills against the window of the model the agent said it is
+                    using, so it is only ever drawn when that window is known. Clicking asks
+                    the agent to compact -- its own command, not ours. */}
+                {showRing ? (
+                  <button
+                    className={`bp-ring${filled > 0.7 ? " is-full" : ""}`}
+                    title={`${context.toLocaleString()} of ${
+                      limit >= 1_000_000 ? `${limit / 1_000_000}M` : `${limit / 1000}k`
+                    } tokens · ${model} · compact`}
+                    onClick={() => void send("/compact")}
+                    disabled={busy}
+                  >
+                    <svg viewBox="0 0 20 20" width="18" height="18">
+                      <circle cx="10" cy="10" r="8" className="bp-ring-track" />
+                      <circle
+                        cx="10"
+                        cy="10"
+                        r="8"
+                        className="bp-ring-fill"
+                        strokeDasharray={`${filled * circumference} ${circumference}`}
+                      />
+                    </svg>
+                  </button>
+                ) : null}
 
-              <Toggle open={open} onToggle={() => setOpen(!open)} />
+                <span className="bp-chat-count">
+                  {context > 0 ? `${Math.round(context / 1000)}k` : ""}
+                </span>
 
-              {/* How much the agent may do on its own. The same three flags as the menu
-                  beside the attachments -- two surfaces onto one truth, never two settings
-                  that can disagree -- and it sits by send because it is about what pressing
-                  send is going to allow. */}
-              {choices ? (
-                <button
-                  className="bp-mode"
-                  title="What the agent may do on its own — changing it restarts the conversation"
-                  onClick={(event) =>
-                    openMenu(event.currentTarget, [
-                      ...settingItems("The agent may", "mode", choices.modes),
-                      ...settingItems("And it may run", "commands", choices.commands),
-                      ...settingItems("Effort", "effort", choices.efforts),
-                    ])
-                  }
-                >
-                  {MODE_NAMES[settings.mode] ?? settings.mode}
-                  <span className="bp-mode-caret">⌃</span>
-                </button>
-              ) : null}
+                {/* How much the agent may do on its own. The same three flags as the menu
+                    beside the attachments -- two surfaces onto one truth, never two settings
+                    that can disagree -- and it sits by send because it is about what pressing
+                    send is going to allow. */}
+                {choices ? (
+                  <button
+                    className="bp-mode"
+                    title="What the agent may do on its own — changing it restarts the conversation"
+                    onClick={(event) =>
+                      openMenu(event.currentTarget, [
+                        ...settingItems("The agent may", "mode", choices.modes),
+                        ...settingItems("And it may run", "commands", choices.commands),
+                        ...settingItems("Effort", "effort", choices.efforts),
+                      ])
+                    }
+                  >
+                    {MODE_NAMES[settings.mode] ?? settings.mode}
+                    <span className="bp-mode-caret">⌃</span>
+                  </button>
+                ) : null}
 
-              {/* One button, and what it does follows what there is to do. A turn is
-                  running and the field is empty: there is nothing to send and something to
-                  stop. Type into it and sending is the intention again -- the question joins
-                  the queue rather than interrupting the answer being written. */}
-              {busy && !draft.trim() ? (
-                <button
-                  className="bp-send is-stop"
-                  onClick={() => void halt()}
-                  title="Stop this answer — the conversation stays"
-                >
-                  ■
-                </button>
-              ) : (
-                <button
-                  className="bp-send"
-                  onClick={() => send(draft)}
-                  disabled={!draft.trim()}
-                  title={busy ? "Ask next — it waits for this answer" : "Send"}
-                >
-                  ↑
-                </button>
-              )}
-            </div>
-          </>
-        )}
+                {/* One button, and what it does follows what there is to do. A turn is
+                    running and the field is empty: there is nothing to send and something to
+                    stop. Type into it and sending is the intention again -- the question joins
+                    the queue rather than interrupting the answer being written. */}
+                {busy && !draft.trim() ? (
+                  <button
+                    className="bp-send is-stop"
+                    onClick={() => void halt()}
+                    title="Stop this answer — the conversation stays"
+                  >
+                    ■
+                  </button>
+                ) : (
+                  <button
+                    className="bp-send"
+                    onClick={() => send(draft)}
+                    disabled={!draft.trim()}
+                    title={busy ? "Ask next — it waits for this answer" : "Send"}
+                  >
+                    ↑
+                  </button>
+                )}
+              </div>
+            </>
+          )}
+        </div>
       </div>
+
+      <Menu at={menu} onClose={() => setMenu(null)} />
     </div>
   );
 }

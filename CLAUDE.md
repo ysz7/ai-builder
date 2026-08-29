@@ -10,7 +10,7 @@ AST-addressable markup layer (`bp`); a parser projects that into a graph; edits 
 written back through the syntax tree with `libcst`. Assembled applications deploy as plain Python
 projects with no runtime dependency on the builder.
 
-Current state: **P0–P17 done.** Window opens, React Flow renders a
+Current state: **P0–P18 done.** Window opens, React Flow renders a
 scaffold canvas, Rust reaches the Python core over NDJSON, the five `bp` primitives exist and are proven inert, and
 `strip` removes the markup with the example service answering identically before and after. The parser
 turns an annotated project into a graph IR, the static gate judges it into addressed diagnostics, and
@@ -75,8 +75,22 @@ gate is a static judgement and this one needed a run. The claim carries its own 
 state, the probe imports **every** module rather than only the annotated ones, and a module that will
 not import costs the claim rather than the nodes. Kinds opt in through `NodeKind.completeness`.
 
+**The workspace is StackAI's and the architecture is unmoved** (P18). An icon rail and a top bar
+around a full-bleed canvas; the dock is deleted and its faces went to the rail, onto the node, and
+into a sheet nobody has to look at. The node card is the reference's, element for element -- a family
+tab above it, a header, a description line, field blocks, a pill -- with one swap that is the point of
+the whole redesign: **their footer carries telemetry and ours carries evidence**, so
+`proven by test_users.py::test_create` is drawn in the pixels a competitor spends on a token count.
+Light is the base and dark the exception, and every token has a value in both. `Observe` is the black
+primary where the reference puts `Publish`, because the most emphatic button on the screen is the one
+that produces evidence. Nothing here needed a new core method: the payload gained the test's id as
+data (I-5's evidence, addressable rather than parsed out of prose) and the carrier's first docstring
+line (Q29), and every panel is still a view of one `graph.read`.
+
 **The person owns the layout; the code owns the graph** (Q13). Node positions live in
-`.framestack/layout.json` — tooling state beside `run.json` and the snapshot, reached through
+`.framestack/layout.json` — and, since P18, whether a card shows all of its knobs or the first few,
+which is the same kind of fact about the same person — tooling state beside `run.json` and the
+snapshot, reached through
 `layout.read` / `layout.write` because the webview may call `core_request` and nothing else. **The core
 stores it and refuses to understand it**: the contract is `"<opaque>"`, and the refusal is the
 protection — a core that knew what a coordinate was would end up being asked to produce a layout. It
@@ -440,15 +454,16 @@ agent's system prompt used to and was moved into the package for exactly that re
 
 - [architecture.md](docs/architecture.md) — the v0 spec. Sections 2 (invariants) and 7 (the parser as
   a gate) carry everything load-bearing.
-- [roadmap.md](docs/roadmap.md) — **P18–P22 only**. P0–P17 are finished and their record was
+- [roadmap.md](docs/roadmap.md) — **P19–P22 only**. P0–P18 are finished and their record was
   cleared from the file deliberately, so what is left is the work in front of us; the reasoning
   behind the decisions those phases settled is in open-questions.md, which is where it belonged
-  anyway. It opens with the direction the remaining phases serve (Q25), and P18 — the workspace
-  rebuilt as StackAI's, against the reference in `assets/` — is the one in front of us.
+  anyway. It opens with the direction the remaining phases serve (Q25), and P19 — the library, as a
+  view of the kind registry — is the one in front of us.
 - [design.md](docs/design.md) — the plan for the UI: what the design has to answer, which method sits
   behind each surface, and what it may not invent. Written before the design, so the design can be
-  judged against it. **Its layout sections (§3, §5, §6, §8) are superseded by roadmap P18**; its
-  rules about colour, marks, wire geometry and controls derived from types stand (Q26).
+  judged against it. **Its layout sections (§3, §5, §6, §8) were superseded by P18** and describe a
+  workspace that no longer exists; its rules about colour, marks, wire geometry and controls derived
+  from types stand (Q26).
 - [open-questions.md](docs/open-questions.md) — nothing open; Q1–Q28 are settled, with the reasoning
   kept in the log.
   **Read before starting any phase**, and add an entry the moment two documents disagree — an

@@ -118,6 +118,21 @@ export function knobSet(
   return coreRequest("knob.set", { project, node, knob, value });
 }
 
+/**
+ * Rename a node -- the second of the three write verbs.
+ *
+ * Reachable from the card's `\u22ee` menu (P18.3). Like every write here it addresses a
+ * syntax node rather than a line, is validated before it lands, and comes back as a result
+ * when it is refused rather than as an error.
+ */
+export function nodeSetTitle(
+  project: string,
+  node: string,
+  title: string,
+): Promise<WriteResult & { file: string | null; refused: string | null }> {
+  return coreRequest("node.set_title", { project, node, title });
+}
+
 // -- the agent ---------------------------------------------------------------
 
 /**

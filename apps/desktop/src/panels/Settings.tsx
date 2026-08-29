@@ -44,10 +44,14 @@ export function Settings({ project, theme, onTheme, onCloseProject, onClose }: P
   useEffect(() => ask(agentAccount, "reading"), []);
 
   return (
-    <div className="bp-modal" onClick={onClose}>
-      <div className="bp-sheet is-settings" onClick={(event) => event.stopPropagation()}>
-        <div className="bp-sheet-head">
-          <span className="bp-detail-title">Settings</span>
+    // Its own dialog, borrowed from nothing. It used to wear `bp-modal` over `bp-sheet`,
+    // and P18 gave both of those names to other things -- a 340px card and a bottom sheet
+    // that sizes itself -- so this dialog inherited a box meant for a rename field and hung
+    // half off the left of the window. A surface with a shape of its own says so.
+    <div className="bp-modal-scrim" onClick={onClose}>
+      <div className="bp-dialog" onClick={(event) => event.stopPropagation()}>
+        <div className="bp-dialog-head">
+          <span className="bp-dialog-title">Settings</span>
           <button className="bp-icon" onClick={onClose} title="Close">
             ✕
           </button>
@@ -96,7 +100,7 @@ export function Settings({ project, theme, onTheme, onCloseProject, onClose }: P
               {(["dark", "light"] as const).map((which) => (
                 <button
                   key={which}
-                  className={`bp-term-pick${theme === which ? " is-on" : ""}`}
+                  className={`bp-seg-tab${theme === which ? " is-on" : ""}`}
                   onClick={() => onTheme(which)}
                 >
                   {which}

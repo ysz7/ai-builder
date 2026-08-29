@@ -236,6 +236,7 @@ _NODE = {
     "knobs": [_KNOB],
     "members": ["str"],
     "unresolved_members": ["str"],
+    "summary": "str",
 }
 
 _FUNCTION = {
@@ -383,7 +384,7 @@ GRAPH_READ_SCHEMA = {
     # Evidence from the observable checks, and the reason for everything that stayed
     # unproven. Both are empty unless the caller asked for them: running them imports and
     # executes the project, which is never a side effect a read should have by surprise.
-    "observations": {"<key>": {"passed": "bool", "check": "str", "detail": "str?"}},
+    "observations": {"<key>": {"passed": "bool", "check": "str", "detail": "str?", "by": "str"}},
     "skipped": {"<key>": "str"},
     # Present only when the checks ran: it describes the environment they ran in, and
     # describing it means asking docker, which a plain read has no business doing.
@@ -766,7 +767,7 @@ def read_graph(
         "diagnostics": [asdict(diagnostic) for diagnostic in [*result.diagnostics, *incomplete]],
         "verdicts": result.verdicts,
         "observations": {
-            node: {"passed": o.passed, "check": o.check, "detail": o.detail}
+            node: {"passed": o.passed, "check": o.check, "detail": o.detail, "by": o.by}
             for node, o in (observations or {}).items()
         },
         "skipped": skipped,

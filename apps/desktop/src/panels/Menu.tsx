@@ -32,6 +32,9 @@ export type Item = {
 
 export type Placed = { x: number; y: number; items: Item[] } | null;
 
+/** How close to the window's edge a menu may come. */
+const MARGIN = 8;
+
 export function Menu({ at, onClose }: { at: Placed; onClose: () => void }) {
   const box = useRef<HTMLDivElement | null>(null);
   const [nudged, setNudged] = useState({ x: 0, y: 0 });
@@ -42,7 +45,10 @@ export function Menu({ at, onClose }: { at: Placed; onClose: () => void }) {
     const size = box.current.getBoundingClientRect();
     setNudged({
       x: Math.min(0, window.innerWidth - (at.x + size.width) - 8),
-      y: Math.min(0, window.innerHeight - (at.y + size.height) - 8),
+      // Nudged up to fit, but never past the top of the window. A menu with more entries
+      // than the window is tall cannot be nudged into view at all -- it would be pulled off
+      // the top instead -- so the pull is floored here and the list scrolls inside itself.
+      y: Math.max(MARGIN - at.y, Math.min(0, window.innerHeight - (at.y + size.height) - MARGIN)),
     });
   }, [at]);
 
@@ -83,9 +89,14 @@ export function Menu({ at, onClose }: { at: Placed; onClose: () => void }) {
             }}
           >
             {/* A fixed column either way, so choosing does not shift the list under
-                the pointer that is still over it. */}
-            <span className="bp-menu-tick">{item.checked ? "✓" : ""}</span>
-            {item.label}
+                the pointer that is still over it. The label is its own box beside that
+                column rather than text flowing after it: an item long enough to wrap --
+                "Ask before running commands" -- used to put its second line underneath the
+                tick, which reads as a different item starting. */}
+            <span className="bp-menu-tick" aria-hidden="true">
+              {item.checked ? "✓" : ""}
+            </span>
+            <span className="bp-menu-label">{item.label}</span>
           </button>
         </Fragment>
       ))}

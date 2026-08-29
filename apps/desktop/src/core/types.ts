@@ -53,6 +53,13 @@ export type GraphNode = {
   knobs: Knob[];
   members: string[];
   unresolved_members: string[];
+  /**
+   * The first line of the carrier's docstring, or "" (Q29).
+   *
+   * What the node says about itself, in the author's own words. Drawn on the card's
+   * description line and read by nothing that decides anything.
+   */
+  summary: string;
 };
 
 export type GraphFunction = {
@@ -93,6 +100,14 @@ export type Observation = {
   passed: boolean;
   check: string;
   detail: string | null;
+  /**
+   * What produced this, named rather than described — a test id, where a test entered the
+   * node. `detail` says the same thing in a sentence, and the sentence is the right answer
+   * wherever there is room for one; this is what the card's evidence chip is *drawn* from,
+   * so nothing here has to parse the prose to find the name (P18.3). "" where the evidence
+   * has no name beyond `check`.
+   */
+  by: string;
 };
 
 export type Service = {
@@ -165,7 +180,18 @@ export type Verdict = "green" | "broken" | "unproven";
  * one would be a number nothing reads -- until something did, and then the frame and its
  * contents could disagree.
  */
-export type Placement = { x?: number; y?: number; collapsed?: boolean };
+/**
+ * `expanded` joins them for the same reason they are here: whether a card is showing all of
+ * its knobs or the first few is a fact about how this person is looking at the graph, not
+ * about the project. The core stores it and refuses to understand it, exactly as it does a
+ * coordinate.
+ */
+export type Placement = {
+  x?: number;
+  y?: number;
+  collapsed?: boolean;
+  expanded?: boolean;
+};
 export type Layout = Record<string, Placement>;
 
 export type LayoutRead = { api_version: number; layout: Layout };

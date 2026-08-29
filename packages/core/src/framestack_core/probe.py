@@ -122,6 +122,14 @@ class Result:
     check: str
     status: str
     detail: str
+    #: What produced this result, as an identifier rather than as prose -- a test id, where
+    #: a test is what proved the node. The detail already says so in a sentence, but a
+    #: sentence is written to be read and a chip on a node card has to be *rendered*, and a
+    #: front end pulling a test id back out of "exercised by 3 passing test(s), e.g. ..."
+    #: would be a second opinion about a format one floor down (architecture 5.8) that
+    #: breaks the first time the wording improves. Empty where the evidence has no name of
+    #: its own beyond `check`.
+    by: str = ""
 
     def as_dict(self) -> dict[str, str]:
         return {
@@ -129,6 +137,7 @@ class Result:
             "check": self.check,
             "status": self.status,
             "detail": self.detail,
+            "by": self.by,
         }
 
 
@@ -851,12 +860,16 @@ class TestRun:
     #: Why the suite did not run, when it did not. Never an absence of information.
     detail: str = ""
 
-    def evidence(self, node: str) -> tuple[str, str] | None:
+    def evidence(self, node: str) -> tuple[str, str, str] | None:
         """The verdict this run supports for one node, or `None` if it reached it not.
 
         A node is proven by a test that entered it **and passed**. A node entered only by
         failing tests is not proven -- and it is not merely unproven either, because
         something did run it and something did go wrong in that run.
+
+        The third element is the test's id **as data**, beside the sentence and never
+        instead of it: the prose is what a person reads, and the id is what a chip on a
+        node card is drawn from without anybody parsing the prose.
         """
         tests = self.fired.get(node)
         if not tests:
@@ -864,11 +877,19 @@ class TestRun:
 
         passing = sorted(test for test in tests if self.outcomes.get(test) == "passed")
         if passing:
-            return PASSED, f"exercised by {len(passing)} passing test(s), e.g. {passing[0]}"
+            return (
+                PASSED,
+                f"exercised by {len(passing)} passing test(s), e.g. {passing[0]}",
+                passing[0],
+            )
 
         failing = sorted(test for test in tests if self.outcomes.get(test) == "failed")
         if failing:
-            return FAILED, f"every test that exercised this node failed, e.g. {failing[0]}"
+            return (
+                FAILED,
+                f"every test that exercised this node failed, e.g. {failing[0]}",
+                failing[0],
+            )
         return None  # only skipped tests touched it: a run, but not a verdict
 
 
@@ -1245,7 +1266,7 @@ def run_plan_with_flow(
     for node in nodes:
         evidence = run.evidence(node["id"])
         if evidence is not None:
-            status, detail = evidence
+            status, detail, by = evidence
             # A failure in an environment that is missing what the project asked for is
             # **unattributable**, and the asymmetry is deliberate: a test that passed proves
             # the node did its job, whatever else was absent, while a test that failed could
@@ -1254,7 +1275,7 @@ def run_plan_with_flow(
             if status == FAILED and (note := environment_note(plan)):
                 status = SKIPPED
                 detail = f"{detail}{note} -- a failure cannot be attributed to the node"
-            results.append(Result(node["id"], "tests.exercised", status, detail))
+            results.append(Result(node["id"], "tests.exercised", status, detail, by))
             continue
 
         # Below the tests and above the direct checks (Q19). A conversation is a real run
