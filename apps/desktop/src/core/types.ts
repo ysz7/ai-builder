@@ -195,7 +195,36 @@ export type Placement = {
 export type Layout = Record<string, Placement>;
 
 export type LayoutRead = { api_version: number; layout: Layout };
+/**
+ * `layout.write` and `project.create`: did it happen, and what was said.
+ *
+ * **Not the shape a write into code comes back in** — see `NodeWrite`. These two answer
+ * `ok`/`detail`; every verb that edits somebody's Python answers `written`/`refused`, and
+ * reading one as the other is the mistake this comment exists to stop being made again.
+ */
 export type WriteResult = { api_version: number; ok: boolean; detail: string };
+
+/**
+ * What every write into code answers: `knob.set`, `node.set_title`, `node.set_body`,
+ * `node.connect` — the core's `WRITE_SCHEMA`, transcribed.
+ *
+ * It has **no `ok` field**, and the three verbs above were typed as though it did:
+ * `WriteResult & { file, refused }` type-checked, because `WriteResult` really does have an
+ * `ok`, and it was simply never in the payload. So `result.ok` was `undefined` at runtime,
+ * every successful write reported "the write was refused", and the graph was never re-read
+ * — a knob landed on disk and the card went on showing the old value under an error.
+ *
+ * The lesson is the one the module header already states: this file is the *client's copy*
+ * of a contract, and a copy that is never checked against the original drifts silently.
+ * `written` is the field to read; `refused` is why, when it is false.
+ */
+export type NodeWrite = {
+  api_version: number;
+  written: boolean;
+  file: string | null;
+  refused: string | null;
+  diagnostics: Diagnostic[];
+};
 
 /**
  * A divergence, and what may be done about it.
@@ -465,13 +494,8 @@ export type Blueprints = {
   blueprints: BlueprintEntry[];
 };
 
-export type BodyWrite = {
-  api_version: number;
-  written: boolean;
-  file: string | null;
-  refused: string | null;
-  diagnostics: Diagnostic[];
-};
+/** `node.set_body`'s answer. The same shape as every other write into code. */
+export type BodyWrite = NodeWrite;
 
 /** One function of a node's carrier, as text. Read from disk, never from the graph (I-1). */
 export type FunctionSource = {

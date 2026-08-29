@@ -317,7 +317,11 @@ export default function App() {
         const result = await knobSet(project, node, knob, value);
         // A refusal is a normal answer to a normal question -- the panel says why and the
         // value stays what it was. Only a write that landed changes the graph.
-        if (!result.ok) setRefused(result.refused ?? "the write was refused");
+        //
+        // `written`, not `ok`: a write into code has no `ok` field, and reading one that was
+        // never in the payload made every successful knob write report as refused while the
+        // value quietly landed on disk (see `NodeWrite`).
+        if (!result.written) setRefused(result.refused ?? "the write was refused");
         else await open(project, observed);
       } catch (error) {
         setRefused(error instanceof Error ? error.message : String(error));
@@ -356,7 +360,7 @@ export default function App() {
       setRefused(null);
       try {
         const result = await nodeConnect(project, source, target);
-        if (!result.ok) setRefused(result.refused ?? "the connection was refused");
+        if (!result.written) setRefused(result.refused ?? "the connection was refused");
         else await open(project, observed);
       } catch (error) {
         setRefused(error instanceof Error ? error.message : String(error));
@@ -473,7 +477,7 @@ export default function App() {
     setBusy(true);
     try {
       const result = await nodeSetTitle(project, renaming.id, renaming.value);
-      if (!result.ok) setRefused(result.refused ?? "the rename was refused");
+      if (!result.written) setRefused(result.refused ?? "the rename was refused");
       else await open(project, observed);
     } catch (error) {
       setRefused(error instanceof Error ? error.message : String(error));

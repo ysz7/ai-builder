@@ -10,7 +10,9 @@
  * the border rather than the hit area (see `.bp-grip::after`).
  *
  * Listeners go on the document for the duration of the drag: the pointer leaves the strip
- * immediately and every pane it crosses would otherwise swallow the movement.
+ * immediately and every pane it crosses would otherwise swallow the movement. They come off
+ * on **both** the release and the cancel -- a drag that only listens for one of those is a
+ * drag that can latch, and a latched drag takes the whole window with it.
  */
 
 import { useCallback } from "react";
@@ -41,12 +43,19 @@ export function Grip({ side, min, max, onSize }: Props) {
       const release = () => {
         document.removeEventListener("pointermove", move);
         document.removeEventListener("pointerup", release);
+        document.removeEventListener("pointercancel", release);
         document.body.classList.remove("is-resizing");
       };
       // While dragging, every pane the pointer crosses would otherwise select its text.
       document.body.classList.add("is-resizing");
       document.addEventListener("pointermove", move);
       document.addEventListener("pointerup", release);
+      // **And on cancel.** A pointer can end without ever being released -- the OS takes it
+      // for a gesture, the window loses capture, a touch is interrupted -- and a drag that
+      // only listens for `pointerup` is then latched forever: the document keeps a move
+      // handler, the body keeps `is-resizing`, and the pane follows a pointer nobody is
+      // holding. There is no press that can end it, which makes the whole window unusable.
+      document.addEventListener("pointercancel", release);
     },
     [side, min, max, onSize],
   );

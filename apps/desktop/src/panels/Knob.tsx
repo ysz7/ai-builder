@@ -12,6 +12,14 @@
  * the first few without being opened, and the inspector, which shows all of them. **One
  * control and one write verb** -- a card with its own field would be a second write path,
  * and the second one is always the one that forgets to validate.
+ *
+ * **Every control carries `nodrag`**, which is React Flow's opt-out from the node drag. It
+ * is not decoration: without it the library takes the `mousedown` to start dragging the card
+ * and calls `preventDefault` on it, so a native control never gets the press it needs to set
+ * up -- and a range input, which holds the pointer for the length of a drag, is left holding
+ * it with nothing to release it. The window then follows the mouse forever and nothing else
+ * in the application can be clicked. The class is harmless in the inspector, where there is
+ * no drag to opt out of, which is why it lives on the control rather than at either surface.
  */
 
 import { useEffect, useState } from "react";
@@ -43,7 +51,7 @@ export function KnobControl({
   if (knob.choices) {
     return (
       <select
-        className="bp-field"
+        className="bp-field nodrag"
         value={draft}
         onChange={(event) => {
           setDraft(event.target.value);
@@ -63,7 +71,7 @@ export function KnobControl({
     const on = draft === "True";
     return (
       <button
-        className={`bp-switch${on ? " is-on" : ""}`}
+        className={`bp-switch nodrag${on ? " is-on" : ""}`}
         onClick={() => {
           const next = !on;
           setDraft(next ? "True" : "False");
@@ -80,7 +88,7 @@ export function KnobControl({
     const value = Number(draft) || knob.min;
     const fill = ((value - knob.min) / (knob.max - knob.min)) * 100;
     return (
-      <label className="bp-slider">
+      <label className="bp-slider nodrag">
         <span
           className="bp-slider-fill"
           style={{ width: `${Math.max(0, Math.min(100, fill))}%` }}
@@ -93,7 +101,10 @@ export function KnobControl({
           step={knob.step ?? 1}
           value={value}
           onChange={(event) => setDraft(event.target.value)}
-          onMouseUp={() => onChange(Number(draft))}
+          // `pointerup` rather than `mouseup`: the input holds the pointer for the length of
+          // the drag, so this arrives even when the release happens well outside the track.
+          // With `mouseup` a value chosen by dragging past the end was simply never written.
+          onPointerUp={() => onChange(Number(draft))}
           onKeyUp={() => onChange(Number(draft))}
         />
       </label>
@@ -102,7 +113,7 @@ export function KnobControl({
 
   return (
     <input
-      className="bp-field"
+      className="bp-field nodrag"
       value={draft}
       onChange={(event) => setDraft(event.target.value)}
       onBlur={() => onChange(draft)}

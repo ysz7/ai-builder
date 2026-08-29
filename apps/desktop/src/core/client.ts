@@ -77,6 +77,7 @@ import type {
   Layout,
   LayoutRead,
   NodeSource,
+  NodeWrite,
   RepairApply,
   RepairList,
   RunResult,
@@ -118,8 +119,8 @@ export function knobSet(
   node: string,
   knob: string,
   value: unknown,
-): Promise<WriteResult & { file: string | null; refused: string | null }> {
-  return coreRequest("knob.set", { project, node, knob, value });
+): Promise<NodeWrite> {
+  return coreRequest<NodeWrite>("knob.set", { project, node, knob, value });
 }
 
 /**
@@ -133,8 +134,8 @@ export function nodeSetTitle(
   project: string,
   node: string,
   title: string,
-): Promise<WriteResult & { file: string | null; refused: string | null }> {
-  return coreRequest("node.set_title", { project, node, title });
+): Promise<NodeWrite> {
+  return coreRequest<NodeWrite>("node.set_title", { project, node, title });
 }
 
 // -- the agent ---------------------------------------------------------------
@@ -438,8 +439,8 @@ export function nodeConnect(
   project: string,
   source: string,
   target: string,
-): Promise<WriteResult & { file: string | null; refused: string | null }> {
-  return coreRequest("node.connect", { project, source, target });
+): Promise<NodeWrite> {
+  return coreRequest<NodeWrite>("node.connect", { project, source, target });
 }
 
 /** What may be connected to what. Asked once; the canvas keeps no list of its own. */

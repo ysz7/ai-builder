@@ -161,7 +161,7 @@ export function BpNode({ data, selected }: NodeProps) {
           </span>
 
           <button
-            className="bp-card-menu"
+            className="bp-card-menu nodrag"
             title="More"
             aria-label="More"
             onClick={(event) => {
@@ -188,7 +188,7 @@ export function BpNode({ data, selected }: NodeProps) {
 
         {node.knobs.length > COLLAPSED_KNOBS ? (
           <button
-            className="bp-card-more"
+            className="bp-card-more nodrag"
             onClick={(event) => {
               event.stopPropagation();
               onExpand(node.id);
