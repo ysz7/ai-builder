@@ -213,17 +213,38 @@ def _entries(root: Path | None, *, origin: str) -> list[Blueprint]:
     return found
 
 
+#: Build leftovers an entry does not carry, however they got into its subtree.
+#:
+#: A catalog somebody cloned and then ran the project's tests in has `__pycache__` all
+#: through it, and that is the ordinary state of a checked-out Python repository rather than
+#: a broken catalog. Without this the whole insert is refused with
+#: "`conftest.cpython-314.pyc` could not be read: UnicodeDecodeError" -- an entry made
+#: uninsertable by a file nobody wrote and nobody wants. An entry is **source** files; a
+#: compiled artefact of one is not a second file it carries.
+_NOT_SOURCE = ("__pycache__", ".pytest_cache", ".ruff_cache", ".mypy_cache", ".git")
+
+
 def blueprint_files(entry: Path) -> list[Path]:
-    """The files an entry carries, as paths under its own `files/` subtree.
+    """The source files an entry carries, as paths under its own `files/` subtree.
 
     Sorted, so a plan and a dialog and an insert all present them in one order. A directory
     with no `files/` carries nothing and is specification text, which is what every entry was
     before P20 -- the two kinds live side by side and neither is the deprecated one.
+
+    Build leftovers are skipped rather than read and refused -- see `_NOT_SOURCE`. Nothing
+    else is filtered: what an entry carries is the author's decision, and a reader here that
+    started judging file types would be deciding what somebody else's blueprint contains.
     """
     root = entry / CODE_DIR
     if not root.is_dir():
         return []
-    return sorted(path for path in root.rglob("*") if path.is_file())
+    return sorted(
+        path
+        for path in root.rglob("*")
+        if path.is_file()
+        and not any(part in _NOT_SOURCE for part in path.relative_to(root).parts)
+        and path.suffix not in (".pyc", ".pyo")
+    )
 
 
 def load_blueprint(blueprint_id: str, catalog: Path | str | None = None) -> Blueprint | None:

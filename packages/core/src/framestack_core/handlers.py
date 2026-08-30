@@ -632,7 +632,18 @@ def agent_permission_method(params: dict[str, Any]) -> dict[str, Any]:
     always = params.get("always", False)
     if not isinstance(always, bool):
         raise ProtocolError("invalid_params", "'always' must be true or false")
-    return agent_permission(_project_of(params), _required_str(params, "request"), allow, always)
+    # Optional, and only an `AskUserQuestion` takes it (Q37). Validated as a flat map of
+    # strings because that is what the agent's own tool declares; anything else is a caller
+    # confused about which tool they are answering, and it is a fault rather than a drop.
+    answers = params.get("answers")
+    if answers is not None and (
+        not isinstance(answers, dict)
+        or not all(isinstance(k, str) and isinstance(v, str) for k, v in answers.items())
+    ):
+        raise ProtocolError("invalid_params", "'answers' must be a map of strings to strings")
+    return agent_permission(
+        _project_of(params), _required_str(params, "request"), allow, always, answers
+    )
 
 
 def agent_interrupt_method(params: dict[str, Any]) -> dict[str, Any]:

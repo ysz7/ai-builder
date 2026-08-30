@@ -112,15 +112,19 @@ uv run python -m framestack_core strip examples/fastapi-service /tmp/stripped
 
 **Working today:** the parser, the gates, the writer, repair, the observable checks and the evidence
 they produce, the agent integration, the environment and its services, running and stopping things,
-background work, MCP, the workspace, and using what you built. Seven reference projects, 512 tests,
-one gate (`npm run check`) that CI runs and nothing else.
+background work, MCP, the rebuilt workspace, the blueprint library and inserting from it, and using
+what you built — talking to an agent or a pipeline, handing it documents, running the project's own
+commands. Seven reference projects, 578 tests, one gate (`npm run check`) that CI runs and nothing
+else.
 
-**Next:** the workspace is being rebuilt — a searchable library of what can be built, dense node
-cards that show their settings without being opened, and evidence on the card rather than three
-clicks away. After that, inserting a ready-made node from that library without spending a token.
+**Next:** composing the agent's system prompt per project, so a stack you are not using costs you
+no tokens.
 
-**Honest caveat:** the interface you see today grew a panel per phase and is being replaced. The
-architecture underneath it is finished and tested; the surface is not.
+**Honest caveats:** this is version 0.1.0. What can be *proven* is what the kind registry knows —
+FastAPI, LangGraph, RAG, MCP, queues, Docker, databases and vector stores — and a kind outside it
+has no observable check, so a node of it stays unproven. The agent half needs Claude Code installed
+and signed in. Building the desktop app needs a Rust toolchain, and `.app`/`.dmg` can only be built
+on macOS.
 
 ## Contributing
 

@@ -760,6 +760,10 @@ AGENT_SESSION_SCHEMA = {
             # (Q21). `id` on an `asking` is the agent's `request_id` -- what an answer is
             # addressed by -- rather than a `tool_use_id`.
             "answer": "str",
+            # Only an `AskUserQuestion` carries these (Q37), and it carries them as the
+            # agent wrote them. `<opaque>` because the fields are that tool's, not ours: a
+            # contract here would go stale the first time the tool gained one.
+            "questions": ["<opaque>"],
         }
     ],
     # Where the reader got to. Events are polled, never pushed (P13).
@@ -1420,11 +1424,17 @@ def agent_permission(
     request: str,
     allow: bool,
     always: bool = False,
+    answers: dict[str, str] | None = None,
 ) -> dict[str, Any]:
-    """Answer one standing request for permission. The turn resumes from where it stopped."""
+    """Answer one standing request for permission. The turn resumes from where it stopped.
+
+    `answers` belongs to `AskUserQuestion` and is refused on anything else (Q37): that tool
+    is the agent asking a person to decide rather than to permit, and its own schema names
+    the field a decision travels in.
+    """
     return {
         "api_version": GRAPH_API_VERSION,
-        **answer_permission(project, request, allow, always).as_dict(),
+        **answer_permission(project, request, allow, always, answers).as_dict(),
     }
 
 

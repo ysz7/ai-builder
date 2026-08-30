@@ -68,7 +68,19 @@ def write_layout(project: Path | str, layout: dict[str, Any]) -> LayoutWrite:
     what a missing one implies -- and it has none. The client holds the whole layout and
     sends the whole layout.
     """
-    path = Path(project) / LAYOUT_PATH
+    root = Path(project)
+    if not root.is_dir():
+        # **A layout for a project that is not there is meaningless**, and writing one
+        # invents the project: `mkdir(parents=True)` under a mistyped path leaves a
+        # directory holding nothing but our own cache, which is exactly what was found in
+        # `examples/` -- a phantom `service-with-worke` beside `service-with-worker`.
+        #
+        # This module already refuses to understand what it stores (Q13); refusing to
+        # create somewhere to store it is the same refusal one step earlier. The state
+        # directory under a real project is still made, because that one is ours to make.
+        return LayoutWrite(False, f"there is no project at {root}")
+
+    path = root / LAYOUT_PATH
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
         # Serialised first: a payload that will not serialise must not leave a truncated

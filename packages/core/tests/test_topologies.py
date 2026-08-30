@@ -230,9 +230,26 @@ def test_the_pipeline_is_a_group_whose_stages_carry_their_own_knobs() -> None:
     }
     assert knobs == {
         "rag.chunking": {"chunk_size", "chunk_overlap"},
-        "rag.embedding": {"dimensions"},
+        # The same three as the generation stage below: the stage that indexes and the
+        # stage that answers may reach different providers, and a local embeddings model
+        # is the common case.
+        "rag.embedding": {
+            "dimensions",
+            "model",
+            "base_url",
+            "api_key_env",
+        },
         "rag.retrieval": {"top_k", "search_type"},
-        "rag.generation": {"max_context_chunks", "tone"},
+        # The three that decide *which* model and where it lives, so moving from a hosted
+        # API to one on your own machine is a knob edit rather than a rewrite. `api_key_env`
+        # holds a variable's name and never a key -- knobs are written into the repository.
+        "rag.generation": {
+            "max_context_chunks",
+            "tone",
+            "model",
+            "base_url",
+            "api_key_env",
+        },
     }
 
 

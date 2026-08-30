@@ -992,6 +992,10 @@ def test_thinking_is_kept_rather_than_dropped(tmp_path: Path) -> None:
         "id": "",
         "tool": "",
         "answer": "",
+        # Empty on everything that is not an `AskUserQuestion` (Q37). Asserted rather than
+        # omitted: this test compares the whole event on purpose, so a field added without
+        # a thought about what it means on a `thinking` line fails here.
+        "questions": [],
     }
 
 
@@ -1655,3 +1659,108 @@ def test_a_request_for_permission_has_somewhere_to_go(monkeypatch, tmp_path: Pat
 
     line = seen[-1]
     assert line[line.index("--permission-prompt-tool") + 1] == "stdio"
+
+
+# -- a question, which is not a command (Q37) --------------------------------------
+#
+# Every other permission request is the agent asking to *do* something, and yes/no fits it.
+# `AskUserQuestion` is the agent asking a person to *decide* something, and `Allow` on its
+# own allows the question to be asked without ever saying what the answer was -- which is
+# what a person had before this: a wall of JSON and two buttons that did not fit it.
+
+
+def asks_a_question(request: str = "q-1") -> dict[str, object]:
+    """One `AskUserQuestion` request, in the shape the agent's own tool declares."""
+    return {
+        "type": "control_request",
+        "request_id": request,
+        "request": {
+            "subtype": "can_use_tool",
+            "tool_name": "AskUserQuestion",
+            "input": {
+                "questions": [
+                    {
+                        "question": "Which vector store?",
+                        "header": "Store",
+                        "multiSelect": False,
+                        "options": [
+                            {"label": "Chroma", "description": "Local, persists to disk."},
+                            {"label": "pgvector", "description": "Needs a Postgres service."},
+                        ],
+                    }
+                ]
+            },
+        },
+    }
+
+
+def test_a_question_arrives_with_its_options_as_data(tmp_path: Path) -> None:
+    """Structured, so a panel draws a form rather than parsing prose back into one.
+
+    The rendered `detail` is still there for the fold-out, but nothing has to read options
+    out of it -- which would break the first time a label contained a colon.
+    """
+    log(tmp_path, asks_a_question())
+
+    asked = poll_session(tmp_path).events[0]
+
+    assert asked["tool"] == "AskUserQuestion"
+    assert [one["header"] for one in asked["questions"]] == ["Store"]
+    assert [one["label"] for one in asked["questions"][0]["options"]] == ["Chroma", "pgvector"]
+
+
+def test_every_other_request_carries_no_questions(tmp_path: Path) -> None:
+    """A `Bash` that asked to run something is not a question, and must not draw a form."""
+    log(tmp_path, ask())
+
+    assert poll_session(tmp_path).events[0]["questions"] == []
+
+
+def test_an_answer_travels_in_the_input_the_agent_gets_back(tmp_path: Path) -> None:
+    """The one place `updatedInput` carries something the agent did not send.
+
+    It is the designed channel rather than a hole in the rule: the rule is about not
+    rewriting a *command*, and this is not a command -- the tool's own schema names
+    `answers` as the field a permission component fills in. The questions must come back
+    untouched beside it, because those *are* the agent's, and rewriting them would be
+    answering a question it did not ask.
+    """
+    from framestack_core import session
+    from framestack_core.session import answer_permission
+
+    listening = _Listening()
+    session._LIVE[str(tmp_path.resolve())] = listening
+    log(tmp_path, asks_a_question())
+    try:
+        result = answer_permission(
+            tmp_path, "q-1", allow=True, answers={"Which vector store?": "Chroma"}
+        )
+    finally:
+        session._LIVE.pop(str(tmp_path.resolve()), None)
+
+    assert result.ok is True
+    sent = json.loads(listening.stdin.written[-1])["response"]["response"]
+    assert sent["behavior"] == "allow"
+    assert sent["updatedInput"]["answers"] == {"Which vector store?": "Chroma"}
+    assert sent["updatedInput"]["questions"][0]["header"] == "Store"
+
+
+def test_answers_are_refused_on_a_tool_that_is_not_a_question(tmp_path: Path) -> None:
+    """Refused, never dropped.
+
+    An `answers` on a `Bash` request is a caller confused about which tool they are
+    answering. Ignoring it would send an allow that lost somebody's decision, and the turn
+    would carry on as though they had been asked.
+    """
+    from framestack_core import session
+    from framestack_core.session import answer_permission
+
+    session._LIVE[str(tmp_path.resolve())] = _Listening()
+    log(tmp_path, ask())
+    try:
+        refused = answer_permission(tmp_path, "req-1", allow=True, answers={"anything": "at all"})
+    finally:
+        session._LIVE.pop(str(tmp_path.resolve()), None)
+
+    assert refused.ok is False
+    assert "AskUserQuestion" in refused.detail

@@ -1045,6 +1045,7 @@ def answer_permission(
     request: str,
     allow: bool,
     always: bool = False,
+    answers: dict[str, str] | None = None,
 ) -> SessionResult:
     """Answer one standing request for permission. **The turn is waiting on this.**
 
@@ -1059,6 +1060,13 @@ def answer_permission(
     application editing a command on its way to a shell -- and `always` sends back the rules
     the agent itself suggested. Neither is ours to invent, so both are taken from the request
     as it was written down.
+
+    `answers` is the single exception, and it is the rule's own logic rather than a hole in
+    it (Q37): `AskUserQuestion` is not a command, it is the agent asking a person to decide,
+    and its schema declares `answers` as the field a permission component fills in. So the
+    decision travels there because there is nowhere else for it to travel. It is refused on
+    any other tool rather than dropped -- an allow that quietly lost somebody's answer is
+    worse than a refusal, because the turn carries on as though they had been asked.
 
     `always` is the agent's own suggestion and the agent's own store: the rule lands in the
     project's `.claude/settings.local.json`, where the same person's terminal will find it.
@@ -1082,10 +1090,24 @@ def answer_permission(
         return SessionResult(True, "already answered", running=True)
 
     if allow:
-        answer: dict[str, Any] = {
-            "behavior": "allow",
-            "updatedInput": asked.get("input", {}),
-        }
+        given = asked.get("input", {})
+        if answers:
+            # **The one place `updatedInput` carries something the agent did not send, and
+            # it is the designed channel rather than an exception to the rule** (Q37). The
+            # rule above is about a *command*: rewriting one on its way to a shell would be
+            # this application deciding what runs. `AskUserQuestion` is not a command --
+            # its own schema declares `answers` as what the permission component fills in,
+            # so this is the answer travelling, and there is nowhere else for it to travel.
+            #
+            # Narrow, and refused rather than ignored for anything else: an `answers` on a
+            # `Bash` request is a caller confused about which tool they are answering, and
+            # quietly dropping it would send an allow that lost somebody's decision.
+            if asked.get("tool_name") != ASK_TOOL:
+                return SessionResult(False, f"only {ASK_TOOL} takes answers")
+            if not isinstance(given, dict):
+                return SessionResult(False, "that request carried no input to answer into")
+            given = {**given, "answers": answers}
+        answer: dict[str, Any] = {"behavior": "allow", "updatedInput": given}
         if always:
             suggestions = asked.get("permission_suggestions") or []
             if isinstance(suggestions, list) and suggestions:
@@ -1541,6 +1563,7 @@ def _read_event(raw: dict[str, Any]) -> list[dict[str, Any]]:
                 detail=_given(block),
                 identifier=str(raw.get("request_id", "")),
                 tool=str(asked.get("tool_name", "")),
+                questions=_questions_in(asked),
             )
         ]
 
@@ -1572,6 +1595,7 @@ def _event(
     identifier: str = "",
     tool: str = "",
     answer: str = "",
+    questions: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     # `tool` is the agent's own name for what it called -- `Bash`, `Read`, `Edit` -- kept
     # beside the readable phrase rather than instead of it. A transcript wants to say
@@ -1587,6 +1611,11 @@ def _event(
         "detail": detail,
         "id": identifier,
         "tool": tool,
+        # **Structured, not prose** (Q37). Only an `AskUserQuestion` carries these, and it
+        # carries them as the agent wrote them: a panel that had to parse the rendered
+        # `detail` back into options would be this application re-deriving something it was
+        # already handed, and it would be wrong the first time a label contained a colon.
+        "questions": questions or [],
         "answer": answer,
     }
 
@@ -1610,6 +1639,35 @@ def _doing(block: dict[str, Any]) -> str:
     if name == "Bash":
         return f"running {str(given.get('command', ''))[:60]}"
     return name
+
+
+#: The one tool whose permission request is a **question rather than a command** (Q37).
+#:
+#: Everything else that stops a turn is the agent asking to *do* something, and the two
+#: answers are yes and no. This one is the agent asking the person to *decide* something,
+#: and answering it with `Allow` allows a question to be asked without ever saying what the
+#: answer was -- which is what a person saw before this existed: a wall of JSON and two
+#: buttons that did not fit it.
+ASK_TOOL = "AskUserQuestion"
+
+
+def _questions_in(asked: dict[str, Any]) -> list[dict[str, Any]]:
+    """The questions on an `AskUserQuestion` request, as the agent wrote them.
+
+    Empty for every other tool, and empty for a malformed one: a panel that got half a
+    question would draw half a form. The shape is not validated beyond "a list of objects"
+    -- the fields belong to the agent's own tool, and a reader here that insisted on them
+    would go stale the first time that tool gained one.
+    """
+    if asked.get("tool_name") != ASK_TOOL:
+        return []
+    given = asked.get("input")
+    if not isinstance(given, dict):
+        return []
+    questions = given.get("questions")
+    if not isinstance(questions, list):
+        return []
+    return [one for one in questions if isinstance(one, dict)]
 
 
 def _given(block: dict[str, Any]) -> str:

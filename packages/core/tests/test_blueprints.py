@@ -259,3 +259,22 @@ def test_a_part_is_not_green_either(tmp_path: Path) -> None:
 
     verdicts = check_graph(parse_project(project)).verdicts
     assert verdicts["mcp.filesystem"] == "unproven"
+
+
+def test_build_leftovers_in_a_catalog_are_not_files_an_entry_carries(tmp_path: Path) -> None:
+    """A cloned catalog somebody ran tests in must still be insertable.
+
+    `__pycache__` through a checked-out Python repository is its ordinary state, not a
+    broken catalog. Read as text it is a `UnicodeDecodeError`, and the whole insert was
+    refused over a file nobody wrote and nobody wants.
+    """
+    entry = tmp_path / "catalog" / "blueprints" / "widget"
+    (entry / "files" / "pkg" / "__pycache__").mkdir(parents=True)
+    (entry / "blueprint.md").write_text("# Widget\n\nA widget.\n", encoding="utf-8")
+    (entry / "files" / "pkg" / "thing.py").write_text("VALUE = 1\n", encoding="utf-8")
+    (entry / "files" / "pkg" / "__pycache__" / "thing.cpython-314.pyc").write_bytes(b"\xed\x00\x01")
+
+    plan = plan_blueprint(tmp_path / "project", "widget", tmp_path / "catalog")
+
+    assert plan.refused is None
+    assert [one.path for one in plan.files] == ["pkg/thing.py"]

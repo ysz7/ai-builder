@@ -162,3 +162,20 @@ def test_a_layout_that_is_not_an_object_is_a_protocol_fault() -> None:
         assert "must be an object" in str(error)
     else:  # pragma: no cover
         raise AssertionError("a list is not a layout")
+
+
+def test_a_layout_is_not_written_for_a_project_that_is_not_there(tmp_path: Path) -> None:
+    """A mistyped path must not leave a directory behind that looks like a project.
+
+    Found in `examples/`: a `service-with-worke` beside `service-with-worker`, holding
+    nothing but `.framestack/layout.json`. `mkdir(parents=True)` had invented it from a
+    typo. This module refuses to understand what it stores (Q13); refusing to create
+    somewhere to store it is the same refusal one step earlier.
+    """
+    absent = tmp_path / "no-such-project"
+
+    result = write_layout(absent, {"api": {"x": 1, "y": 2}})
+
+    assert result.ok is False
+    assert "no project" in result.detail
+    assert not absent.exists()

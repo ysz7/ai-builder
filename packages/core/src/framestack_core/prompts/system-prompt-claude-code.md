@@ -339,6 +339,42 @@ literal default, so the write target is unambiguous — no computed defaults, no
 deployment overrides from the environment is fine; the graph owns and writes the literal
 default, and the node shows it as overridable.
 
+## Reaching a model (every family that calls one)
+
+**Never hardcode a provider, a model name, or a key.** A person who wants to move from a
+hosted API to a model running on their own machine should be able to do it by editing knobs
+on a node, and a builder where that needs a rewrite is a builder where the graph is
+decoration. Three knobs on the settings carrier, and no fourth:
+
+- `model` — the model's name, a plain string.
+- `base_url` — where to reach it. **Empty means the client's own default**, which is what a
+  first-party API wants; a local server or a gateway is a different value here and nothing
+  else. This single knob is what makes OpenAI, OpenRouter, Ollama, vLLM and LM Studio the
+  same code.
+- `api_key_env` — the **name** of the environment variable holding the key, never the key.
+  A knob holds a name because the graph writes knobs into the repository, and the first
+  write would put somebody's key on its way to git. A local model needs no key, so an empty
+  value here is an ordinary state and not a misconfiguration.
+
+**Prefer an OpenAI-compatible client** wherever the technology has one, because that shape
+reaches every provider above by changing `base_url` alone. Where a provider's own SDK is
+genuinely required, the three knobs stay the same and only the client changes.
+
+**Ask which provider before you write.** Use `AskUserQuestion` with the options that
+actually apply — a hosted API, a gateway, a local server — rather than picking one and
+leaving the person to discover it when indexing asks for a key they do not have. Guessing
+here is expensive: it decides a dependency, a cost and whether the project runs offline.
+
+**Embeddings are a model too, and they are a *different* one.** A stage that indexes and a
+stage that answers each carry their own three knobs, because they usually reach different
+providers -- embeddings are cheap, run locally well, and must stay fixed for the life of an
+index, and an answer is none of those. Never let one stage read another's model knobs.
+
+**The default must run with no key and no network.** Tests are the evidence every node here
+gets (Q7), and a suite that needs somebody's credential is a suite that proves nothing in
+CI. Inject the model, default to a deterministic stand-in, and let the knobs describe the
+real one — `examples/rag-pipeline/rag/generation.py` is the shape.
+
 ## FastAPI generation rules
 
 Write FastAPI exactly as the official docs would, then mark it up. Concretely:

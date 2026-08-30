@@ -182,6 +182,22 @@ export type AgentEvent = {
    * state from denied, which is why it is a word rather than a boolean.
    */
   answer: string;
+  /**
+   * The questions on an `AskUserQuestion`, as the agent wrote them (Q37).
+   *
+   * Empty on everything else. Typed loosely on purpose: the fields belong to the agent's
+   * own tool, and a contract here would go stale the first time that tool gained one — so
+   * the panel reads what it needs and ignores the rest.
+   */
+  questions: AgentQuestion[];
+};
+
+/** One question and its options. `multiSelect` is the tool's own spelling. */
+export type AgentQuestion = {
+  question?: string;
+  header?: string;
+  multiSelect?: boolean;
+  options?: { label?: string; description?: string }[];
 };
 export type AgentSessionRef = { id: string; label: string; at: string };
 export type AgentSession = {
@@ -806,17 +822,26 @@ export function agentInterrupt(project: string): Promise<AgentSession> {
  * project's own `.claude/settings.local.json` — the same store its terminal reads. Nothing
  * about somebody's policy is kept on this side.
  */
+/**
+ * Answer one standing request. The turn is blocked on this and resumes from where it is.
+ *
+ * `answers` belongs to `AskUserQuestion` and is refused on anything else (Q37): that tool
+ * is the agent asking a person to **decide** rather than to permit, and allowing it without
+ * saying what was decided lets the turn carry on as though nobody had been asked.
+ */
 export function agentPermission(
   project: string,
   request: string,
   allow: boolean,
   always = false,
+  answers?: Record<string, string>,
 ): Promise<AgentSession> {
   return coreRequest<AgentSession>("agent.permission", {
     project,
     request,
     allow,
     always,
+    ...(answers ? { answers } : {}),
   });
 }
 

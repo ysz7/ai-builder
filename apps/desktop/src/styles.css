@@ -3632,3 +3632,71 @@ textarea {
 .bp-int-claim .bp-knob-note {
   margin: 0 0 9px;
 }
+
+/* -- the agent's question (Q37) -----------------------------------------------
+   Inside the permission card's shell, because it stops a turn the same way — but the
+   options are the content, not an argument shown in a code font. An option is a button
+   with its own reason under it, which is the shape the answer actually has. */
+.bp-q {
+  margin-top: 12px;
+}
+.bp-q + .bp-q {
+  border-top: 1px solid var(--line);
+  padding-top: 12px;
+}
+.bp-q-tag {
+  display: inline-block;
+  margin-bottom: 5px;
+  padding: 2px 7px;
+  border-radius: 5px;
+  background: var(--surface);
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.bp-q-text {
+  font-size: 13px;
+  line-height: 1.5;
+  font-weight: 500;
+}
+.bp-q-options {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 9px 0;
+}
+.bp-q-option {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 9px 11px;
+  text-align: left;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-2);
+  background: var(--surface);
+  cursor: pointer;
+}
+.bp-q-option:hover:not(:disabled) {
+  border-color: var(--line-strong);
+}
+/* Chosen is stated by the border and the weight, not by a tint: a coloured option would
+   read as a verdict about the choice, and this application has no opinion about it. */
+.bp-q-option.is-on {
+  border-color: var(--fg);
+  box-shadow: 0 0 0 1px var(--fg);
+}
+.bp-q-option:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+.bp-q-label {
+  font-size: 12.5px;
+  font-weight: 600;
+}
+.bp-q-why {
+  font-size: 11.5px;
+  line-height: 1.45;
+  color: var(--muted);
+}

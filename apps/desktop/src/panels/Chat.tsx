@@ -37,6 +37,7 @@ import { Menu } from "./Menu";
 import type { Item, Placed } from "./Menu";
 import { Step } from "./Step";
 import { Notice } from "./Notice";
+import { Question } from "./Question";
 import type {
   Account,
   AgentChoices,
@@ -113,6 +114,8 @@ function yours(text: string): AgentEvent {
     detail: "",
     id: PENDING,
     tool: "",
+    // A line the person typed asks nothing, so there is nothing here (Q37).
+    questions: [],
     answer: "",
   };
 }
@@ -953,12 +956,17 @@ export function Chat({
    * a second after the decision was made.
    */
   const answer = useCallback(
-    async (request: string, allow: boolean, always = false) => {
+    async (
+      request: string,
+      allow: boolean,
+      always = false,
+      answers?: Record<string, string>,
+    ) => {
       if (answering !== null) return;
       setAnswering(request);
       try {
         const told = await attempt(() =>
-          agentPermission(project, request, allow, always),
+          agentPermission(project, request, allow, always, answers),
         );
         if (told === null || !told.ok) return;
         setTranscript((previous) =>
@@ -1171,14 +1179,32 @@ export function Chat({
                     </div>
                   ) : event.kind === "you" ? (
                     <div className="bp-turn-text">{event.text}</div>
+                  ) : event.kind === "asking" && waiting && event.questions.length > 0 ? (
+                    // **A question, not a command** (Q37). Drawn as the decision it is,
+                    // and only while it is the standing one -- an answered question goes
+                    // back to the ordinary card below, which says what was chosen.
+                    <Question
+                      questions={event.questions}
+                      busy={answering !== null || !running}
+                      onAnswer={(answers) =>
+                        void answer(event.id, true, false, answers)
+                      }
+                      onDecline={() => void answer(event.id, false)}
+                    />
                   ) : event.kind === "asking" ? (
                     <div className={`bp-ask${waiting ? " is-waiting" : ""}`}>
                       <div className="bp-ask-h">
+                        {/* A question that has been answered did not get "permission",
+                            and saying so would misdescribe what the person did (Q37). */}
                         {waiting
                           ? "Permission"
-                          : event.answer === "allowed"
-                            ? "Allowed"
-                            : "Denied"}
+                          : event.questions.length > 0
+                            ? event.answer === "allowed"
+                              ? "Answered"
+                              : "Skipped"
+                            : event.answer === "allowed"
+                              ? "Allowed"
+                              : "Denied"}
                       </div>
                       <div className="bp-ask-what">
                         {/* What it asked for, in full and unedited. A person answering
