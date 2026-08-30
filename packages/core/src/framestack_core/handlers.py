@@ -54,6 +54,8 @@ from framestack_core.api import (
     layout_put,
     mcp_call,
     mcp_inspect,
+    providers_get,
+    providers_put,
     rag_index,
     read_graph,
     read_source,
@@ -679,6 +681,25 @@ def layout_write(params: dict[str, Any]) -> dict[str, Any]:
     return layout_put(_project_of(params), layout)
 
 
+def providers_read(params: dict[str, Any]) -> dict[str, Any]:
+    """Places a model can be reached from. Options, never facts about the graph."""
+    return providers_get(_project_of(params))
+
+
+def providers_write(params: dict[str, Any]) -> dict[str, Any]:
+    """Store the whole list.
+
+    A list is all that is checked here; what may be *in* an entry is `providers.py`'s
+    judgement, because the refusal that matters -- a field holding somebody's key -- is the
+    reason that module understands what it stores at all.
+    """
+    providers = params.get("providers")
+    if not isinstance(providers, list):
+        raise ProtocolError("invalid_params", "'providers' must be a list")
+
+    return providers_put(_project_of(params), providers)
+
+
 def mcp_inspect_method(params: dict[str, Any]) -> dict[str, Any]:
     """Connect to a consumed server and list what it offers.
 
@@ -880,6 +901,8 @@ HANDLERS: dict[str, Handler] = {
     "project.create": project_create,
     "layout.read": layout_read,
     "layout.write": layout_write,
+    "providers.read": providers_read,
+    "providers.write": providers_write,
     "mcp.inspect": mcp_inspect_method,
     "mcp.call": mcp_call_method,
     "rag.index": rag_index_method,

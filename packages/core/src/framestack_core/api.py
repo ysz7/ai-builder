@@ -40,6 +40,7 @@ from framestack_core.kinds import REGISTRY, families, family_of
 from framestack_core.layout import create_project, read_layout, write_layout
 from framestack_core.observe import run_observations
 from framestack_core.project import read_project
+from framestack_core.providers import read_providers, write_providers
 from framestack_core.reconcile import reconcile
 from framestack_core.repair import apply_repair, list_repairs
 from framestack_core.runner import (
@@ -124,6 +125,8 @@ __all__ = [
     "GRAPH_READ_SCHEMA",
     "LAYOUT_READ_SCHEMA",
     "LAYOUT_WRITE_SCHEMA",
+    "PROVIDERS_READ_SCHEMA",
+    "PROVIDERS_WRITE_SCHEMA",
     "COMMAND_LIST_SCHEMA",
     "MCP_CALL_SCHEMA",
     "MCP_INSPECT_SCHEMA",
@@ -176,6 +179,8 @@ __all__ = [
     "create_new_project",
     "layout_get",
     "layout_put",
+    "providers_get",
+    "providers_put",
     "command_list",
     "command_logs",
     "shell_close",
@@ -500,6 +505,20 @@ LAYOUT_READ_SCHEMA = {"api_version": "int", "layout": {"<key>": "<opaque>"}}
 
 #: The `layout.write` payload. A refusal is a result, as everywhere else.
 LAYOUT_WRITE_SCHEMA = {"api_version": "int", "ok": "bool", "detail": "str"}
+
+#: The `providers.read` payload: places a model can be reached from.
+#:
+#: **Not `<opaque>`, and that is the difference from the layout above.** The shape is closed
+#: so a key cannot be stored in it: `api_key_env` is the *name* of an environment variable,
+#: the same thing a knob holds (P15), and the value lives in `.env`. Nothing here decides
+#: anything -- no check reads it and no node exists because of it.
+PROVIDERS_READ_SCHEMA = {
+    "api_version": "int",
+    "providers": [{"name": "str", "base_url": "str", "api_key_env": "str", "models": ["str"]}],
+}
+
+#: The `providers.write` payload. A refusal is a result, as everywhere else.
+PROVIDERS_WRITE_SCHEMA = {"api_version": "int", "ok": "bool", "detail": "str"}
 
 _DIVERGENCE = {
     "code": "str",
@@ -1027,6 +1046,19 @@ def layout_get(project: Path | str) -> dict[str, Any]:
 def layout_put(project: Path | str, layout: dict[str, Any]) -> dict[str, Any]:
     """Store the whole layout. The client holds it; the core keeps it and reads nothing."""
     return {"api_version": GRAPH_API_VERSION, **write_layout(project, layout).as_dict()}
+
+
+def providers_get(project: Path | str) -> dict[str, Any]:
+    """Places a model can be reached from. Empty is the ordinary first answer."""
+    return {
+        "api_version": GRAPH_API_VERSION,
+        "providers": [one.as_dict() for one in read_providers(project)],
+    }
+
+
+def providers_put(project: Path | str, providers: list[dict[str, Any]]) -> dict[str, Any]:
+    """Store the whole list. An entry carrying a secret is refused, never sanitised."""
+    return {"api_version": GRAPH_API_VERSION, **write_providers(project, providers).as_dict()}
 
 
 def mcp_inspect(project: Path | str, node: str, python: str | None = None) -> dict[str, Any]:

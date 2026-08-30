@@ -372,6 +372,8 @@ diagnostic record and the closed catalogue of codes; `verdict.py` is the single 
 checks and `probe.py` contains them; `snapshot.py` records the outline of the last valid state and
 `reconcile.py` diffs against it; `writer.py` writes back through `libcst`; `repair.py` acts on
 divergences; `converse.py` talks to a node in the project's own interpreter;
+`providers.py` keeps the places a model can be reached from -- options a person saved, which
+no node depends on and which cannot hold a secret (Q38);
 `shell.py` is the terminal the person types into; `environment.py` is the project's interpreter
 and the services it declares; `artifacts.py` finds the
 nodes carried by a file and `project.py` composes them with the parser's; `runner.py` checks them, runs

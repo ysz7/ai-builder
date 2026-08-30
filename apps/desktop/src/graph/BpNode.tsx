@@ -29,6 +29,7 @@ import { Handle, Position, type NodeProps } from "@xyflow/react";
 
 import type { GraphNode, Knob, Verdict } from "../core/types";
 import { KnobBlock } from "../panels/Knob";
+import { MODEL_KNOBS, namesAModel } from "../panels/Model";
 import { familyName, glyphOf, MARKS, tintBgOf, tintOf } from "./kinds";
 
 /** How many knobs a collapsed card shows. The reference shows one or two blocks; three is
@@ -82,8 +83,16 @@ export function BpNode({ data, selected }: NodeProps) {
     onMenu,
   } = data as unknown as BpNodeData;
 
-  const knobs: Knob[] = expanded ? node.knobs : node.knobs.slice(0, COLLAPSED_KNOBS);
-  const hidden = node.knobs.length - knobs.length;
+  // **Where a node names a model, the card shows the model and not its plumbing.** An
+  // endpoint and the name of a key variable are two lines of URL on a card somebody is
+  // arranging and reading, and they say nothing a glance wants: the question a card answers
+  // is *which model*, and the rest is one click away in the inspector, where it is one
+  // control (`Model.tsx`). Nothing is dropped from the node -- this is what is drawn.
+  const shown = namesAModel(node)
+    ? node.knobs.filter((knob) => knob.name === "model" || !MODEL_KNOBS.includes(knob.name))
+    : node.knobs;
+  const knobs: Knob[] = expanded ? shown : shown.slice(0, COLLAPSED_KNOBS);
+  const hidden = shown.length - knobs.length;
 
   return (
     <div
@@ -161,7 +170,7 @@ export function BpNode({ data, selected }: NodeProps) {
           />
         ))}
 
-        {node.knobs.length > COLLAPSED_KNOBS ? (
+        {shown.length > COLLAPSED_KNOBS ? (
           <button
             className="bp-card-more nodrag"
             onClick={(event) => {

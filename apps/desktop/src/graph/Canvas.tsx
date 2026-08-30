@@ -42,10 +42,14 @@ import { TalkCard } from "./TalkCard";
 import type { GraphNode, GraphRead, Layout, Placement } from "../core/types";
 import { BpGroup } from "./BpGroup";
 import { BpNode } from "./BpNode";
+import { FlowEdge } from "./FlowEdge";
 import { tintOf } from "./kinds";
 import { descendants, frameBox, NODE_WIDTH, placeAll, TALK_WIDTH, topLevel } from "./place";
 
 const nodeTypes = { bpNode: BpNode, bpGroup: BpGroup, bpTalk: TalkCard };
+//: Flow arrows are drawn by their own component, which puts the arrowhead at the midpoint
+//: rather than at the pin -- see `FlowEdge`. Contract edges keep the library's default.
+const edgeTypes = { bpFlow: FlowEdge };
 
 /**
  * A frame is drawn as a React Flow node, so it needs an id -- and it must not be the
@@ -392,11 +396,18 @@ export function Canvas({
         target: arrow.target,
         sourceHandle: "exec-out",
         targetHandle: "exec-in",
-        type: "smoothstep",
+        type: "bpFlow",
+        // Read by the edge to colour its arrowhead. The line's own colour is below; the
+        // mark cannot take it from a CSS variable it is not inside.
+        data: { origin: arrow.origin },
         className: `bp-edge-flow${observed ? " is-observed" : " is-wiring"}`,
         style: {
           stroke: observed ? "var(--exec)" : "var(--exec-dim)",
-          strokeWidth: 2.6,
+          // Thinner and softened: after a run these are the loudest thing on the canvas,
+          // and at the density of a real project near-black lines read as a wiring diagram
+          // of something other than this graph.
+          strokeWidth: 1.8,
+          opacity: observed ? 0.5 : 0.4,
         },
         markerEnd: { type: "arrowclosed", color: observed ? "var(--exec)" : "var(--exec-dim)" } as never,
       });
@@ -527,6 +538,7 @@ export function Canvas({
         nodes={drawn}
         edges={flowEdges}
         nodeTypes={nodeTypes}
+        edgeTypes={edgeTypes}
         onNodesChange={onNodesChange}
         // A frame opens its group. It is drawn as a region and it *is* a node -- the
         // service, the pipeline, the queue -- so a click anywhere on it has to reach the

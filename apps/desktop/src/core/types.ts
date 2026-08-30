@@ -223,6 +223,22 @@ export type LayoutRead = { api_version: number; layout: Layout };
  * report. `ignored` is git's answer about whether the file would be committed, and `null`
  * is "nobody could tell" (no git, or not a repository), which is not the same as `false`.
  */
+/**
+ * One place a model can be reached from.
+ *
+ * `api_key_env` is the **name** of an environment variable and never a key — the same rule
+ * a knob follows (P15), enforced by the core, which refuses an entry carrying anything
+ * else. The value lives in `.env`.
+ */
+export type Provider = {
+  name: string;
+  base_url: string;
+  api_key_env: string;
+  models: string[];
+};
+
+export type ProvidersRead = { api_version: number; providers: Provider[] };
+
 export type DotenvRead = {
   api_version: number;
   text: string;

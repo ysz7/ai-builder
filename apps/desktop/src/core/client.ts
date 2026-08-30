@@ -77,6 +77,8 @@ import type {
   InspectResult,
   Layout,
   LayoutRead,
+  Provider,
+  ProvidersRead,
   NodeSource,
   NodeWrite,
   RepairApply,
@@ -118,6 +120,24 @@ export function envWriteFile(
   text: string,
 ): Promise<WriteResult> {
   return coreRequest<WriteResult>("env.write_file", { project, text });
+}
+
+/**
+ * Places a model can be reached from. Options, never facts about the graph.
+ *
+ * What a node actually uses is in its knobs, in code (I-1). Deleting this store changes
+ * nothing about the project, which is the test that keeps it a convenience.
+ */
+export function providersRead(project: string): Promise<ProvidersRead> {
+  return coreRequest<ProvidersRead>("providers.read", { project });
+}
+
+/** Store the whole list. An entry carrying a key is refused, never sanitised. */
+export function providersWrite(
+  project: string,
+  providers: Provider[],
+): Promise<WriteResult> {
+  return coreRequest<WriteResult>("providers.write", { project, providers });
 }
 
 /** Where the person put things. An empty layout is the ordinary first answer. */

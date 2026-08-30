@@ -34,12 +34,25 @@ export function literal(knob: Knob): string {
 export function KnobControl({
   knob,
   onChange,
+  suggestions,
 }: {
   knob: Knob;
   onChange: (value: unknown) => void;
+  /**
+   * Values worth offering for a free-text knob — the models a person saved (`providers.*`).
+   *
+   * **A suggestion, never a constraint.** A `choices` knob is a select because the *type*
+   * says so (Q3), and the declaration is the only thing allowed to close a set of values. A
+   * list drawn from tooling state that could not be departed from would make a knob mean
+   * something the code does not say, so this is a datalist: it types faster and forbids
+   * nothing.
+   */
+  suggestions?: string[];
 }) {
   const source = literal(knob);
   const [draft, setDraft] = useState(source);
+  /** Whether the saved-model list is showing. Nothing else in the application cares. */
+  const [open, setOpen] = useState(false);
   const declared = knob.type.trim();
 
   // The source is the truth, and a write re-reads the project: when the literal comes back
@@ -116,6 +129,61 @@ export function KnobControl({
     );
   }
 
+  // **A visible list, not a `datalist`.** The first version of this was `<input list>`,
+  // which is the right element and the wrong one here: this window is WKWebView, where a
+  // datalist offers nothing until somebody types a prefix -- so a person who had just saved
+  // a model saw a plain text field and concluded, correctly from what was in front of them,
+  // that nothing had been saved. A control whose only affordance is knowing it is there is
+  // not an affordance.
+  //
+  // It stays a text field with a button beside it rather than becoming a select, for the
+  // reason the type rule gives (Q3): only the declaration may close a set of values, and a
+  // model this list has never heard of has to stay typeable.
+  if (suggestions && suggestions.length > 0) {
+    return (
+      <span className="bp-combo nodrag">
+        <input
+          className="bp-field"
+          value={draft}
+          onChange={(event) => setDraft(event.target.value)}
+          onBlur={() => onChange(draft)}
+          onKeyDown={(event) => {
+            if (event.key === "Enter") event.currentTarget.blur();
+          }}
+        />
+        <button
+          type="button"
+          className="bp-combo-open"
+          aria-label="Saved models"
+          onClick={() => setOpen((was) => !was)}
+        >
+          ⌄
+        </button>
+        {open ? (
+          <span className="bp-combo-list">
+            {suggestions.map((one) => (
+              <button
+                key={one}
+                type="button"
+                className="bp-combo-item"
+                // `onMouseDown`: the input's `blur` fires first otherwise and writes the
+                // half-typed draft over the value being picked.
+                onMouseDown={(event) => {
+                  event.preventDefault();
+                  setDraft(one);
+                  setOpen(false);
+                  onChange(one);
+                }}
+              >
+                {one}
+              </button>
+            ))}
+          </span>
+        ) : null}
+      </span>
+    );
+  }
+
   return (
     <input
       className="bp-field nodrag"
@@ -140,14 +208,16 @@ export function KnobControl({
 export function KnobBlock({
   knob,
   onChange,
+  suggestions,
 }: {
   knob: Knob;
   onChange: (value: unknown) => void;
+  suggestions?: string[];
 }) {
   return (
     <div className="bp-block">
       <span className="bp-block-label">{knob.label ?? knob.name}</span>
-      <KnobControl knob={knob} onChange={onChange} />
+      <KnobControl knob={knob} onChange={onChange} suggestions={suggestions} />
       {knob.location === null ? (
         <div className="bp-block-note">
           no literal default — it can be shown, never written

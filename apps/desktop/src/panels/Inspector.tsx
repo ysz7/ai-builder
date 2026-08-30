@@ -20,11 +20,12 @@
 
 import { useState } from "react";
 
-import type { Environment, GraphNode, GraphRead } from "../core/types";
+import type { Environment, GraphNode, GraphRead, Provider } from "../core/types";
 import { Actions } from "./Actions";
 import { Code } from "./Code";
 import { NodeEvidence } from "./Evidence";
 import { KnobBlock } from "./Knob";
+import { MODEL_KNOBS, ModelPicker, namesAModel } from "./Model";
 import { Notice } from "./Notice";
 import { Repairs } from "./Repairs";
 
@@ -36,6 +37,8 @@ type Props = {
   refused: string | null;
   running: boolean;
   services: Environment | null;
+  /** Providers a person saved. Offered on a node that names a model; never a constraint. */
+  providers: Provider[];
   onKnob: (node: string, knob: string, value: unknown) => void;
   onDismiss: () => void;
   onActed: () => void;
@@ -77,6 +80,7 @@ export function Inspector({
   refused,
   running,
   services,
+  providers,
   onKnob,
   onDismiss,
   onActed,
@@ -117,13 +121,23 @@ export function Inspector({
         {node.knobs.length === 0 ? (
           <div className="bp-empty">This node declares no knobs.</div>
         ) : (
-          node.knobs.map((knob) => (
-            <KnobBlock
-              key={knob.name}
-              knob={knob}
-              onChange={(value) => onKnob(node.id, knob.name, value)}
-            />
-          ))
+          <>
+            {/* Where a node names a model, its three model knobs are one control -- the
+                duplication a person sees between the providers panel and the node was in
+                the presentation, never in the code. See `Model.tsx`. */}
+            {namesAModel(node) ? (
+              <ModelPicker node={node} providers={providers} onKnob={onKnob} />
+            ) : null}
+            {node.knobs
+              .filter((knob) => !(namesAModel(node) && MODEL_KNOBS.includes(knob.name)))
+              .map((knob) => (
+                <KnobBlock
+                  key={knob.name}
+                  knob={knob}
+                  onChange={(value) => onKnob(node.id, knob.name, value)}
+                />
+              ))}
+          </>
         )}
         {busy ? <div className="bp-block-note">writing…</div> : null}
         {refused ? (

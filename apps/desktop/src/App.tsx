@@ -30,7 +30,8 @@ import { Terminal } from "./panels/Terminal";
 import { Commands } from "./panels/Commands";
 import { Settings } from "./panels/Settings";
 import { Canvas } from "./graph/Canvas";
-import { Env } from "./panels/Env";
+// `EnvPanel`, not `Environment`: that name is already the compose file's services.
+import { EnvPanel } from "./panels/Environment";
 import { Integrations } from "./panels/Integrations";
 import { Use } from "./panels/Use";
 import { Chat } from "./panels/Chat";
@@ -55,6 +56,7 @@ import {
   nodeConnect,
   layoutRead,
   layoutWrite,
+  providersRead,
   nodeSetTitle,
   runStart,
   runStatus,
@@ -69,6 +71,7 @@ import type {
   Layout,
   NodeKindInfo,
   Placement,
+  Provider,
   RunState,
 } from "./core/types";
 import { VIEW_KEY } from "./core/types";
@@ -204,6 +207,12 @@ export default function App() {
   const [compositions, setCompositions] = useState<Composition[]>([]);
   /** What the compose file declares and where it stands. Null until docker has been asked. */
   const [services, setServices] = useState<Environment | null>(null);
+  /**
+   * Providers a person saved (`providers.read`). Held here because two surfaces want it --
+   * the panel that edits it and the `model` knob that suggests from it -- and read beside
+   * the graph rather than derived from it: it says nothing about what any node uses.
+   */
+  const [providers, setProviders] = useState<Provider[]>([]);
 
   const pending = useRef<number | null>(null);
   const opened = useRef(false);
@@ -231,11 +240,15 @@ export default function App() {
       // The layout is asked for beside the graph, never derived from it: the graph says
       // what exists, the cache says where it was put, and neither answers the other's
       // question.
-      const [graph, stored] = await Promise.all([
+      const [graph, stored, saved] = await Promise.all([
         graphRead(path, observe),
         layoutRead(path),
+        // Beside the other two, and for the same reason: options a person saved are state
+        // about this project that the graph neither produces nor depends on.
+        providersRead(path).catch(() => ({ providers: [] as Provider[] })),
       ]);
       setLayout(stored.layout);
+      setProviders(saved.providers);
       setLoad({ status: "ready", graph });
       setObserved(observe);
     } catch (error) {
@@ -584,7 +597,19 @@ export default function App() {
     // Before the `graph` guard: a project whose graph will not read is exactly when
     // somebody needs to fix a variable, and a panel that vanished then would be missing at
     // the only moment it mattered.
-    if (rail === "env") return { title: "Environment", body: <Env project={project} /> };
+    if (rail === "env")
+      return {
+        title: "Environment",
+        body: (
+          <EnvPanel
+            project={project}
+            graph={graph}
+            // A knob landed, so re-read -- and never observe: a write is not evidence, and
+            // a run because a field changed is the implicit start P11 forbids.
+            onWrote={() => void open(project, observed)}
+          />
+        ),
+      };
     // Not a flyout: it opens its own window, so it is drawn beside the stage rather than
     // returned here. `null` keeps the rail button lit without a panel behind it.
     if (rail === "integrations") return null;
@@ -762,6 +787,7 @@ export default function App() {
                 refused={refused}
                 running={Boolean(alive[starts[node.kind] ?? ""])}
                 services={services}
+                providers={providers}
                 onKnob={onKnob}
                 onDismiss={() => setRefused(null)}
                 onActed={() => {

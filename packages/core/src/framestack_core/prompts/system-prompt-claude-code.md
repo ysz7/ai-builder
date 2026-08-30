@@ -370,6 +370,26 @@ stage that answers each carry their own three knobs, because they usually reach 
 providers -- embeddings are cheap, run locally well, and must stay fixed for the life of an
 index, and an answer is none of those. Never let one stage read another's model knobs.
 
+**And they are owned by different people.** Which chat model answers is the *deployment's*
+choice: it may be a field the environment overrides, it changes per environment, and
+changing it costs one worse answer. Which model embedded the index is a property of **the
+index itself**: every stored vector was produced by it, and a deployment that quietly picks
+a different one is not configured differently, it is searching a corpus with a ruler from
+another system -- the store still answers, the neighbours are noise, and nothing fails
+loudly. So:
+
+- the embedding model and its dimensions **stay in code**, as literal defaults that travel
+  in the repository with the index they describe. Never read them from the environment,
+  never make them a `Settings` field a server can override, and never default them to
+  whatever a provider happens to offer.
+- say so where a person will read it: `Param(help=...)` on that knob is the place, because
+  the person about to edit it is the one who needs to know that changing it means
+  re-indexing.
+
+The rule this rests on is the one about knobs generally: the graph owns the literal default
+(a field the deployment overrides is fine, and the node shows it as overridable) -- an
+embedding model is simply a knob where that permission is withheld on purpose.
+
 **The default must run with no key and no network.** Tests are the evidence every node here
 gets (Q7), and a suite that needs somebody's credential is a suite that proves nothing in
 CI. Inject the model, default to a deterministic stand-in, and let the knobs describe the

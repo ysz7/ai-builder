@@ -11,6 +11,11 @@ stops being predictable. They are separate knobs on a separate node on purpose: 
 that answers and the stage that indexes can reach different providers, and usually should
 -- embeddings are cheap, local and must stay fixed for the life of an index, and an answer
 is neither.
+
+**And the two are owned by different people.** Which chat model answers is the deployment's
+choice and may be overridden from the environment. Which model embedded the index is a
+property of *the index*: every stored vector came out of it, so it travels in the repository
+with the corpus it describes and is never read from a server's environment.
 """
 
 import os
@@ -28,8 +33,29 @@ class Embedder:
 
     #: The stand-in's vector size. A real model decides its own, and this stops applying --
     #: which is why it is not the place to choose a model from.
-    dimensions: Annotated[int, Param(min=16, max=1536, step=16, label="Vector size")] = 64
-    model: Annotated[str, Param(label="Model")] = "text-embedding-3-small"
+    dimensions: Annotated[
+        int,
+        Param(
+            min=16,
+            max=1536,
+            step=16,
+            label="Vector size",
+            help="Fixed for the life of an index — changing it means re-indexing.",
+        ),
+    ] = 64
+    model: Annotated[
+        str,
+        Param(
+            label="Model",
+            # **Not a deployment setting, and that is the difference from the chat model.**
+            # Every stored vector was produced by this one. A server that quietly picked a
+            # different model would not be configured differently -- it would be searching
+            # with a ruler from another system: the store still answers, the neighbours are
+            # noise, and nothing fails loudly. So it travels in the repository with the
+            # index it describes, and it is never read from the environment.
+            help="Fixed for the life of an index — changing it means re-indexing.",
+        ),
+    ] = "text-embedding-3-small"
     #: Empty means the client's own default. A local server or a gateway is a different
     #: value here and nothing else changes.
     base_url: Annotated[str, Param(label="Base URL", help="Empty for the provider default")] = ""

@@ -3140,6 +3140,225 @@ textarea {
   font: 500 10.5px/1 var(--mono);
 }
 
+/* -- providers: a prefill, not a setting -------------------------------------
+   Tiles fill three fields; the fields write knobs on a node and a line in `.env`. Nothing
+   here is stored, so nothing here needs a "current" state -- `is-on` says which tile was
+   last pressed and means only that. */
+.bp-envtabs {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  height: 100%;
+  min-height: 0;
+}
+.bp-envtabs-bar {
+  display: flex;
+  gap: 4px;
+  border-bottom: 1px solid var(--line);
+}
+.bp-envtab {
+  appearance: none;
+  border: 0;
+  background: none;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.5;
+  color: var(--muted);
+  padding: 5px 9px;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+}
+.bp-envtab.is-on {
+  color: var(--fg);
+  border-bottom-color: var(--fg);
+}
+.bp-prov {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  overflow-y: auto;
+  min-height: 0;
+}
+.bp-prov-note {
+  font-size: 10.5px;
+  font-weight: 400;
+  line-height: 1.4;
+  color: var(--muted-2);
+}
+.bp-prov-field {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.bp-prov-field > span {
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1.4;
+  color: var(--muted);
+}
+.bp-prov-field input {
+  font: 400 12px/1.5 var(--mono);
+  color: var(--fg);
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  padding: 6px 8px;
+  width: 100%;
+}
+.bp-prov-field input:focus-visible {
+  outline: 2px solid var(--select);
+  outline-offset: -1px;
+}
+.bp-prov-why {
+  margin: 0;
+  font-size: 11.5px;
+  font-weight: 400;
+  line-height: 1.5;
+  color: var(--muted);
+}
+.bp-prov-why code {
+  font: 500 11px/1 var(--mono);
+}
+.bp-prov-nodes {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.bp-prov-head {
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.5;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.bp-prov-node {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 7px 9px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+.bp-prov-node-id {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+.bp-prov-node-id b {
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.4;
+  color: var(--fg);
+}
+.bp-prov-node-id span {
+  font: 400 10.5px/1.4 var(--mono);
+  color: var(--muted-2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.bp-prov-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.bp-prov-add {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface-2);
+}
+.bp-prov-tiles {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+.bp-prov-tile {
+  appearance: none;
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1.5;
+  color: var(--fg);
+  padding: 3px 8px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--surface);
+}
+.bp-prov-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 9px 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+.bp-prov-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.bp-prov-card-head b {
+  font-size: 12.5px;
+  font-weight: 600;
+  line-height: 1.4;
+  color: var(--fg);
+}
+.bp-prov-x {
+  appearance: none;
+  border: 0;
+  background: none;
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1.5;
+  color: var(--muted-2);
+}
+.bp-prov-x:hover {
+  color: var(--bad);
+}
+.bp-prov-where {
+  font: 400 10.5px/1.5 var(--mono);
+  color: var(--muted-2);
+  word-break: break-all;
+}
+.bp-prov-where .is-safe {
+  color: var(--ok);
+}
+.bp-prov-where .is-warn {
+  color: var(--bad);
+}
+.bp-prov-models {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+.bp-prov-model {
+  appearance: none;
+  cursor: pointer;
+  font: 500 11px/1.5 var(--mono);
+  color: var(--fg);
+  padding: 3px 8px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--surface);
+}
+.bp-prov-model.is-on {
+  color: var(--surface);
+  background: var(--fg);
+  border-color: var(--fg);
+}
+
 /* -- the chat card on the canvas (Q34) ----------------------------------------
    The node card's furniture, minus the two elements that make a node card a claim: no kind
    pill and no verdict mark. The dashed border is the whole of the visual difference, and it
@@ -3699,4 +3918,158 @@ textarea {
   font-size: 11.5px;
   line-height: 1.45;
   color: var(--muted);
+}
+
+/* -- the saved-model combobox (Q38) -------------------------------------------
+   A text field with a list beside it, never a select: only the declaration may close a set
+   of values (Q3), so a model nobody saved stays typeable. */
+.bp-combo {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  width: 100%;
+}
+.bp-combo .bp-field {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.bp-combo-open {
+  appearance: none;
+  cursor: pointer;
+  flex: 0 0 auto;
+  width: 22px;
+  height: 22px;
+  line-height: 1;
+  font-size: 12px;
+  color: var(--muted);
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+}
+.bp-combo-open:hover {
+  color: var(--fg);
+}
+.bp-combo-list {
+  position: absolute;
+  z-index: 20;
+  top: calc(100% + 3px);
+  left: 0;
+  right: 0;
+  display: flex;
+  flex-direction: column;
+  max-height: 180px;
+  overflow-y: auto;
+  padding: 3px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  box-shadow: 0 6px 18px rgb(0 0 0 / 12%);
+}
+.bp-combo-item {
+  appearance: none;
+  border: 0;
+  cursor: pointer;
+  text-align: left;
+  font: 400 11.5px/1.5 var(--mono);
+  color: var(--fg);
+  background: none;
+  padding: 4px 6px;
+  border-radius: 5px;
+}
+.bp-combo-item:hover {
+  background: var(--surface-2);
+}
+
+/* -- the flow arrowhead, at the midpoint (Q9) ---------------------------------
+   A triangle in open space rather than a marker at the pin, where a dozen lines meet and
+   direction stops being readable. Rotated to the path's own tangent, so it points where the
+   line goes rather than where its endpoints are. */
+.bp-flow-mark {
+  position: absolute;
+  width: 0;
+  height: 0;
+  pointer-events: none;
+  border-left: 7px solid currentColor;
+  border-top: 4.5px solid transparent;
+  border-bottom: 4.5px solid transparent;
+}
+.bp-flow-mark.is-observed {
+  color: var(--exec);
+  opacity: 0.55;
+}
+.bp-flow-mark.is-wiring {
+  color: var(--exec-dim);
+  opacity: 0.5;
+}
+
+/* -- the model picker on a node (Q38) -----------------------------------------
+   One control where three knob blocks were. The three fields still exist and are one
+   disclosure away: a knob is a value in somebody's source, and it has to stay typeable. */
+.bp-model {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  padding: 9px 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+.bp-model-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+.bp-model-now {
+  font: 400 10.5px/1.4 var(--mono);
+  color: var(--muted-2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.bp-model-provider {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.bp-model-provider-name {
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.4;
+  color: var(--muted);
+}
+.bp-model-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+.bp-model-pick {
+  appearance: none;
+  cursor: pointer;
+  font: 500 11px/1.5 var(--mono);
+  color: var(--fg);
+  padding: 3px 8px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--surface);
+}
+.bp-model-pick.is-on {
+  color: var(--surface);
+  background: var(--fg);
+  border-color: var(--fg);
+}
+.bp-model-more {
+  appearance: none;
+  border: 0;
+  background: none;
+  cursor: pointer;
+  align-self: flex-start;
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1.5;
+  color: var(--muted-2);
+  padding: 0;
+}
+.bp-model-more:hover {
+  color: var(--fg);
 }
