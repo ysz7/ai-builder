@@ -53,6 +53,17 @@ export function KnobControl({
   const [draft, setDraft] = useState(source);
   /** Whether the saved-model list is showing. Nothing else in the application cares. */
   const [open, setOpen] = useState(false);
+
+  /**
+   * **A typed value that has not landed looks exactly like one that has, and that is a bug.**
+   *
+   * A free-text knob writes on blur, so somebody who types a model and then closes the
+   * panel, presses Observe, or quits has changed nothing: the field showed their model, the
+   * source still said the old one, and the value "disappeared" on the next start. It never
+   * existed. The field cannot commit on its own -- a write into somebody's Python because a
+   * component unmounted is not an edit anybody asked for (I-6) -- so it says so instead.
+   */
+  const dirty = draft !== source;
   const declared = knob.type.trim();
 
   // The source is the truth, and a write re-reads the project: when the literal comes back
@@ -141,7 +152,7 @@ export function KnobControl({
   // model this list has never heard of has to stay typeable.
   if (suggestions && suggestions.length > 0) {
     return (
-      <span className="bp-combo nodrag">
+      <span className={`bp-combo nodrag${dirty ? " is-dirty" : ""}`}>
         <input
           className="bp-field"
           value={draft}
@@ -159,6 +170,7 @@ export function KnobControl({
         >
           ⌄
         </button>
+        {dirty ? <span className="bp-unsaved">unsaved — press Enter</span> : null}
         {open ? (
           <span className="bp-combo-list">
             {suggestions.map((one) => (
@@ -185,15 +197,18 @@ export function KnobControl({
   }
 
   return (
-    <input
-      className="bp-field nodrag"
-      value={draft}
-      onChange={(event) => setDraft(event.target.value)}
-      onBlur={() => onChange(draft)}
-      onKeyDown={(event) => {
-        if (event.key === "Enter") event.currentTarget.blur();
-      }}
-    />
+    <>
+      <input
+        className={`bp-field nodrag${dirty ? " is-dirty" : ""}`}
+        value={draft}
+        onChange={(event) => setDraft(event.target.value)}
+        onBlur={() => onChange(draft)}
+        onKeyDown={(event) => {
+          if (event.key === "Enter") event.currentTarget.blur();
+        }}
+      />
+      {dirty ? <span className="bp-unsaved">unsaved — press Enter</span> : null}
+    </>
   );
 }
 

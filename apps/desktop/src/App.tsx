@@ -622,7 +622,16 @@ export default function App() {
     if (rail === "problems")
       return {
         title: "Problems",
-        body: <Problems graph={graph} onSelect={setSelected} />,
+        body: (
+          <Problems
+            graph={graph}
+            onSelect={setSelected}
+            onHandOver={(request) => {
+              setHandOver(request);
+              setSummon((n) => n + 1);
+            }}
+          />
+        ),
       };
     if (rail === "evidence")
       return {
@@ -724,6 +733,12 @@ export default function App() {
               onToggleExpand={onToggleExpand}
               onKnob={onKnob}
               onMenu={onMenu}
+              // The mark on a card that is not green: select the node and open the list it
+              // is in, rather than printing its reason on the canvas (Q33).
+              onProblems={(id) => {
+                setSelected(id);
+                setRail("problems");
+              }}
               onConnect={(source, target) => void onConnect(source, target)}
               compositions={compositions}
               showFlow={showFlow}
@@ -781,7 +796,6 @@ export default function App() {
               />
               <Inspector
                 project={project}
-                graph={graph}
                 node={node}
                 busy={busy}
                 refused={refused}

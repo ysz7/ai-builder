@@ -32,9 +32,11 @@ type Props = {
    * this second.
    */
   node?: string;
+  /** Whether there is anything to show, told to whoever draws the section around it. */
+  onHas?: (has: boolean) => void;
 };
 
-export function Repairs({ project, onDone, onHandOver, node }: Props) {
+export function Repairs({ project, onDone, onHandOver, node, onHas }: Props) {
   const [repairs, setRepairs] = useState<Repair[] | null>(null);
   const [note, setNote] = useState<string | null>(null);
   const [busy, setBusy] = useState("");
@@ -86,6 +88,10 @@ export function Repairs({ project, onDone, onHandOver, node }: Props) {
     node === undefined
       ? repairs
       : (repairs ?? []).filter((repair) => repair.node === node);
+
+  // Told after render, never during. `null` is "still reading", which is not the same as
+  // "none" -- a section that appeared and then vanished would be worse than one that waits.
+  useEffect(() => onHas?.((shown?.length ?? 0) > 0), [onHas, shown?.length]);
 
   return (
     <div className="bp-repairs">

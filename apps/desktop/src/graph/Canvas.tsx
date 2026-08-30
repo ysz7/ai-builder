@@ -90,6 +90,8 @@ type Props = {
   onKnob: (node: string, knob: string, value: unknown) => void;
   /** The `⋮`. The caller decides what it offers, from the registry. */
   onMenu: (id: string, at: { x: number; y: number }) => void;
+  /** Show one node in the Problems panel -- the mark on a card that is not green. */
+  onProblems: (id: string) => void;
   /**
    * A drag from one node to another (P21).
    *
@@ -136,6 +138,7 @@ export function Canvas({
   onToggleExpand,
   onKnob,
   onMenu,
+  onProblems,
   onConnect,
   compositions,
   showFlow,
@@ -304,6 +307,7 @@ export function Canvas({
           onExpand: onToggleExpand,
           onKnob,
           onMenu,
+          onProblems,
           pins: pinsOf(node.id),
         },
       });
@@ -361,6 +365,7 @@ export function Canvas({
     onToggleExpand,
     onKnob,
     onMenu,
+    onProblems,
     conversableKinds,
     project,
     onAnswered,

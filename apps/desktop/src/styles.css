@@ -898,6 +898,9 @@ textarea {
    and green is spent on the one state that had to be earned. */
 .bp-mark {
   flex: 0 0 auto;
+  appearance: none;
+  background: none;
+  padding: 0;
   width: 16px;
   height: 16px;
   display: grid;
@@ -919,6 +922,16 @@ textarea {
 
 .bp-mark.is-green {
   color: var(--ok);
+  /* Drawn, but quiet. It is a state worth being able to see and not worth being announced
+     -- and it stays drawn because absence would then mean "proven" (I-5). */
+  opacity: 0.55;
+}
+button.bp-mark {
+  cursor: pointer;
+}
+button.bp-mark:hover {
+  background: currentColor;
+  color: var(--surface);
 }
 .bp-mark.is-unproven {
   color: var(--unknown);
@@ -4072,4 +4085,27 @@ textarea {
 }
 .bp-model-more:hover {
   color: var(--fg);
+}
+
+.bp-problems-acts {
+  display: flex;
+  gap: 6px;
+  padding-bottom: 4px;
+}
+
+/* A draft that has not been written yet. It has to be distinguishable from a stored value:
+   the field writes on blur, and a typed model that never blurred was never saved. */
+.bp-field.is-dirty,
+.bp-combo.is-dirty .bp-field {
+  border-color: var(--bad);
+}
+.bp-combo {
+  flex-wrap: wrap;
+}
+.bp-unsaved {
+  flex-basis: 100%;
+  font-size: 10.5px;
+  font-weight: 500;
+  line-height: 1.4;
+  color: var(--bad);
 }

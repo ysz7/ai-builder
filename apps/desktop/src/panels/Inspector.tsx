@@ -20,10 +20,9 @@
 
 import { useState } from "react";
 
-import type { Environment, GraphNode, GraphRead, Provider } from "../core/types";
+import type { Environment, GraphNode, Provider } from "../core/types";
 import { Actions } from "./Actions";
 import { Code } from "./Code";
-import { NodeEvidence } from "./Evidence";
 import { KnobBlock } from "./Knob";
 import { MODEL_KNOBS, ModelPicker, namesAModel } from "./Model";
 import { Notice } from "./Notice";
@@ -31,7 +30,6 @@ import { Repairs } from "./Repairs";
 
 type Props = {
   project: string;
-  graph: GraphRead;
   node: GraphNode;
   busy: boolean;
   refused: string | null;
@@ -52,14 +50,26 @@ function Section({
   count,
   open,
   onToggle,
+  hidden,
   children,
 }: {
   title: string;
   count?: number;
   open: boolean;
   onToggle: () => void;
+  /**
+   * The section has nothing to show, so it shows nothing -- not a heading over an empty
+   * body. A node that starts no process and offers no tool has no `Actions`, and a header
+   * that unfolds into nothing is a question the panel asks and then declines to answer.
+   *
+   * The children stay **mounted**, which is the whole reason this is a flag rather than a
+   * caller-side `null`: what a section holds is often what decides whether it is empty, and
+   * unmounting it would take the answer away with it.
+   */
+  hidden?: boolean;
   children: React.ReactNode;
 }) {
+  if (hidden) return <div style={{ display: "none" }}>{children}</div>;
   return (
     <section className={`bp-sect${open ? " is-open" : ""}`}>
       <button className="bp-sect-head" onClick={onToggle}>
@@ -74,7 +84,6 @@ function Section({
 
 export function Inspector({
   project,
-  graph,
   node,
   busy,
   refused,
@@ -91,6 +100,10 @@ export function Inspector({
   // Which sections are open is a fact about this reader and this minute -- not about the
   // project, and not something worth a round trip. It resets with the window, which is
   // right: it is the least consequential state in the application.
+  /** Whether `Actions` has anything to draw. Reported by it; never decided here. */
+  const [hasActions, setHasActions] = useState(false);
+  /** Whether this node has diverged from the snapshot. Same rule: the list reports it. */
+  const [hasRepairs, setHasRepairs] = useState(false);
   const [open, setOpen] = useState<Record<string, boolean>>({
     knobs: true,
     evidence: true,
@@ -115,6 +128,9 @@ export function Inspector({
       <Section
         title="Knobs"
         count={node.knobs.length}
+        // A node with no knobs is an ordinary node -- most carriers declare none -- and the
+        // sentence saying so was a line of furniture on every one of them.
+        hidden={node.knobs.length === 0}
         open={open.knobs ?? false}
         onToggle={() => toggle("knobs")}
       >
@@ -147,17 +163,28 @@ export function Inspector({
         ) : null}
       </Section>
 
+      {/* **Evidence is not a section here any more.** What a run proved about one node is
+          the same fact three surfaces wanted, and the inspector was the copy that made the
+          panel long: the mark on the card carries the verdict, `Problems` lists every
+          failing and unproven node with its reason, and the rail's flyout is the whole
+          graph's evidence at once. Nothing was deleted -- one of three copies was, and the
+          two that remain are the ones a person goes to *looking* for it.
+
+          What stays is the divergence list, which is a different claim: evidence is about a
+          run, and a repair is about this node's code having moved away from the last valid
+          state (I-6). It draws only when there is one. */}
       <Section
-        title="Evidence"
+        title="Repairs"
         open={open.evidence ?? false}
         onToggle={() => toggle("evidence")}
+        hidden={!hasRepairs}
       >
-        <NodeEvidence graph={graph} node={node.id} />
         <Repairs
           project={project}
           node={node.id}
           onDone={onWritten}
           onHandOver={onHandOver}
+          onHas={setHasRepairs}
         />
       </Section>
 
@@ -165,6 +192,7 @@ export function Inspector({
         title="Actions"
         open={open.actions ?? false}
         onToggle={() => toggle("actions")}
+        hidden={!hasActions}
       >
         <Actions
           project={project}
@@ -172,6 +200,9 @@ export function Inspector({
           running={running}
           services={services}
           onActed={onActed}
+          // What this node's kind can do is the registry's answer, read inside `Actions`
+          // and reported out -- never a second list of verbs kept here.
+          onHas={setHasActions}
         />
       </Section>
 

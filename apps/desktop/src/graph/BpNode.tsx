@@ -21,7 +21,7 @@
  * keeps the drawn card the size `place.cardHeight` predicted, so a frame still wraps its
  * members after a run.
  *
- * The evidence itself did not move far: the inspector's `NodeEvidence` names the test, and
+ * The evidence itself did not move far: `Problems` names the test that failed, and
  * the rail's flyout names it for every node at once.
  */
 
@@ -43,6 +43,8 @@ export type BpNodeData = {
   reason: string;
   /** Set while the agent is editing the file this node lives in. */
   lit: boolean;
+  /** Show this node in the Problems panel. Only reachable from a mark that is not green. */
+  onProblems: (id: string) => void;
   /** A process this node's kind starts is alive right now. Not a verdict — see `running`. */
   running: boolean;
   /**
@@ -81,6 +83,7 @@ export function BpNode({ data, selected }: NodeProps) {
     onExpand,
     onKnob,
     onMenu,
+    onProblems,
   } = data as unknown as BpNodeData;
 
   // **Where a node names a model, the card shows the model and not its plumbing.** An
@@ -140,9 +143,32 @@ export function BpNode({ data, selected }: NodeProps) {
               anything has been proven about the code. A server that runs and fails every
               test has to be able to say both. */}
           {running ? <span className="bp-card-live" title="running" /> : null}
-          <span className={`bp-mark is-${verdict}`} title={reason}>
-            {MARKS[verdict]}
-          </span>
+          {/* **The mark is the way into the problem, not a decoration beside it.** A
+              verdict that is not green has an address, a reason and somewhere it is listed
+              with everything else in that state -- so pressing it opens that list rather
+              than asking the reader to find it. Green is not a button because there is
+              nothing on the other side of it.
+              Green also stays *drawn*, quietly. Hiding it would make the absence of a mark
+              mean "proven", and I-5's rule is the opposite one: an absent observation must
+              never read as a passing one, and a graph nobody has observed would then look
+              much like a graph that passed. */}
+          {verdict === "green" ? (
+            <span className="bp-mark is-green" title={reason}>
+              {MARKS.green}
+            </span>
+          ) : (
+            <button
+              className={`bp-mark is-${verdict} nodrag`}
+              title={reason || "Show this in Problems"}
+              aria-label="Show this in Problems"
+              onClick={(event) => {
+                event.stopPropagation();
+                onProblems(node.id);
+              }}
+            >
+              {MARKS[verdict]}
+            </button>
+          )}
 
           <button
             className="bp-card-menu nodrag"
@@ -192,13 +218,13 @@ export function BpNode({ data, selected }: NodeProps) {
           <span className="bp-pill">{node.kind}</span>
         </div>
 
-        {/* The reason, where there is one and no chip could carry it: "the broker does not
-            answer -- start it from the compose file's node" is a repair instruction, and
-            reducing it to a coloured dot would throw away the answer and keep the
-            decoration. Unproven and quiet by default; a failure says why on the card. */}
-        {reason && verdict !== "green" ? (
-          <div className="bp-card-why">{reason}</div>
-        ) : null}
+        {/* **The reason is not on the card any more**, and this is Q33 finishing its own
+            argument. That rule removed the evidence row because a run rewrote every card at
+            once; the reason paragraph did the same thing in more words -- after Observe the
+            canvas filled with test names and stopped being something a person arranges and
+            reads. It is on the mark as a tooltip, in the inspector in full, and in Problems
+            beside everything else in the same state. Nothing was lost; it stopped being
+            printed in the one place that has to stay legible at a glance. */}
       </div>
     </div>
   );

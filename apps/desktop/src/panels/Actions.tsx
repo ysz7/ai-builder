@@ -44,6 +44,14 @@ type Props = {
   project: string;
   node: GraphNode;
   /**
+   * Whether this node has any verb at all, told to whoever draws the section around it.
+   *
+   * Reported rather than asked: which verbs a kind has is the registry's answer, read here
+   * (`kindRegistry`) and nowhere else, and a caller that decided for itself would be a
+   * second list of verbs drifting from the first.
+   */
+  onHas?: (has: boolean) => void;
+  /**
    * Is the process this node's kind starts alive right now?
    *
    * Asked of the core by the workspace and handed down, because it is not a fact about the
@@ -153,7 +161,7 @@ type Line = { at: string; label: string; ok: boolean; text: string };
  */
 const KEPT = 12;
 
-export function Actions({ project, node, running, services, onActed }: Props) {
+export function Actions({ project, node, running, services, onActed, onHas }: Props) {
   /**
    * What each press answered, newest last, **under the buttons**.
    *
@@ -463,6 +471,10 @@ export function Actions({ project, node, running, services, onActed }: Props) {
   // nodes can be talked to changed. What changed is that a chat is a place a person stays,
   // and the inspector is a place they pass through: a panel that re-rendered under them
   // whenever the selection moved was the wrong shape for holding a dialogue.
+  // Told after render, never during: a parent set while this one is rendering is React
+  // updating two components in one pass, and it warns about exactly that.
+  useEffect(() => onHas?.(rows.length > 0), [onHas, rows.length]);
+
   if (rows.length === 0) return null;
 
   return (
