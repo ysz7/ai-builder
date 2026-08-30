@@ -30,6 +30,9 @@ import { Terminal } from "./panels/Terminal";
 import { Commands } from "./panels/Commands";
 import { Settings } from "./panels/Settings";
 import { Canvas } from "./graph/Canvas";
+import { Env } from "./panels/Env";
+import { Integrations } from "./panels/Integrations";
+import { Use } from "./panels/Use";
 import { Chat } from "./panels/Chat";
 import { Welcome } from "./panels/Welcome";
 import { Evidence } from "./panels/Evidence";
@@ -68,6 +71,7 @@ import type {
   Placement,
   RunState,
 } from "./core/types";
+import { VIEW_KEY } from "./core/types";
 
 /** How long a drag has to be over before the layout is stored. */
 const SETTLE_MS = 400;
@@ -309,6 +313,48 @@ export default function App() {
     [project],
   );
 
+  /**
+   * Draw flow arrows, or leave them out.
+   *
+   * Stored beside the coordinates and read off one reserved key, because it is the same
+   * kind of fact: something a person arranged about their own canvas, which the core keeps
+   * without understanding (Q13). Default **on** -- a run's arrows are the differentiator,
+   * and a preference is what a person turns off, not what they have to find and turn on.
+   */
+  const showFlow = layout[VIEW_KEY]?.flow !== false;
+
+  /**
+   * Which view is showing -- `graph` or `use`.
+   *
+   * Beside the flow flag and the coordinates, and for the same reason as both: it is a fact
+   * about what a person is looking at, which the core stores and refuses to understand
+   * (Q13). Defaulting to `graph` is not neutrality -- somebody opening a project in this
+   * application is there to build it, and the other tab is the one they go to.
+   */
+  const tab = layout[VIEW_KEY]?.tab === "use" ? "use" : "graph";
+
+  const onTab = useCallback(
+    (next: string) => {
+      setLayout((previous) => {
+        const merged = { ...previous, [VIEW_KEY]: { ...previous[VIEW_KEY], tab: next } };
+        void layoutWrite(project, merged).catch(() => undefined);
+        return merged;
+      });
+    },
+    [project],
+  );
+
+  const onToggleFlow = useCallback(() => {
+    setLayout((previous) => {
+      const next = {
+        ...previous,
+        [VIEW_KEY]: { ...previous[VIEW_KEY], flow: previous[VIEW_KEY]?.flow === false },
+      };
+      void layoutWrite(project, next).catch(() => undefined);
+      return next;
+    });
+  }, [project]);
+
   const onKnob = useCallback(
     async (node: string, knob: string, value: unknown) => {
       setBusy(true);
@@ -372,6 +418,17 @@ export default function App() {
   );
 
   const starts = startsByKind(kinds);
+
+  /**
+   * Which kinds a person can talk to (Q34).
+   *
+   * The registry's own answer, and the same one the `Talk` button was drawn from before it
+   * became a card: a kind opts in by naming a way in, and a kind that has not gets no chat
+   * at all rather than one that appears to work (P17.2). No list of kind names here.
+   */
+  const conversableKinds = new Set(
+    kinds.filter((kind) => kind.converses).map((kind) => kind.name),
+  );
 
   const readAlive = useCallback(async () => {
     if (!project) return;
@@ -524,6 +581,13 @@ export default function App() {
           />
         ),
       };
+    // Before the `graph` guard: a project whose graph will not read is exactly when
+    // somebody needs to fix a variable, and a panel that vanished then would be missing at
+    // the only moment it mattered.
+    if (rail === "env") return { title: "Environment", body: <Env project={project} /> };
+    // Not a flyout: it opens its own window, so it is drawn beside the stage rather than
+    // returned here. `null` keeps the rail button lit without a panel behind it.
+    if (rail === "integrations") return null;
     if (!graph) return null;
     if (rail === "outline")
       return {
@@ -587,6 +651,8 @@ export default function App() {
               );
           }}
           onAgent={() => setSummon((n) => n + 1)}
+          tab={tab}
+          onTab={onTab}
         />
 
         {load.status === "failed" ? (
@@ -612,7 +678,15 @@ export default function App() {
         ) : null}
 
         <div className="bp-stage">
-          {graph ? (
+          {graph && tab === "use" ? (
+            <Use
+              project={project}
+              graph={graph}
+              runningKinds={runningKinds}
+              services={services}
+              onActed={() => void open(project, observed)}
+            />
+          ) : graph ? (
             <Canvas
               graph={graph}
               layout={layout}
@@ -627,6 +701,14 @@ export default function App() {
               onMenu={onMenu}
               onConnect={(source, target) => void onConnect(source, target)}
               compositions={compositions}
+              showFlow={showFlow}
+              onToggleFlow={onToggleFlow}
+              conversableKinds={conversableKinds}
+              project={project}
+              // A conversation held open is evidence (P17.4), and closing one takes its
+              // claim with it -- so an answer re-reads the graph and never observes: what
+              // changed is what the project said, not what a run proved.
+              onAnswered={() => void open(project, observed)}
             />
           ) : (
             <div className="bp-empty bp-empty-full">
@@ -635,6 +717,22 @@ export default function App() {
                 : "This project has nothing on its graph yet."}
             </div>
           )}
+
+          {rail === "integrations" ? (
+            <Integrations
+              project={project}
+              graph={graph}
+              // The same contract a repair uses: words into the field, never sent (Q15).
+              onHandOver={(request) => {
+                setHandOver(request);
+                setSummon((n) => n + 1);
+              }}
+              onClose={() => setRail("")}
+              // A tile wrote files, so the picture is a claim about code that changed.
+              // Re-read, and never observe: the node is unproven until something runs.
+              onInserted={() => void open(project, observed)}
+            />
+          ) : null}
 
           {/* Over the canvas, not beside it: closing gives the whole window back. */}
           {flyout ? (
@@ -645,7 +743,10 @@ export default function App() {
 
           {/* No selection, no panel. It used to hold two dead tabs and the words "Select a
               node." -- a column of nothing, taking a fifth of the window from the canvas. */}
-          {graph && node ? (
+          {/* Graph only. The inspector is opened by selecting on the canvas, and there is
+              no canvas here -- a stale selection from before the tab was switched would
+              otherwise arrive as a panel over a screen nobody selected anything on. */}
+          {graph && node && tab === "graph" ? (
             <div className="bp-inspector-wrap" style={{ width: paneWidth }}>
               <Grip
                 side="right"

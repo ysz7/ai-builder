@@ -321,6 +321,17 @@ class ApiSettings(BaseSettings):
 and `step` shape it. Write an explicit `widget=` only where the type is not enough to
 decide: choices and enums, collections, nested models.
 
+**A project that reads anything from the environment must load `.env` itself.** The
+builder never injects it: it does not parse that file and it does not hand one to a run,
+because the deployed application will read its own environment and a run gathered under
+variables the deployment cannot reproduce is evidence about a different program. So do it
+in the project, where production does it too -- `SettingsConfigDict(env_file=".env")` on a
+`BaseSettings` carrier, or `load_dotenv()` once at the entry point for a project with no
+settings class. A node whose knob names an environment variable -- `token_env` on an
+`mcp.server` -- is the case that fails silently without this: the name resolves to nothing,
+the connection is made with no credential, and the failure surfaces as a timeout somewhere
+else entirely.
+
 The graph writes a new value by rewriting **this field's default** through the AST; it
 never touches surrounding logic. Keep each knob as a single assignable field with a
 literal default, so the write target is unambiguous — no computed defaults, no
@@ -424,12 +435,19 @@ Write LangGraph exactly as its docs would, then mark it up. Concretely:
   function inside a carrier — is explicitly marked, normally `@generated()`.
 - **Assembly is generated-zone**: constructing the stages and running a document or a
   question through them in order.
-- **Name the two ways in `answer(question: str) -> str` and `build_index() -> object`**, in
-  the assembly module, and only once in the whole project. These are not decoration: the
-  builder lets a person ask the pipeline a question and hand it documents straight from its
-  node, and it does that by calling these two by name. A pipeline that answers under some
-  other name cannot be talked to at all, and two functions named `answer` make it refuse
-  rather than choose between them.
+- **Name the two ways in `answer(question: str) -> str` and
+  `build_index(documents: list[str] | None = None) -> object`**, in the assembly module, and
+  only once in the whole project. These are not decoration: the builder lets a person ask
+  the pipeline a question and hand it documents straight from its node, and it does that by
+  calling these two by name. A pipeline that answers under some other name cannot be talked
+  to at all, and two functions named `answer` make it refuse rather than choose between them.
+- **`build_index` takes `documents` and must use them when they are given.** They are paths
+  on the person's own machine, chosen in a file picker and handed straight over -- read
+  them, and index what you read. `None` means the other half of the same verb: rebuild from
+  whatever this project already considers its documents. Declare it as a keyword parameter
+  named exactly `documents`; a pipeline whose `build_index` cannot take them makes the
+  builder **refuse** the files rather than index without them, because reporting a store
+  that never received somebody's documents is an answer that is true and useless.
 - **Write the tests.** No stage can be proven by a call the toolchain invents; the project's
   own tests are the only honest evidence those nodes will ever have.
 

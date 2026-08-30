@@ -23,6 +23,11 @@ export type Point = { x: number; y: number };
  */
 export const NODE_WIDTH = 300;
 /**
+ * A chat card (Q34). Wider than a node card, because what it holds is prose somebody wrote
+ * and prose somebody is reading, not a column of labelled fields.
+ */
+export const TALK_WIDTH = 360;
+/**
  * The distance between two top-level columns.
  *
  * Wide enough for the deepest card plus the frame's padding on both sides: a frame wraps

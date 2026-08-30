@@ -56,14 +56,18 @@ from typing import Any
 
 __all__ = [
     "COMPOSE_FILENAMES",
+    "DOTENV_PATH",
+    "Dotenv",
     "Environment",
     "Service",
     "ServiceResult",
     "compose_file",
     "describe_environment",
     "project_interpreter",
+    "read_dotenv",
     "start_services",
     "stop_services",
+    "write_dotenv",
 ]
 
 #: Docker's own precedence order for the file it picks when none is named.
@@ -422,3 +426,101 @@ def stop_services(project: Path | str) -> ServiceResult:
     if code != 0:
         return ServiceResult(False, error or "docker compose down failed")
     return ServiceResult(True, "services stopped")
+
+
+#: The file a project keeps its environment variables in. **One fixed name, never a
+#: parameter**: a path the caller chooses is a write channel into any file on the disk, and
+#: this application has exactly two of those on purpose -- the writer, which goes through a
+#: syntax node, and the insert, which refuses a collision. This is neither, so it is allowed
+#: one address and no argument.
+DOTENV_PATH = ".env"
+
+#: A person edits this in a text box; anything past this is not that file. Reading stops
+#: rather than filling the UI with something nobody typed.
+DOTENV_LIMIT = 256 * 1024
+
+
+@dataclass(frozen=True)
+class Dotenv:
+    """The project's `.env`, as text, plus whether git would carry it.
+
+    **It is text and it stays text.** Nothing here splits a line on `=`, and no knob, node
+    or check ever reads a value out of it. That is the same rule as the compose file (§5.8)
+    arriving at the same place from the other side: there we refuse to parse because docker
+    already has an opinion, here because a value's *meaning* belongs to the program that
+    reads it -- quoting, `export`, multi-line values and interpolation are that program's,
+    and a second opinion about them would be wrong in ways that look right.
+
+    `ignored` is the one thing asked *about* the file rather than read out of it, and it is
+    asked of **git** rather than by reading `.gitignore` -- same rule, and git resolves
+    nested ignore files, negations and the global excludes that a reader here would not.
+    `None` means nobody could say: no git, or not a repository. A surface that offers to
+    store somebody's API key has to be able to say whether the key is about to be committed,
+    and "I did not check" is a different answer from "it is safe".
+    """
+
+    text: str
+    exists: bool
+    #: True: git ignores it. False: git would carry it. None: unanswerable, see above.
+    ignored: bool | None
+
+    def as_dict(self) -> dict[str, Any]:
+        return {"text": self.text, "exists": self.exists, "ignored": self.ignored}
+
+
+def _git_ignores(root: Path, name: str) -> bool | None:
+    """Does git ignore this path? Asked of git, never read out of `.gitignore` (§5.8)."""
+    if shutil.which("git") is None:
+        return None
+    try:
+        answer = subprocess.run(  # noqa: S603 -- the command is ours
+            ["git", "-C", str(root), "check-ignore", "-q", "--", name],
+            capture_output=True,
+            timeout=DOCKER_TIMEOUT_S,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    # 0 ignored, 1 not ignored, anything else (128: not a repository) is unanswerable.
+    if answer.returncode in (0, 1):
+        return answer.returncode == 0
+    return None
+
+
+def read_dotenv(project: Path | str) -> Dotenv:
+    """Read `.env` as text. An absent file is empty text, not a failure -- most projects
+    have none until somebody adds the first variable, and that is the state this surface
+    exists to leave."""
+    root = Path(project)
+    path = root / DOTENV_PATH
+    ignored = _git_ignores(root, DOTENV_PATH)
+    if not path.is_file():
+        return Dotenv("", False, ignored)
+    try:
+        raw = path.read_bytes()[:DOTENV_LIMIT]
+        return Dotenv(raw.decode("utf-8", errors="replace"), True, ignored)
+    except OSError:
+        return Dotenv("", True, ignored)
+
+
+def write_dotenv(project: Path | str, text: str) -> ServiceResult:
+    """Store `.env`, whole, exactly as typed.
+
+    **Nothing is normalised.** No trailing newline is added, no key is sorted, no value is
+    quoted: a person editing this file is editing it, and an editor that tidies is an editor
+    that changes a value somebody pasted. It is written `0600`, because the reason this
+    surface exists is that the file holds secrets -- and a secret is why it is written here
+    rather than into a knob, which holds the *name* of a variable and never its value.
+
+    Nothing is started, reloaded or re-read afterwards (P11): a process already running was
+    handed its environment when it was spawned, and a write here reaches it the next time it
+    starts. Saying so is the panel's job; doing something about it would be an implicit
+    start.
+    """
+    path = Path(project) / DOTENV_PATH
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(text, encoding="utf-8")
+        path.chmod(0o600)
+    except (OSError, ValueError) as exc:
+        return ServiceResult(False, f"{DOTENV_PATH} could not be written: {exc}")
+    return ServiceResult(True, f"{DOTENV_PATH} saved ({len(text)} character(s))")

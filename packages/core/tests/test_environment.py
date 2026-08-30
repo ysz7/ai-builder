@@ -14,7 +14,9 @@ Three claims carry this phase, and the third is the one that would be easiest to
 
 from __future__ import annotations
 
+import ast
 import contextlib
+import inspect
 import json
 import shutil
 import socket
@@ -31,6 +33,8 @@ from framestack_core.environment import (
     compose_file,
     describe_environment,
     project_interpreter,
+    read_dotenv,
+    write_dotenv,
 )
 from framestack_core.observe import probe_script, run_observations
 from framestack_core.parser import parse_project
@@ -579,3 +583,144 @@ def test_calling_something_that_does_not_speak_http_is_an_answer_about_it(
 
     assert answer.ok is False
     assert "did not answer in HTTP" in answer.detail
+
+
+# --- `.env`: the one surface that holds a value ----------------------------------------
+#
+# The rule it complements is P15's: a knob holds the *name* of an environment variable and
+# never its value, so nothing the graph writes can carry a secret. That left the value with
+# nowhere to go, and this is where it goes. What these tests hold down is that it stays a
+# *file* and does not quietly become a second graph: not parsed, not addressable, not a
+# source of anything, and reachable at exactly one path.
+
+
+def test_dotenv_is_read_as_text_and_never_parsed(tmp_path: Path) -> None:
+    """Text in, the same text out. No keys, no values, no opinion about quoting.
+
+    The line below is deliberately awful -- `export`, an `=` inside the value, a quote --
+    because every one of those is a decision the reading program makes and we do not (§5.8).
+    A parser here would be a second opinion about a file that already has a first one.
+    """
+    written = 'export A="x=y#z"\n\n# a comment\nB=  spaced  \n'
+    (tmp_path / ".env").write_text(written, encoding="utf-8")
+
+    answer = read_dotenv(tmp_path)
+
+    assert answer.text == written
+    assert answer.exists is True
+    assert not hasattr(answer, "values")
+
+
+def test_an_absent_dotenv_is_empty_text_rather_than_a_failure(tmp_path: Path) -> None:
+    """The ordinary first state of most projects, and the state this surface exists to end."""
+    answer = read_dotenv(tmp_path)
+
+    assert answer.text == ""
+    assert answer.exists is False
+
+
+def test_dotenv_is_stored_verbatim_and_readable_only_by_its_owner(tmp_path: Path) -> None:
+    """Nothing is normalised -- no sorting, no quoting, no trailing newline invented.
+
+    An editor that tidies is an editor that changes a value somebody pasted, and the value
+    here is the one thing standing between a configured server and a working one. The mode
+    is checked because the reason this file exists at all is that it holds secrets.
+    """
+    text = "B=2\nA=1"  # unsorted and unterminated, and it stays that way
+
+    result = write_dotenv(tmp_path, text)
+
+    assert result.ok is True
+    stored = tmp_path / ".env"
+    assert stored.read_text(encoding="utf-8") == text
+    assert stored.stat().st_mode & 0o077 == 0
+
+
+def test_dotenv_can_be_emptied(tmp_path: Path) -> None:
+    """Deleting the last variable is an edit, not a malformed request.
+
+    `_required_str` would refuse `""`, which is why the handler does not use it. Written as
+    a test because the next person to tidy that handler will reach for the shared helper.
+    """
+    (tmp_path / ".env").write_text("A=1\n", encoding="utf-8")
+
+    assert write_dotenv(tmp_path, "").ok is True
+    assert read_dotenv(tmp_path).text == ""
+
+
+def test_git_is_asked_whether_the_file_would_be_committed(tmp_path: Path) -> None:
+    """Asked of git, never read out of `.gitignore` -- and three states, not two.
+
+    A surface offering to store an API key has to be able to say whether the key is on its
+    way into a commit. `None` means nobody could tell, and folding it into `False` would
+    turn "I did not check" into "it is safe", which is the same mistake I-5 forbids about a
+    check that could not run.
+    """
+    assert read_dotenv(tmp_path).ignored is None  # not a repository
+
+    subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
+    assert read_dotenv(tmp_path).ignored is False
+
+    (tmp_path / ".gitignore").write_text(".env\n", encoding="utf-8")
+    assert read_dotenv(tmp_path).ignored is True
+
+
+def test_the_dotenv_verbs_take_no_path(tmp_path: Path) -> None:
+    """One address and no argument, which is what makes this not a general file writer.
+
+    A path the caller chooses is a write channel into anything on the disk. This
+    application has two of those on purpose -- the writer, which goes through a syntax node,
+    and the insert, which refuses a collision -- and this is neither.
+    """
+    assert set(inspect.signature(read_dotenv).parameters) == {"project"}
+    assert set(inspect.signature(write_dotenv).parameters) == {"project", "text"}
+
+
+def test_the_dotenv_is_not_a_node_and_not_project_source(tmp_path: Path) -> None:
+    """It is beside the graph, not on it: no carrier, no kind, nothing to project (I-3)."""
+    (tmp_path / ".env").write_text("SECRET=shhh\n", encoding="utf-8")
+
+    graph = read_graph(tmp_path)
+
+    assert not graph["graph"]["nodes"]
+    assert "SECRET" not in json.dumps(graph)
+
+
+def test_the_builder_never_hands_its_own_environment_to_the_project() -> None:
+    """No `env=` on any spawn of the project's interpreter, and that is the design.
+
+    It looks like an omission and it is the opposite. The builder does not parse `.env`
+    (§5.8) and does not inject one: the deployed application reads its own environment, so
+    a run gathered here under variables the deployment cannot reproduce would be evidence
+    about a different program (I-5). The project loads its own configuration, the same way
+    it will in production, and the system prompt says so.
+
+    Watched at the call sites rather than trusted, the way the docker rule is: the mistake
+    this prevents is somebody "fixing" a missing credential by passing `env=` here, which
+    would work on their machine and quietly stop the run from meaning anything.
+    """
+    #: The three that run the project's code for evidence. `shell.py` is deliberately not
+    #: among them: it passes `env` to set `TERM` on a pty, and a terminal makes no claim
+    #: about anything -- it colours no node and proves no check (Q22), so there is no run
+    #: for an injected variable to make dishonest. `session.py` runs the *agent*, not the
+    #: project, and is out for the same reason.
+    spawners = ("observe.py", "runner.py", "converse.py")
+    source_root = Path(__file__).resolve().parents[1] / "src" / "framestack_core"
+
+    offenders: list[str] = []
+    for name in spawners:
+        tree = ast.parse((source_root / name).read_text(encoding="utf-8"))
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call):
+                continue
+            called = ast.unparse(node.func)
+            if not called.startswith("subprocess."):
+                continue
+            for keyword in node.keywords:
+                if keyword.arg == "env":
+                    offenders.append(f"{name}: {called}")
+
+    assert offenders == [], (
+        "these spawns hand an environment to the project: "
+        f"{offenders}. The project loads its own (.env included) -- see the docstring."
+    )

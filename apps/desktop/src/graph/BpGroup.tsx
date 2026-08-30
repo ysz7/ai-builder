@@ -9,7 +9,7 @@
  * making the graph look better by looking at less of it.
  */
 
-import type { NodeProps } from "@xyflow/react";
+import { Handle, Position, type NodeProps } from "@xyflow/react";
 
 import type { GraphNode, Verdict } from "../core/types";
 import { glyphOf, MARKS, tintBgOf, tintOf } from "./kinds";
@@ -50,6 +50,21 @@ export function BpGroup({ data }: NodeProps) {
         ["--tint-bg" as string]: tintBgOf(node.kind),
       }}
     >
+      {/* The one anchor a frame has, and it exists for exactly one line: the dashed one
+          from a chat card (Q34), which sits to the frame's left and points at it. A frame
+          is otherwise pinless on purpose -- the two real relations land on member cards,
+          not on the region around them -- so this is invisible and carries no meaning of
+          its own. Without it the line from an agent's chat card was silently dropped,
+          because React Flow renders no edge naming a handle that is not there, and an
+          agent is always a group. */}
+      <Handle
+        type="target"
+        position={Position.Left}
+        id="talk-in"
+        className="bp-pin-hidden"
+        isConnectable={false}
+      />
+
       {/* **The bar is the node.** A group is a node like any other -- it has a kind, a
           verdict, knobs and the buttons that start it -- and drawing it as nothing but a
           region around its members left the one node a person most wants (the service) with

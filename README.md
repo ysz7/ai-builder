@@ -27,7 +27,7 @@ That is not a feature bolted on top — it is the reason the architecture is wha
 node requires the code to be real, runnable and yours, which is exactly what flow-document builders
 gave away when they made a JSON canvas the source of truth.
 
-## Why this and not Langflow, Flowise, StackAI, n8n
+## Why this and not Langflow, Flowise, n8n
 
 |  | Them | Framestack |
 | --- | --- | --- |

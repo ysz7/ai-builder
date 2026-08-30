@@ -75,7 +75,7 @@ gate is a static judgement and this one needed a run. The claim carries its own 
 state, the probe imports **every** module rather than only the annotated ones, and a module that will
 not import costs the claim rather than the nodes. Kinds opt in through `NodeKind.completeness`.
 
-**The workspace is StackAI's and the architecture is unmoved** (P18). An icon rail and a top bar
+**The workspace follows the design reference and the architecture is unmoved** (P18). An icon rail and a top bar
 around a full-bleed canvas; the dock is deleted and its faces went to the rail, onto the node, and
 into a sheet nobody has to look at. The node card is the reference's, element for element -- a family
 tab above it, a header, a description line, field blocks, a pill. Its footer carried **evidence**
@@ -152,7 +152,11 @@ the stream carries no line for an answer, so without it every re-read would resu
 **Talking to what the project built is an action on a node, never a node of its own** (Q18, P17). A
 chat surface has no carrier, so by I-3 it is not a node, and a node the canvas draws rather than the
 code declares is the second source of truth I-1 forbids — the precedent is P15's `mcp.inspect` and
-`mcp.call`, which are buttons on the server's node. The message reaches the project through
+`mcp.call`, which are buttons on the server's node. **Since Q34 it is drawn as a card on the canvas,
+and it is still not a node**: the card is derived from `NodeKind.converses` and from nothing else,
+the core has never heard of it, no gesture can add or remove one, and it **wears no verdict** —
+a chat card that could go green would hold evidence it has no carrier to have earned. Q18 is the rule
+about nodes; Q34 is the rule about surfaces, and the two were conflated. The message reaches the project through
 `probe.py` as a new `ask`, **never by spawning the project's CLI and reading its output** (§5.8) and
 never over HTTP, which would make an agent with no web layer require one. **The project remembers the
 conversation** — its checkpointer, its `thread_id` — which is why the process lives between questions
@@ -219,7 +223,8 @@ this project alongside `Awesome AI Blueprints` and `Awesome Blueprints Website`.
 Settled by a competitive read of the visual-builder market, recorded in full as Q25. Read it before
 proposing anything that changes the shape of the product.
 
-**It looks like StackAI, it is built like Dagster, and it proves what nobody else proves.**
+**It looks like the polished commercial builders, it is built like Dagster, and it proves
+what nobody else proves.**
 
 Visual builders are the most crowded niche in AI tooling — three of the top five agent repositories
 on GitHub are one (Langflow ~146k stars and owned by DataStax/IBM, Dify ~136k, Flowise ~51k),
@@ -242,14 +247,16 @@ What follows from that, day to day:
   verdict, an edge stored anywhere but in the code — each is the product becoming Flowise.
 - **The surface is borrowed on purpose, and completely.** Legibility, a searchable library of what
   may be built, dense node cards showing their main knobs without being opened, one control cluster.
-  Blueprints decides what a thing *is*; StackAI decides how it is *shown* (Q26). The existing layout
+  Blueprints decides what a thing *is*; the design reference decides how it is *shown* (Q26).
+  The existing layout
   is not defended — it grew a panel per phase.
 - **The palette is the fast path, never the boundary.** `kinds.REGISTRY` is already the honest limit
   of what can be proven; showing it answers "what can I build" at no architectural cost, and a
   catalog entry carrying real annotated code makes the common case deterministic and free of tokens.
   The agent stays for everything the catalog does not have — a user reaches the edge of any palette
   in week one, and that is the reason to be code-first and open source.
-- **The audience is the engineer.** StackAI sells to a non-technical buyer; "the same legibility with
+- **The audience is the engineer.** The commercial builders sell to a non-technical buyer;
+  "the same legibility with
   more technical detail" is a different person, and every trade-off resolves toward them.
 - **The differentiator does not survive a screenshot** -- and as of Q33 it is one click deep anyway.
   "Green because `test_retrieval.py` entered it" is still the sentence, but it is read in the
@@ -380,9 +387,12 @@ has two non-equivalent answers and the toolchain is not entitled to either, so t
 that resolves a generated-zone divergence while leaving the decision implicit. Never add a default,
 an "auto" mode, or a convenience wrapper that picks one.
 
-**There are two families of write, not one list** (Q31). Three verbs a *person* drives — `set_knob`,
-`set_node_title`, `set_body` — and every one of them is **refused the generated zone**, because that
-zone is assembly the graph owns. And `connect` (P21), which writes **only** into that zone and
+**There are two families of write, not one list** (Q31). Four verbs a *person* drives — `set_knob`,
+`set_node_title`, `set_body` and `claim_member` (Q35: it edits a group's `members=`, which is the same
+keyword address `set_node_title` writes to, and takes **two** node ids because membership is a
+relation — a node the gate rejects for sitting unclaimed at the top level is what it repairs, and it
+is **never** folded into `blueprint.insert`, which produces code and nothing else) — and every one of
+them is **refused the generated zone**, because that zone is assembly the graph owns. And `connect` (P21), which writes **only** into that zone and
 nowhere else, which is what the zone is for. The two families do not overlap at any address, which is
 what the original "three and no more" was actually protecting: not a count, but a person not editing
 what the graph maintains. `connect` is addressed by **two** nodes, because a connection is a relation

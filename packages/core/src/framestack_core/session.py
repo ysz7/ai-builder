@@ -104,6 +104,27 @@ SESSIONS_PATH = Path(".framestack") / "sessions.json"
 #: the answer was sent back, and the command ran. Nothing here is taken from a manual.
 PERMISSION_PROMPT = ("--permission-prompt-tool", "stdio")
 
+#: **The agent gets no MCP server of its own, and that is an I-5 boundary, not a preference.**
+#:
+#: Without this the CLI loads whatever MCP configuration the *machine* has -- the person's
+#: claude.ai connectors among it -- and two things follow, both bad. The small one is that
+#: the agent confuses its own tools with the project's: asked for a Gmail integration it
+#: reported the project needed a claude.ai connector authorised, which would have changed
+#: nothing in the project and is not where the project's server lives. The large one is that
+#: an agent holding a live Gmail tool can "verify" the project's Gmail integration by calling
+#: **its own**, and that is evidence from our environment about the user's code -- the exact
+#: hole `probe.py` running in the project's interpreter exists to close (P11).
+#:
+#: A consumed server is the project's: declared in the project's Python, spawned by the
+#: project's process through the project's own `connect()` (P15). It has to work on a
+#: deployed server where this builder is not installed, so it cannot be reachable through a
+#: connector belonging to whoever happened to generate it.
+#:
+#: With no `--mcp-config` beside it this leaves the agent zero servers. Measured before being
+#: relied on, like `PERMISSION_PROMPT` above and for the same reason (§5.8): a session was
+#: spawned with it and asked what it held, and the connectors were gone from the answer.
+STRICT_MCP = ("--strict-mcp-config",)
+
 #: What the agent may not touch. Its own evidence about itself is in there (Q16).
 #:
 #: **Only that, now.** This list used to carry ten absolute-path patterns -- `Bash(cat /*)`,
@@ -828,6 +849,7 @@ def start_session(
         # (Q17), and the way that was found was by reading the effect back rather than the
         # documentation.
         "--include-partial-messages",
+        *STRICT_MCP,
         "--disallowed-tools",
         *DENIED,
         # Verbatim, and on every invocation: what `--resume` keeps is not ours to assume.

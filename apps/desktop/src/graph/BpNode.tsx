@@ -1,7 +1,7 @@
 /**
  * One node on the canvas, in the reference's card anatomy (P18.3).
  *
- * Element for element it is StackAI's card -- a category tab above and inset from the left
+ * Element for element it is the reference's card -- a category tab above and inset from the left
  * edge, a header of glyph, title and a `⋮`, a grey description line, inset field blocks with
  * a small uppercase label, a pill, and a footer row of chips -- and every one of those
  * elements has been given the fact this architecture actually holds:

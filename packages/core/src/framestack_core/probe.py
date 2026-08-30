@@ -35,6 +35,7 @@ from __future__ import annotations
 
 import contextlib
 import importlib
+import inspect
 import json
 import os
 import sys
@@ -1757,8 +1758,13 @@ def build_pipeline_index(plan: dict[str, Any]) -> dict[str, Any]:
     if build is None:
         return {"ok": False, "status": "unproven", "detail": refusal, "held": ""}
 
+    given = [str(one) for one in (plan.get("documents") or [])]
+    call, refusal = _index_call(build, given)
+    if call is None:
+        return {"ok": False, "status": "unproven", "detail": refusal, "held": ""}
+
     try:
-        store = build()
+        store = call()
     except Exception as exc:
         return {
             "ok": False,
@@ -1773,6 +1779,50 @@ def build_pipeline_index(plan: dict[str, Any]) -> dict[str, Any]:
         "detail": f"the pipeline indexed into {type(store).__name__}",
         "held": _held_by(store),
     }
+
+
+def _index_call(build: Any, documents: list[str]) -> tuple[Any, str]:
+    """How to call `build_index`, given what the person handed it. Refuses rather than drops.
+
+    The contract the system prompt fixes is `build_index(documents=None)`, and projects
+    written before it exist with `build_index()`. Both must keep working, but the two cases
+    are **not** symmetric and that asymmetry is the whole of this function:
+
+    * no documents -- call it bare. That is what the button has always meant ("rebuild the
+      index from whatever this project considers its documents") and it is true of either
+      signature;
+    * documents, and a `documents` parameter to take them -- pass them by keyword. By
+      keyword and not by position, because a pipeline is free to have taken other arguments
+      first and a positional hand-off would silently fill the wrong one;
+    * documents, and **nowhere to put them** -- refuse, and say what is missing.
+
+    That last branch is the reason this is a function rather than a `try`. The alternative
+    is calling `build()` and reporting the store it returned: the person drags five files
+    in, reads "indexed into Chroma, holds 214", and not one of their files went anywhere.
+    An answer that is true about the store and false about what was asked is worse than a
+    refusal, because nothing about it looks wrong.
+    """
+    if not documents:
+        return (lambda: build()), ""
+
+    try:
+        parameters = inspect.signature(build).parameters
+    except (TypeError, ValueError):
+        # A callable that will not describe itself is not one to guess at.
+        return None, "build_index() cannot be inspected, so documents cannot be handed to it"
+
+    taker = parameters.get("documents")
+    if taker is None or taker.kind in (
+        inspect.Parameter.POSITIONAL_ONLY,
+        inspect.Parameter.VAR_POSITIONAL,
+    ):
+        return None, (
+            "this pipeline's build_index() takes no documents, so the files were not "
+            "indexed -- give it `def build_index(documents=None)` and use them when it is "
+            "not None"
+        )
+
+    return (lambda: build(documents=documents)), ""
 
 
 def _held_by(store: Any) -> str:

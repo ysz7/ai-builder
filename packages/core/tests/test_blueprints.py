@@ -8,6 +8,7 @@ about where the files came from, and that the result is not green until somethin
 
 from __future__ import annotations
 
+import shutil
 from pathlib import Path
 
 import pytest
@@ -16,6 +17,7 @@ from framestack_core.blueprint import insert_blueprint, plan_blueprint
 from framestack_core.catalog import all_blueprints, bundled_catalog, list_blueprints
 from framestack_core.gate import check_graph
 from framestack_core.parser import parse_project
+from framestack_core.writer import claim_member
 
 BUNDLED = [entry.id for entry in all_blueprints() if entry.carries_code]
 
@@ -177,3 +179,83 @@ def test_an_entry_may_not_write_outside_the_project(tmp_path: Path) -> None:
     assert _containment_problem(tmp_path, "/etc/passwd") is not None
     assert _containment_problem(tmp_path, ".framestack/run.json") is not None
     assert _containment_problem(tmp_path, "rag/pipeline.py") is None
+
+
+# -- parts (Q36) -------------------------------------------------------------------------
+#
+# A whole entry stands on its own in an empty directory. A part lands a node the top level
+# cannot hold -- an `mcp.server` belongs to the group that consumes it -- so it is defined
+# by the one gate error it leaves, and claiming it is the next press (Q35).
+#
+# The insert's undo was found refusing exactly this, *after* Q35 had been written on the
+# assumption that claiming was a separate press. These tests hold the resolution narrow.
+
+
+#: A project with a group in it, because that is where a part is inserted -- an
+#: `mcp.server` in an empty directory would be a part with nothing to belong to.
+AGENT = Path(__file__).resolve().parents[3] / "examples" / "langgraph-agent"
+
+PARTS = [entry.id for entry in all_blueprints() if entry.part]
+
+
+def test_there_are_parts_and_they_are_declared_not_guessed() -> None:
+    """`part` comes from the catalog's index. Deriving it would mean inserting to find out."""
+    assert PARTS
+    assert all(plan_blueprint("/nonexistent-project", one).part for one in PARTS)
+
+
+@pytest.mark.parametrize("blueprint", PARTS)
+def test_a_part_inserts_and_leaves_exactly_one_named_error(blueprint: str, tmp_path: Path) -> None:
+    """The whole point: it goes in, and what it leaves is nameable and repairable.
+
+    Against a real project with a group in it, because that is where a part is inserted --
+    an `mcp.server` in an empty directory would be a part with nothing to belong to.
+    """
+    project = tmp_path / "project"
+    shutil.copytree(AGENT, project)
+
+    plan = plan_blueprint(project, blueprint)
+    result = insert_blueprint(project, blueprint, plan=plan.identity)
+    assert result.inserted, result.refused
+
+    errors = check_graph(parse_project(project)).errors
+    assert [d.code for d in errors] == ["node.top_level_not_group"]
+
+    # And the claim closes it, which is what makes the state a step rather than damage.
+    claimed = claim_member(project, "agent", errors[0].node or "")
+    assert claimed.written is True
+    assert list(check_graph(parse_project(project)).errors) == []
+
+
+def test_a_part_still_undoes_itself_for_any_other_error(tmp_path: Path) -> None:
+    """The relaxation is one code against a node **this insert landed**, and nothing else.
+
+    Exercised by inserting the same part twice: the second lands nothing new, so the first
+    one's error is no longer "introduced by this insert" -- and a collision is refused
+    before any of that anyway. What must never happen is a part becoming an entry the gate
+    stops judging.
+    """
+    project = tmp_path / "project"
+    shutil.copytree(AGENT, project)
+
+    plan = plan_blueprint(project, "mcp-gmail")
+    assert insert_blueprint(project, "mcp-gmail", plan=plan.identity).inserted is True
+
+    again = plan_blueprint(project, "mcp-gmail")
+    twice = insert_blueprint(project, "mcp-gmail", plan=again.identity)
+
+    assert twice.inserted is False
+    assert "already in this project" in (twice.refused or "")
+
+
+def test_a_part_is_not_green_either(tmp_path: Path) -> None:
+    """I-5 has no back door, and a part is not a hole in it (P20's rule, unchanged)."""
+    project = tmp_path / "project"
+    shutil.copytree(AGENT, project)
+
+    plan = plan_blueprint(project, "mcp-filesystem")
+    insert_blueprint(project, "mcp-filesystem", plan=plan.identity)
+    claim_member(project, "agent", "mcp.filesystem")
+
+    verdicts = check_graph(parse_project(project)).verdicts
+    assert verdicts["mcp.filesystem"] == "unproven"

@@ -103,6 +103,16 @@ class Blueprint:
     #: How many files this entry would write, or 0 for one that is specification text only.
     #: A count rather than the files: listing a catalog must not read every entry's subtree.
     carries_code: int = 0
+    #: **A part rather than a project** (Q36). A whole entry stands on its own in an empty
+    #: directory; a part lands a node that the top level cannot hold -- an `mcp.server`
+    #: belongs to the group that consumes it -- so inserting it leaves the gate reporting
+    #: `node.top_level_not_group` until somebody claims it (`node.claim`, Q35).
+    #:
+    #: It is **declared** and not derived, because it decides where the entry is *offered*:
+    #: a part shown in the library beside four whole projects reads as a project that
+    #: happens to be broken. Deriving it would mean inserting the entry to find out, which
+    #: is the one thing a listing must not do.
+    part: bool = False
 
 
 def find_catalog(explicit: Path | str | None = None) -> Path | None:
@@ -191,8 +201,9 @@ def _entries(root: Path | None, *, origin: str) -> list[Blueprint]:
             found.append(
                 Blueprint(
                     id=entry.name,
-                    title=meta.get("title") or _title_of(document),
-                    summary=meta.get("description") or "",
+                    part=bool(meta.get("part", False)),
+                    title=str(meta.get("title") or "") or _title_of(document),
+                    summary=str(meta.get("description") or ""),
                     path=str(document),
                     section=section,
                     origin=origin,
@@ -248,7 +259,7 @@ def carries_markup(text: str) -> bool:
     return any(marker in text for marker in _MARKUP_MARKERS)
 
 
-def _read_index(root: Path) -> dict[str, dict[str, str]]:
+def _read_index(root: Path) -> dict[str, dict[str, object]]:
     """The catalog's own index, if it publishes one. A broken index is simply not used."""
     path = root / "catalogue.json"
     if not path.is_file():
@@ -263,7 +274,7 @@ def _read_index(root: Path) -> dict[str, dict[str, str]]:
     if not isinstance(items, list):
         return {}
 
-    index: dict[str, dict[str, str]] = {}
+    index: dict[str, dict[str, object]] = {}
     for item in items:
         if not isinstance(item, dict):
             continue
@@ -272,6 +283,9 @@ def _read_index(root: Path) -> dict[str, dict[str, str]]:
             index[identifier] = {
                 "title": str(item.get("title") or ""),
                 "description": str(item.get("description") or ""),
+                # Copied out by name like the other two: an index this reader passed
+                # through wholesale would let a catalog set fields nobody here declared.
+                "part": bool(item.get("part", False)),
             }
     return index
 

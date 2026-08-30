@@ -54,7 +54,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from framestack_core.catalog import CODE_DIR, all_blueprints, blueprint_files
-from framestack_core.diagnostics import Diagnostic
+from framestack_core.diagnostics import Code, Diagnostic
 from framestack_core.gate import check_graph
 from framestack_core.parser import parse_project
 from framestack_core.snapshot import save_snapshot, take_snapshot
@@ -107,6 +107,12 @@ class Plan:
     #: The identity of exactly this plan. `insert_blueprint` is given it back and refuses if
     #: the entry has changed since -- so nothing can be written that was not what was shown.
     identity: str = ""
+    #: **A part, not a whole project** (Q36). It lands a node the top level cannot hold, so
+    #: inserting it leaves exactly one gate error against that node and claiming it into a
+    #: group is the next press (`node.claim`, Q35). Carried on the plan rather than looked
+    #: up again at insert time, and shown before anything is written: "this needs a home" is
+    #: something a person should read *before* pressing, not discover from a red node.
+    part: bool = False
     refused: str | None = None
 
     @property
@@ -171,6 +177,7 @@ def plan_blueprint(
         requires=tuple(name for name in imports if not _importable(name)),
         imports=imports,
         identity=_identity(entry.id, planned),
+        part=entry.part,
     )
 
 
@@ -211,7 +218,9 @@ def insert_blueprint(
         listed = ", ".join(intended.collisions)
         return InsertResult(False, refused=f"already in this project: {listed}")
 
-    errors_before = {(d.code, d.address) for d in check_graph(parse_project(root)).errors}
+    before_graph = parse_project(root)
+    errors_before = {(d.code, d.address) for d in check_graph(before_graph).errors}
+    _nodes_before = before_graph.nodes
 
     written: list[Path] = []
     for one in intended.files:
@@ -222,6 +231,29 @@ def insert_blueprint(
 
     rechecked = check_graph(parse_project(root))
     introduced = [d for d in rechecked.errors if (d.code, d.address) not in errors_before]
+    if intended.part:
+        # **A part is defined by the one error it lands with** (Q36). An `mcp.server` is
+        # never top-level, so an entry that lands one *cannot* be whole on its own: the
+        # gate is right to report `node.top_level_not_group`, and undoing the insert over
+        # it means the entry can never be inserted at all -- which is what this branch was
+        # found doing, after Q35 had already been written on the assumption that claiming
+        # was a separate press.
+        #
+        # Narrow on purpose, and declared rather than inferred: only this code, only on an
+        # entry whose catalog says `part`, and only against a node **this insert landed**.
+        # Every other error still undoes it, so the guarantee that survives is the one that
+        # mattered -- an insert never leaves a project broken in a way nobody named.
+        landed = {node.id for node in parse_project(root).nodes} - {
+            node.id for node in _nodes_before
+        }
+        introduced = [
+            diagnostic
+            for diagnostic in introduced
+            # `node` and not `address`: the address is `file:line object`, which is what a
+            # person reads and an editor jumps to. The node id is the separate field, and
+            # matching on the wrong one is how this filter silently matched nothing.
+            if not (diagnostic.code == Code.TOP_LEVEL_NOT_GROUP.value and diagnostic.node in landed)
+        ]
     if introduced:
         # Ours to undo, exactly as a knob write is: the person asked for a node, not for a
         # project that no longer parses, and they should not be left holding one.

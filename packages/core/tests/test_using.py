@@ -55,6 +55,56 @@ def test_the_pipeline_indexes_and_reports_what_the_store_said() -> None:
     assert "3" not in answered["detail"]
 
 
+def test_documents_the_person_chose_reach_the_pipeline(tmp_path: Path) -> None:
+    """The files are read by the project, in the project's interpreter, and nowhere else.
+
+    Proven by a path that does not exist: the error can only come from something having
+    tried to open it, which is the only evidence available that the hand-off is real rather
+    than accepted and dropped. A test asserting `ok is True` on a good path would pass just
+    as well against a `build_index` that ignored its argument.
+    """
+    answered = rag_index(PIPELINE, "rag", documents=[str(tmp_path / "absent.txt")])
+
+    assert answered["ok"] is False
+    assert "FileNotFoundError" in answered["detail"]
+
+
+def test_a_pipeline_that_cannot_take_documents_refuses_them(tmp_path: Path) -> None:
+    """**The load-bearing one.** Never index without the documents somebody handed over.
+
+    A project written before the contract has `build_index()` with no parameter. Calling it
+    anyway would return a real store and a true sentence -- "indexed into Chroma, holds
+    214" -- about an index that received none of the person's files. An answer that is
+    correct about the store and false about what was asked is worse than a refusal, because
+    there is nothing in it that looks wrong.
+    """
+    older = tmp_path / "older"
+    shutil.copytree(PIPELINE, older)
+    assembly = older / "rag" / "pipeline.py"
+    source = assembly.read_text(encoding="utf-8")
+    assembly.write_text(
+        source.replace(
+            "def build_index(documents: list[str] | None = None) -> object:",
+            "def build_index() -> object:",
+        ).replace("if documents else DOCUMENTS", "if False else DOCUMENTS"),
+        encoding="utf-8",
+    )
+
+    document = tmp_path / "one.txt"
+    document.write_text("a document somebody chose", encoding="utf-8")
+    refused = rag_index(older, "rag", documents=[str(document)])
+
+    assert refused["ok"] is False
+    assert refused["status"] == "unproven"
+    assert "takes no documents" in refused["detail"]
+    # And it says so rather than reporting a store, which is the whole point.
+    assert "InMemoryVectorStore" not in refused["detail"]
+
+    # The same project with no documents is untouched: that half of the verb still means
+    # "rebuild from what this project considers its documents".
+    assert rag_index(older, "rag")["ok"] is True
+
+
 def test_a_kind_that_holds_no_index_is_refused_rather_than_tried() -> None:
     """P17.2's rule with a different verb: dispatch by kind, never by what a carrier looks
     like. `Chunker` is callable, and calling it would build a chunker and call it an index."""

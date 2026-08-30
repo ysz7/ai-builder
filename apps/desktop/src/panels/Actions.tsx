@@ -14,12 +14,14 @@
  * evidence that came back.
  */
 
+import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { useEffect, useState } from "react";
 
 import {
   envCall,
   envDown,
   envUp,
+  mcpCall,
   mcpInspect,
   ragIndex,
   runCall,
@@ -37,7 +39,6 @@ import type {
 } from "../core/types";
 import { Copy } from "./Copy";
 import { Notice } from "./Notice";
-import { Talk } from "./Talk";
 
 type Props = {
   project: string;
@@ -61,6 +62,19 @@ type Props = {
   services: Environment | null;
   onActed: () => void;
 };
+
+/**
+ * The native file picker, which is the shell's rather than a core method.
+ *
+ * The same exception the folder chooser on the welcome screen is, for the same reason: an
+ * operating-system window is not a capability Python has. What comes back is paths, and
+ * paths are all that leaves here -- nothing is read, copied or uploaded on this side.
+ */
+async function pickDocuments(): Promise<string[]> {
+  const chosen = await openDialog({ directory: false, multiple: true });
+  if (Array.isArray(chosen)) return chosen;
+  return typeof chosen === "string" ? [chosen] : [];
+}
 
 /** What came back, in the words the core used. Never re-worded, never turned into a verdict. */
 type Said = { ok: boolean; text: string } | null;
@@ -156,6 +170,16 @@ export function Actions({ project, node, running, services, onActed }: Props) {
   const [calling, setCalling] = useState("");
   const [servicePath, setServicePath] = useState("/");
   const [offered, setOffered] = useState<InspectResult | null>(null);
+  /** Files a person chose for the next index. Not project state -- see the index row. */
+  const [documents, setDocuments] = useState<string[]>([]);
+  /**
+   * Which offered tool is open for a call, and what to call it with.
+   *
+   * Named apart from `calling` above, which is a *service's* row on the compose node. Two
+   * different things wearing one name is how a tool form opens over a docker service.
+   */
+  const [openTool, setOpenTool] = useState("");
+  const [args, setArgs] = useState("");
   const [kind, setKind] = useState<NodeKindInfo | null>(null);
 
   useEffect(() => {
@@ -369,6 +393,8 @@ export function Actions({ project, node, running, services, onActed }: Props) {
         {button("Inspect", async () => {
           const answer = await mcpInspect(project, node.id);
           setOffered(answer);
+          // A fresh list, so a form left open on a tool from the previous one goes with it.
+          setOpenTool("");
           return say(answer.ok, answer.detail || answer.status);
         })}
       </div>,
@@ -379,32 +405,70 @@ export function Actions({ project, node, running, services, onActed }: Props) {
     rows.push(
       // A write into somebody's store, so it is a press and never a consequence of drawing
       // the graph (P11) -- and what it says is what the store said, not what went in.
-      <div className="bp-acts" key="index">
-        {button("Index", async () => {
-          const answer = await ragIndex(project, node.id);
-          return say(
-            answer.ok,
-            answer.held ? `${answer.detail} · holds ${answer.held}` : answer.detail,
-          );
-        })}
+      //
+      // **Two halves of one verb, and the button says which it is about to do.** With files
+      // chosen it hands those over; with none it rebuilds from whatever the project already
+      // considers its documents. The chosen paths live here, in this component, for exactly
+      // as long as the panel does: they are not project state, nothing is copied anywhere,
+      // and a list of somebody's file paths written into `.framestack/` would be this
+      // application remembering something it has no business remembering.
+      <div className="bp-index" key="index">
+        <div className="bp-acts">
+          {/* The picker is the shell's, like the folder chooser on the welcome screen: an
+              operating-system window is the one capability that cannot be a core method. */}
+          <button
+            className="bp-btn"
+            disabled={busy !== ""}
+            onClick={() => {
+              void pickDocuments().then((paths) => {
+                if (paths.length > 0) setDocuments((previous) => [...previous, ...paths]);
+              });
+            }}
+          >
+            Choose files
+          </button>
+          {button(documents.length > 0 ? `Index ${documents.length} file(s)` : "Index", async () => {
+            const answer = await ragIndex(project, node.id, documents);
+            return say(
+              answer.ok,
+              answer.held ? `${answer.detail} · holds ${answer.held}` : answer.detail,
+            );
+          })}
+          {documents.length > 0 ? (
+            <button className="bp-btn" disabled={busy !== ""} onClick={() => setDocuments([])}>
+              Clear
+            </button>
+          ) : null}
+        </div>
+        {documents.length > 0 ? (
+          <ul className="bp-index-files">
+            {documents.map((path) => (
+              <li className="bp-index-file" key={path} title={path}>
+                {path.split("/").pop() || path}
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="bp-knob-note">
+            With no files chosen this rebuilds from the documents the project already
+            declares.
+          </p>
+        )}
       </div>,
     );
   }
 
-  const talking = kind?.converses ? (
-    <Talk project={project} node={node.id} onAnswered={onActed} />
-  ) : null;
-
-  if (rows.length === 0 && talking === null) return null;
+  // The conversation used to be drawn here. It moved to a card on the canvas (Q34) --
+  // derived from the same `kind.converses` and by the same rule, so nothing about *which*
+  // nodes can be talked to changed. What changed is that a chat is a place a person stays,
+  // and the inspector is a place they pass through: a panel that re-rendered under them
+  // whenever the selection moved was the wrong shape for holding a dialogue.
+  if (rows.length === 0) return null;
 
   return (
     <>
       {rows.length > 0 ? <div className="bp-cap">Actions</div> : null}
       {rows}
-
-      {/* A conversation is an action on this node, and it is drawn where its other verbs
-          are -- there is nothing new on the graph, and nothing new to select (Q18). */}
-      {talking}
 
       {offered ? (
         <div className="bp-offered">
@@ -413,16 +477,64 @@ export function Actions({ project, node, running, services, onActed }: Props) {
           <div className="bp-cap">Offered {offered.tools.length}</div>
           {offered.tools.map((tool) => (
             <div className="bp-offer" key={tool.name}>
-              <span
-                className={
-                  offered.allowed.includes(tool.name)
-                    ? "bp-offer-on"
-                    : "bp-offer-off"
-                }
-              >
-                {tool.name}
-              </span>
+              {/* **Only an allowed tool is a button**, and that is the core's rule rather
+                  than a choice made here: `mcp.call` refuses anything outside the node's
+                  `allowed_tools` knob. Offering a form that could only ever come back
+                  refused would read as a broken button, so a tool the project has not
+                  allowed is shown and not pressable -- and the way to call it is to add it
+                  to the knob, which is a write into the project and belongs there. */}
+              {offered.allowed.includes(tool.name) ? (
+                <button
+                  className={`bp-offer-name${openTool === tool.name ? " is-open" : ""}`}
+                  onClick={() => setOpenTool(openTool === tool.name ? "" : tool.name)}
+                  title={`Call ${tool.name}`}
+                >
+                  <span className="bp-offer-on">{tool.name}</span>
+                </button>
+              ) : (
+                <span
+                  className="bp-offer-off"
+                  title="Not in this node's allowed_tools knob, so it cannot be called"
+                >
+                  {tool.name}
+                </span>
+              )}
               <span className="bp-offer-help">{tool.description}</span>
+
+              {openTool === tool.name && offered.allowed.includes(tool.name) ? (
+                <div className="bp-offer-call">
+                  {/* **Typed, never synthesized** (I-5). There is no schema in this payload
+                      to fill a form from, and there would still be no filling it: input the
+                      toolchain invented would manufacture the answer that came back. */}
+                  <textarea
+                    className="bp-field"
+                    rows={3}
+                    spellCheck={false}
+                    value={args}
+                    placeholder={'{"query": "from:ivan"}'}
+                    onChange={(event) => setArgs(event.target.value)}
+                    aria-label={`Arguments for ${tool.name}`}
+                  />
+                  <div className="bp-acts">
+                    {button("Call", async () => {
+                      let parsed: Record<string, unknown>;
+                      try {
+                        parsed = args.trim() === "" ? {} : JSON.parse(args);
+                      } catch (error) {
+                        // Refused here rather than sent: a malformed object is a question
+                        // this side can answer, and calling somebody's tool to find out is
+                        // a real call with a real side effect.
+                        return say(false, `arguments are not JSON: ${String(error)}`);
+                      }
+                      if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+                        return say(false, "arguments must be a JSON object");
+                      }
+                      const answer = await mcpCall(project, node.id, tool.name, parsed);
+                      return say(answer.ok, answer.result || answer.detail);
+                    })}
+                  </div>
+                </div>
+              ) : null}
             </div>
           ))}
           {offered.missing.length > 0 ? (

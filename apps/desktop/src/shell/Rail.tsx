@@ -40,6 +40,19 @@ export const RAIL: RailEntry[] = [
     glyph: "M5 19V9M10 19V5M15 19v-7M20 19v-4",
   },
   {
+    id: "integrations",
+    label: "Integrations",
+    // A plug. The one rail entry that opens a window rather than a flyout, because what it
+    // holds is a catalog and a form rather than a list to glance at.
+    glyph: "M9 3v5M15 3v5M6 8h12v4a6 6 0 0 1-12 0zM12 18v3",
+  },
+  {
+    id: "env",
+    label: "Environment",
+    // A key. The one surface here that holds a value rather than describing the project.
+    glyph: "M15 7a4 4 0 1 1-3.9 5H8v3H5v-3l3.1-3H11a4 4 0 0 1 4-2zm1 3.2h.01",
+  },
+  {
     id: "evidence",
     label: "Evidence",
     glyph: "M4 12a8 8 0 1 0 2.3-5.6M4 4v3.5h3.5M12 8v4l3 2",

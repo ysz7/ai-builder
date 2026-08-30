@@ -27,7 +27,13 @@ from framestack_core.converse import (
     talk_status,
 )
 from framestack_core.diagnostics import Code, describe
-from framestack_core.environment import describe_environment, start_services, stop_services
+from framestack_core.environment import (
+    describe_environment,
+    read_dotenv,
+    start_services,
+    stop_services,
+    write_dotenv,
+)
 from framestack_core.gate import GateMode, check_graph
 from framestack_core.ir import Location
 from framestack_core.kinds import REGISTRY, families, family_of
@@ -87,7 +93,13 @@ from framestack_core.shell import (
 from framestack_core.snapshot import load_snapshot, save_snapshot, take_snapshot
 from framestack_core.source import node_source
 from framestack_core.verdict import Observation
-from framestack_core.writer import connect, set_body, set_knob, set_node_title
+from framestack_core.writer import (
+    claim_member,
+    connect,
+    set_body,
+    set_knob,
+    set_node_title,
+)
 
 __all__ = [
     "AGENT_BLUEPRINTS_SCHEMA",
@@ -99,6 +111,7 @@ __all__ = [
     "AGENT_SESSION_SCHEMA",
     "AGENT_FAILURES_SCHEMA",
     "AGENT_RECORD_SCHEMA",
+    "DOTENV_SCHEMA",
     "ENVIRONMENT_SCHEMA",
     "GRAPH_API_VERSION",
     "RUN_CALL_SCHEMA",
@@ -123,8 +136,11 @@ __all__ = [
     "agent_blueprints",
     "blueprint_insert",
     "blueprint_plan",
+    "claim_node",
     "connect_nodes",
     "connectable_kinds",
+    "dotenv_read",
+    "dotenv_write",
     "environment_status",
     "run_build",
     "run_call",
@@ -300,6 +316,19 @@ _ENVIRONMENT = {
 #: The `env.status` payload: what the project runs in. Read-only, always -- describing an
 #: environment never changes it (P11).
 ENVIRONMENT_SCHEMA = {"api_version": "int", "environment": _ENVIRONMENT}
+
+#: The `env.read_file` payload: the project's `.env`, as text and nothing else.
+#:
+#: There is no `{"<key>": "<value>"}` here and there is not going to be one -- the core does
+#: not parse this file, so it has no keys to report (§5.8). `ignored` is the one derived
+#: fact, asked of git: a surface that stores an API key must be able to say whether the key
+#: is about to be committed, and `null` says nobody could tell rather than that it is fine.
+DOTENV_SCHEMA = {
+    "api_version": "int",
+    "text": "str",
+    "exists": "bool",
+    "ignored": "bool?",
+}
 
 #: The `env.up` / `env.down` payload. These are the two methods that do change something,
 #: and they exist so that nothing else has to.
@@ -603,6 +632,9 @@ _BLUEPRINT_ENTRY = {
     # How many files inserting it would write, or 0 for an entry that is specification text
     # only. A count, because listing a catalog must not read every entry's subtree.
     "carries_code": "int",
+    # A part rather than a whole project (Q36): it lands a node the top level cannot hold,
+    # so it is offered where parts belong and claimed after inserting.
+    "part": "bool",
 }
 
 #: The `agent.blueprints` payload. `catalog` is null when there is no catalog to read --
@@ -872,6 +904,16 @@ def environment_status(project: Path | str, python: str | None = None) -> dict[s
     }
 
 
+def dotenv_read(project: Path | str) -> dict[str, Any]:
+    """The project's `.env`, as text. Reads; starts nothing and parses nothing."""
+    return {"api_version": GRAPH_API_VERSION, **read_dotenv(project).as_dict()}
+
+
+def dotenv_write(project: Path | str, text: str) -> dict[str, Any]:
+    """Store `.env` exactly as typed. A refusal is a result, as everywhere else here."""
+    return {"api_version": GRAPH_API_VERSION, **write_dotenv(project, text).as_dict()}
+
+
 def services_start(project: Path | str, python: str | None = None) -> dict[str, Any]:
     """Bring the project's declared services up. Only ever because a person asked (P11)."""
     return {"api_version": GRAPH_API_VERSION, **start_services(project, python).as_dict()}
@@ -1061,9 +1103,21 @@ def command_stop(project: Path | str) -> dict[str, Any]:
     return {"api_version": GRAPH_API_VERSION, **stop_command(project).as_dict()}
 
 
-def rag_index(project: Path | str, node: str, python: str | None = None) -> dict[str, Any]:
-    """Hand the pipeline its documents (P17.5). A press, never a consequence of reading."""
-    return {"api_version": GRAPH_API_VERSION, **index_pipeline(project, node, python)}
+def rag_index(
+    project: Path | str,
+    node: str,
+    python: str | None = None,
+    documents: list[str] | None = None,
+) -> dict[str, Any]:
+    """Hand the pipeline its documents (P17.5). A press, never a consequence of reading.
+
+    `documents` are paths the person chose, passed through and stored nowhere. Given none,
+    this is the verb it always was: rebuild from what the project considers its documents.
+    """
+    return {
+        "api_version": GRAPH_API_VERSION,
+        **index_pipeline(project, node, python, documents),
+    }
 
 
 def run_build(project: Path | str) -> dict[str, Any]:
@@ -1141,6 +1195,20 @@ def connect_nodes(project: Path | str, source: str, target: str) -> dict[str, An
     A write that stands while no arrow appears is information, not a bug.
     """
     result = connect(project, source, target)
+    return {"api_version": GRAPH_API_VERSION, **result.as_dict()}
+
+
+def claim_node(project: Path | str, group: str, member: str) -> dict[str, Any]:
+    """Claim a node as a member of a group, by editing that group's declaration (Q35).
+
+    The same `WRITE_SCHEMA` again, and the same family as `node.set_title`: it edits a
+    keyword on the markup call. Addressed by two nodes, because membership is a relation.
+
+    Deliberately **not** part of `blueprint.insert`. An insert produces code and nothing
+    else (P20) -- so an entry lands a node, and claiming it is a separate press that can
+    refuse on its own terms.
+    """
+    result = claim_member(project, group, member)
     return {"api_version": GRAPH_API_VERSION, **result.as_dict()}
 
 
@@ -1268,6 +1336,7 @@ def agent_blueprints(catalog: Path | str | None = None) -> dict[str, Any]:
                 "section": blueprint.section,
                 "origin": blueprint.origin,
                 "carries_code": blueprint.carries_code,
+                "part": blueprint.part,
             }
             for blueprint in entries
         ],

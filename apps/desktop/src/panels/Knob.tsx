@@ -89,10 +89,15 @@ export function KnobControl({
     const fill = ((value - knob.min) / (knob.max - knob.min)) * 100;
     return (
       <label className="bp-slider nodrag">
-        <span
-          className="bp-slider-fill"
-          style={{ width: `${Math.max(0, Math.min(100, fill))}%` }}
-        />
+        {/* The track is its own element so the fill's percentage is a percentage **of the
+            track** and not of the row, which also carries the value's column. Computing
+            around that column in CSS worked until the column changed width. */}
+        <span className="bp-slider-track">
+          <span
+            className="bp-slider-fill"
+            style={{ width: `${Math.max(0, Math.min(100, fill))}%` }}
+          />
+        </span>
         <span className="bp-slider-value">{value}</span>
         <input
           type="range"

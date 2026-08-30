@@ -48,6 +48,3 @@ apps/desktop/src-tauri/gen/schemas/
 # packages/core/src/framestack_core/prompts/, precisely so `npm run check` does not depend
 # on an ignored directory.
 docs/
-
-CLAUDE.MD
-DEVELOPMENT.md

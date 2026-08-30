@@ -28,6 +28,8 @@ export function TopBar({
   onRun,
   onEnv,
   onAgent,
+  tab,
+  onTab,
 }: {
   name: string;
   observed: boolean;
@@ -40,6 +42,9 @@ export function TopBar({
   onRun: () => void;
   onEnv: () => void;
   onAgent: () => void;
+  /** Which view is showing. Two now: how it is built, and how it is used. */
+  tab: string;
+  onTab: (tab: string) => void;
 }) {
   return (
     <header className="bp-top">
@@ -47,10 +52,25 @@ export function TopBar({
         {name}
       </span>
 
+      {/* The second tab, at last. It was drawn as a group of one on the promise that one
+          would arrive "the moment a deploy or a run history does" -- what arrived instead
+          is the other question a person has about a project: not how it is built, but how
+          it is used. The row's geometry is unchanged. */}
       <div className="bp-seg" role="tablist" aria-label="Views">
-        <button className="bp-seg-tab is-on" role="tab" aria-selected="true">
-          Graph
-        </button>
+        {["Graph", "Use"].map((name) => {
+          const id = name.toLowerCase();
+          return (
+            <button
+              key={id}
+              className={`bp-seg-tab${tab === id ? " is-on" : ""}`}
+              role="tab"
+              aria-selected={tab === id}
+              onClick={() => onTab(id)}
+            >
+              {name}
+            </button>
+          );
+        })}
       </div>
 
       <div className="bp-cluster">

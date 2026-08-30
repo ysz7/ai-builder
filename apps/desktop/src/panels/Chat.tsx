@@ -507,7 +507,12 @@ export function Chat({
       // The working line says what the agent is *doing*, so only a tool call writes to it.
       // Letting `says` through put a whole answer on one line, and letting `ready` through
       // left the session's own startup sitting there for the rest of it.
-      if (event.kind === "blocked") setBlocked(event.text);
+      // A `blocked` carrying a `tool_use_id` is one tool's error, and it is drawn against
+      // the call it answers -- the same rule the transcript applies below. Hoisting it here
+      // as well put a bash exit code into the panel's alarm banner, stripped of the command
+      // that produced it, where it then outlived the turn: what the banner is for is the
+      // session failing, and a `blocked` with no id is the only one of those.
+      if (event.kind === "blocked" && !event.id) setBlocked(event.text);
       else if (event.kind === "asking") {
         // Not an alarm and not work: the agent is stopped. The line says so, because a
         // panel that went on saying "thinking…" while nothing was happening is how a person
@@ -593,7 +598,7 @@ export function Chat({
             : absorbTurns(previous, answer.events),
         );
         for (const event of answer.events) {
-          if (event.kind === "blocked") setBlocked(event.text);
+          if (event.kind === "blocked" && !event.id) setBlocked(event.text);
         }
         if (
           answer.events.some(

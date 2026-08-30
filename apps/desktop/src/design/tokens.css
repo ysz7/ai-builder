@@ -38,6 +38,10 @@
   --surface: #ffffff;
   --surface-2: #f4f4f1;
   --surface-3: #f6f6f4;
+  /* A region, not a panel. The frame washes what is behind it instead of covering it, so
+     the canvas's dot field carries on through a group -- which is what says the frame is a
+     boundary drawn around nodes rather than a surface they were moved onto. */
+  --surface-region: rgba(24, 24, 27, 0.028);
   --surface-glass: rgba(255, 255, 255, 0.86);
   --nav-bg: #ffffff;
 
@@ -61,7 +65,7 @@
   --radius-pill: 999px;
 
   --grid-fine: rgba(24, 24, 27, 0.05);
-  --grid-coarse: rgba(24, 24, 27, 0.085);
+  --grid-coarse: rgba(24, 24, 27, 0.19);
 
   /* status -- a mark, never a fill. */
   --ok: #216c3c;
@@ -121,6 +125,7 @@
   --muted: #a1a1aa;
   --muted-2: #8a8a93;
   --muted-3: #6d6d73;
+  --surface-region: rgba(255, 255, 255, 0.035);
   --line: rgba(255, 255, 255, 0.09);
   --line-2: rgba(255, 255, 255, 0.06);
   --line-strong: rgba(255, 255, 255, 0.2);
@@ -146,7 +151,7 @@
   --shadow-3: 0 10px 28px rgba(0, 0, 0, 0.55);
 
   --grid-fine: rgba(255, 255, 255, 0.035);
-  --grid-coarse: rgba(255, 255, 255, 0.07);
+  --grid-coarse: rgba(255, 255, 255, 0.16);
 
   --ok: #6ee7a0;
   --ok-bg: rgba(110, 231, 160, 0.14);

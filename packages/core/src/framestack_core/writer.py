@@ -39,12 +39,20 @@ from framestack_core.compose import composition_for
 from framestack_core.diagnostics import Diagnostic
 from framestack_core.gate import check_graph
 from framestack_core.ir import Function, Graph, Knob, Node
+from framestack_core.kinds import CarrierType
 from framestack_core.markup import Bindings, collect_bindings
 from framestack_core.parser import parse_project, signature_of
 from framestack_core.paths import package_name
 from framestack_core.snapshot import save_snapshot, take_snapshot
 
-__all__ = ["WriteResult", "connect", "set_body", "set_knob", "set_node_title"]
+__all__ = [
+    "WriteResult",
+    "claim_member",
+    "connect",
+    "set_body",
+    "set_knob",
+    "set_node_title",
+]
 
 #: For rendering a statement back to text when a transformer has to compare against one.
 #: A module of its own so the comparison is `libcst`'s own idea of the code rather than a
@@ -238,6 +246,57 @@ class _SetCallKeyword(cst.CSTTransformer):
             )
         )
         return call.with_changes(args=args)
+
+
+class _AddMember(_SetCallKeyword):
+    """Append one name to the `members=[...]` of the markup call that declares a group.
+
+    Appends rather than rebuilding, which is why it subclasses the keyword setter instead of
+    using it: `members` is the one keyword whose value a person has written *around* --
+    the reference project has a comment inside that list explaining why the routes are not
+    in it -- and setting the whole expression would silently delete it. `libcst` was chosen
+    so that a write touches the syntax node it is about and nothing else, and rebuilding a
+    list to add one element is exactly the "nothing else" it exists to prevent.
+
+    A group with no `members=` at all still gets one, through the inherited path.
+    """
+
+    def __init__(self, bindings: Bindings, target: str, name: str) -> None:
+        super().__init__(bindings, target, "members", cst.parse_expression(f"[{name}]"))
+        self.name = name
+        self.already = False
+
+    def _with_keyword(self, call: cst.Call) -> cst.Call:
+        args = list(call.args)
+        for index, argument in enumerate(args):
+            if argument.keyword is None or argument.keyword.value != "members":
+                continue
+            listed = argument.value
+            if not isinstance(listed, cst.List):
+                # A `members` that is not a literal list -- a name, a comprehension -- is
+                # not ours to append to: whatever produced it is the thing that decides.
+                return call
+            if any(
+                isinstance(element.value, cst.Name) and element.value.value == self.name
+                for element in listed.elements
+            ):
+                self.already = True
+                return call
+
+            elements = list(listed.elements)
+            if elements:
+                # The comma the previous last element did not need, with the spacing the
+                # rest of the list already uses -- a formatter run is not this write's to
+                # trigger, so the line has to come out already correct.
+                elements[-1] = elements[-1].with_changes(
+                    comma=cst.Comma(whitespace_after=cst.SimpleWhitespace(" "))
+                )
+            elements.append(cst.Element(value=cst.Name(self.name)))
+            self.changed = True
+            args[index] = argument.with_changes(value=listed.with_changes(elements=elements))
+            return call.with_changes(args=args)
+
+        return super()._with_keyword(call)
 
 
 # -- the write path ----------------------------------------------------------------
@@ -649,7 +708,32 @@ def connect(project: Path | str, source_id: str, target_id: str) -> WriteResult:
     if after == before:
         return WriteResult(written=True, file=into.location.file)
 
-    errors_before = {(d.code, d.address) for d in check_graph(graph).errors}
+    return _keep_or_undo(
+        project, graph, path, into.location.file, before, after, "the connection was undone"
+    )
+
+
+def _keep_or_undo(
+    project: Path,
+    before_graph: Graph,
+    path: Path,
+    relative: str,
+    before: str,
+    after: str,
+    undone: str,
+) -> WriteResult:
+    """Write it, then let the gate decide whether it stays.
+
+    Shared by the verbs that edit through a transformer rather than a knob's declaration.
+    Compared against the errors that were **already there**: a project with a pre-existing
+    fault must still be editable, so what disqualifies a write is what it *introduced*, not
+    what it failed to fix.
+
+    The snapshot moves only when the write stands, because a snapshot taken from a state
+    the gate rejected would make that breakage the thing everything after is measured
+    against.
+    """
+    errors_before = {(d.code, d.address) for d in check_graph(before_graph).errors}
     path.write_text(after, encoding="utf-8")
 
     rechecked = check_graph(parse_project(project))
@@ -658,10 +742,96 @@ def connect(project: Path | str, source_id: str, target_id: str) -> WriteResult:
         path.write_text(before, encoding="utf-8")
         return WriteResult(
             written=False,
-            file=into.location.file,
-            refused="the connection was undone: it would have broken the gate",
+            file=relative,
+            refused=f"{undone}: it would have broken the gate",
             diagnostics=tuple(introduced),
         )
 
     save_snapshot(take_snapshot(parse_project(project)), project)
-    return WriteResult(written=True, file=into.location.file)
+    return WriteResult(written=True, file=relative)
+
+
+def claim_member(project: Path | str, group_id: str, member_id: str) -> WriteResult:
+    """Claim a node as a member of a group, by editing that group's own declaration.
+
+    **The fifth write verb, and the second of the family a person drives** (Q35, amending
+    Q31). It edits a keyword on the markup call, which is the address `set_node_title`
+    already writes to -- not a generated zone, and not a body -- so it opens no new kind of
+    write. What is new is that it is addressed by **two** nodes, because membership is a
+    relation, exactly as `connect` is.
+
+    It exists because an insert cannot do it and must not learn to. `blueprint.insert`
+    writes whole files that were not there; amending a group's `members` is an edit to code
+    that already exists, and P20's rule is that an insert produces code and nothing else --
+    no post-insert hook, ever. So a catalog entry lands a node, and claiming it is a second
+    press with its own refusals.
+
+    Three refusals, and each one is an invariant rather than caution:
+
+    * **a node has at most one parent** (I-3). A member some other group already claims is
+      refused naming that group, because the alternative is a graph the gate then rejects
+      for `node.multiple_parents` -- a write whose only outcome is a diagnostic.
+    * **the group must be a group.** The top level holds groups only, and a `members=` on
+      something that is not one would make a second node top-level-invalid instead of one.
+    * **members are object references, never strings** -- so the member's carrier has to be
+      importable by name into the group's module, and the import is written with it.
+
+    Like every other write here: validated against the gate, undone if it made things worse,
+    and the snapshot moves only when it stands.
+    """
+    project = Path(project)
+    graph = parse_project(project)
+
+    group = graph.node(group_id)
+    if group is None:
+        return _refused(f"no node with id {group_id!r}")
+    member = graph.node(member_id)
+    if member is None:
+        return _refused(f"no node with id {member_id!r}")
+    if group_id == member_id:
+        return _refused("a node cannot be a member of itself")
+
+    if group.carrier_type != CarrierType.GROUP.value:
+        return _refused(
+            f"{group_id!r} is a {group.kind}, not a group -- only a group holds members"
+        )
+
+    if member_id in group.members:
+        return _refused(f"{member_id!r} is already a member of {group_id!r}")
+
+    # I-3: at most one parent, and the existing one is named rather than silently replaced.
+    # Moving a node between groups is a different intention from claiming an unclaimed one,
+    # and a verb that did both would do the second by accident.
+    claimed_by = [one.id for one in graph.nodes if member_id in one.members]
+    if claimed_by:
+        return _refused(
+            f"{member_id!r} is already claimed by {', '.join(sorted(claimed_by))} -- "
+            "a node has one parent, so remove it there first"
+        )
+
+    module, _, name = member.carrier.rpartition(".")
+    if not module:
+        return _refused(f"{member.carrier!r} is not addressable as a module member")
+
+    path = project / group.location.file
+    before = path.read_text(encoding="utf-8")
+
+    bindings = collect_bindings(cst.parse_module(before), package_name(path, project))
+    adder = _AddMember(bindings, group.location.object, name)
+    tree = cst.parse_module(before).visit(adder)
+    if adder.already:
+        return _refused(f"{name!r} is already listed in {group_id!r}'s members")
+    if not adder.changed:
+        return _refused(
+            f"the declaration of {group_id!r} was not found where the graph said it was"
+        )
+
+    tree = tree.visit(_AddImport(module, name))
+
+    after = tree.code
+    if after == before:
+        return WriteResult(written=True, file=group.location.file)
+
+    return _keep_or_undo(
+        project, graph, path, group.location.file, before, after, "the claim was undone"
+    )

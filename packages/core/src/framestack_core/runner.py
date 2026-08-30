@@ -1009,12 +1009,24 @@ def _server_result(answer: dict[str, Any]) -> ServerResult:
 # store said afterwards, never the documents that went in.
 
 
-def index_pipeline(project: Path | str, node: str, python: str | None = None) -> dict[str, Any]:
+def index_pipeline(
+    project: Path | str,
+    node: str,
+    python: str | None = None,
+    documents: list[str] | None = None,
+) -> dict[str, Any]:
     """Rebuild the index behind one pipeline node, in the project's own interpreter.
 
     Refused by **kind** before anything is imported, the way a conversation is (P17.2): a
     verb that ran whatever happened to be callable would build something and call it an
     index. A kind opts in by naming a way in, and a kind that has not shows no button.
+
+    `documents` are **paths on the person's own machine, handed straight over and copied
+    nowhere.** Nothing is stored on this side and nothing is written into the project: what
+    the pipeline does with a path -- read it, chunk it, put a copy somewhere of its own --
+    is the pipeline's decision, and a builder that filed the person's files into a directory
+    of its choosing would be inventing a place data lives (I-1). Absent, the verb means what
+    it has always meant: rebuild from whatever the project considers its documents.
     """
     from framestack_core.kinds import REGISTRY
     from framestack_core.project import read_project
@@ -1047,6 +1059,7 @@ def index_pipeline(project: Path | str, node: str, python: str | None = None) ->
         timeout_s=INDEX_TIMEOUT_S,
         carrier=found.carrier,
         how=kind.indexes,
+        documents=[str(one) for one in (documents or [])],
     )
     return {
         "ok": bool(answer.get("ok", False)),

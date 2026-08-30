@@ -191,10 +191,44 @@ export type Placement = {
   y?: number;
   collapsed?: boolean;
   expanded?: boolean;
+  /**
+   * Draw flow arrows. Only ever read off `VIEW_KEY`, never off a node's own entry.
+   *
+   * A view preference and a node's position are the same kind of fact -- something a person
+   * arranged, which the core stores without understanding (Q13) -- so they share the file
+   * rather than earning a sixth one in `.framestack/`.
+   */
+  flow?: boolean;
+  /** Which view is showing -- `"graph"` or `"use"`. Read off `VIEW_KEY` only, like `flow`. */
+  tab?: string;
 };
 export type Layout = Record<string, Placement>;
 
+/**
+ * Where a canvas-wide preference lives in the layout.
+ *
+ * A node id is a dotted Python-ish identifier, so `@` cannot collide with one, and an entry
+ * matching no node is already an ordinary state the canvas ignores: layout entries are
+ * never tidied on sight, because an agent rewriting a file makes a node vanish and come
+ * back (Q13). The core stores this like every other key -- opaquely, and it stays that way.
+ */
+export const VIEW_KEY = "@view";
+
 export type LayoutRead = { api_version: number; layout: Layout };
+
+/**
+ * `env.read_file`: the `.env` file as text.
+ *
+ * No key/value map, deliberately -- the core does not parse this file, so it has none to
+ * report. `ignored` is git's answer about whether the file would be committed, and `null`
+ * is "nobody could tell" (no git, or not a repository), which is not the same as `false`.
+ */
+export type DotenvRead = {
+  api_version: number;
+  text: string;
+  exists: boolean;
+  ignored: boolean | null;
+};
 /**
  * `layout.write` and `project.create`: did it happen, and what was said.
  *
@@ -290,6 +324,21 @@ export type ServiceResult = {
   ok: boolean;
   detail: string;
   services: string[];
+};
+
+/**
+ * What one remote tool said when a person called it (P15).
+ *
+ * **Not `CallResult`** — that one is `run.call`, an HTTP request whose `status` is a number.
+ * This `status` is the core's own word, and the two were nearly typed as one thing because
+ * both are called "call".
+ */
+export type ToolCallResult = {
+  api_version: number;
+  ok: boolean;
+  status: string;
+  detail: string;
+  result: string;
 };
 
 /** What a consumed MCP server offered when somebody pressed inspect. Never written down. */
@@ -440,6 +489,15 @@ export type BlueprintEntry = {
   origin: string;
   /** How many files inserting it would write, or 0 for specification text only. */
   carries_code: number;
+  /**
+   * **A part, not a whole project** (Q36).
+   *
+   * It lands a node the top level cannot hold — an `mcp.server` belongs to the group that
+   * consumes it — so inserting leaves exactly one gate error against that node, and
+   * claiming it into a group is the next press. It decides where the entry is *offered*:
+   * a part in the library beside four whole projects reads as a project that is broken.
+   */
+  part: boolean;
 };
 
 /** One file an insert would write, with its full contents — a diff, not a filename list. */

@@ -1,11 +1,11 @@
 """What may be connected to what, and the call that connects it (P21).
 
-**This is where this project and StackAI genuinely differ, and the difference must not be
-blurred.** There an edge is data and the runtime interprets the wire. Here an edge is a type
-crossing a boundary, read from signatures, and flow comes from a run (Q9). There is no graph
-file to write a connection into, and there must never be one -- so connecting is a **code
-generation**: dragging from one node to another writes the call, into the generated zone,
-which is where assembly already lives.
+**This is where this project and the flow-document builders genuinely differ, and the difference
+must not be blurred.** There an edge is data and the runtime interprets the wire. Here an edge
+is a type crossing a boundary, read from signatures, and flow comes from a run (Q9). There is no
+graph file to write a connection into, and there must never be one -- so connecting is a **code
+generation**: dragging from one node to another writes the call, into the generated zone, which
+is where assembly already lives.
 
 **The arrow appears afterwards, and for the usual reasons.** Because a type now crosses a
 boundary, or because a run drew a flow. It is never drawn because a gesture was made, and if

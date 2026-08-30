@@ -69,6 +69,7 @@ import type {
   BodyWrite,
   CallResult,
   CommandList,
+  DotenvRead,
   Environment,
   GraphKinds,
   GraphRead,
@@ -83,6 +84,7 @@ import type {
   RunResult,
   ServiceResult,
   TalkResult,
+  ToolCallResult,
   WriteResult,
 } from "./types";
 
@@ -98,6 +100,24 @@ export function graphRead(
   observe = false,
 ): Promise<GraphRead> {
   return coreRequest<GraphRead>("graph.read", { project, observe });
+}
+
+/**
+ * The project's `.env`, as text.
+ *
+ * **There is no path parameter and there will not be one**: the core answers for exactly
+ * `<project>/.env`, so this is not a general file reader wearing an environment's name.
+ */
+export function envReadFile(project: string): Promise<DotenvRead> {
+  return coreRequest<DotenvRead>("env.read_file", { project });
+}
+
+/** Store `.env` verbatim. Nothing is normalised, and nothing is restarted afterwards. */
+export function envWriteFile(
+  project: string,
+  text: string,
+): Promise<WriteResult> {
+  return coreRequest<WriteResult>("env.write_file", { project, text });
 }
 
 /** Where the person put things. An empty layout is the ordinary first answer. */
@@ -443,6 +463,22 @@ export function nodeConnect(
   return coreRequest<NodeWrite>("node.connect", { project, source, target });
 }
 
+/**
+ * Claim a node as a member of a group (Q35).
+ *
+ * Two ids, because membership is a relation. It refuses rather than guesses: a node some
+ * other group already claims comes back naming that group, since I-3 gives a node one
+ * parent and moving one is a different intention from claiming an unclaimed one.
+ */
+export function nodeClaim(
+  project: string,
+  group: string,
+  member: string,
+): Promise<NodeWrite> {
+  return coreRequest<NodeWrite>("node.claim", { project, group, member });
+}
+
+
 /** What may be connected to what. Asked once; the canvas keeps no list of its own. */
 export function graphCompositions(): Promise<GraphCompositions> {
   return coreRequest<GraphCompositions>("graph.compositions", {});
@@ -493,8 +529,23 @@ export function talkClose(project: string, node: string): Promise<TalkResult> {
  * A write into somebody's store, so it happens because a person pressed it and never as a
  * consequence of drawing the graph. What comes back is what the store said afterwards.
  */
-export function ragIndex(project: string, node: string): Promise<IndexResult> {
-  return coreRequest<IndexResult>("rag.index", { project, node });
+/**
+ * Hand a pipeline its documents, or rebuild from the ones the project already has.
+ *
+ * `documents` are paths on this machine, passed through and copied nowhere. Omitted, this
+ * is the verb it always was. A pipeline whose `build_index` cannot take them **refuses**
+ * rather than indexing without them -- see the core, where that decision is made.
+ */
+export function ragIndex(
+  project: string,
+  node: string,
+  documents?: string[],
+): Promise<IndexResult> {
+  return coreRequest<IndexResult>("rag.index", {
+    project,
+    node,
+    ...(documents && documents.length > 0 ? { documents } : {}),
+  });
 }
 
 // -- the commands the project already has, and running one (P17.6, P17.7) ----
@@ -531,6 +582,27 @@ export function commandLogs(
 
 export function commandStop(project: string): Promise<RunResult> {
   return coreRequest<RunResult>("command.stop", { project });
+}
+
+/**
+ * Call one tool on a consumed server, with arguments a person typed (P15).
+ *
+ * It runs in the project's interpreter through the project's own `connect()`, never
+ * straight into the SDK -- which is what leaves a frame the graph can see. Arguments are
+ * never invented here: input is typed or there is no call (I-5).
+ */
+export function mcpCall(
+  project: string,
+  node: string,
+  tool: string,
+  args: Record<string, unknown>,
+): Promise<ToolCallResult> {
+  return coreRequest<ToolCallResult>("mcp.call", {
+    project,
+    node,
+    tool,
+    arguments: args,
+  });
 }
 
 export function mcpInspect(

@@ -14,6 +14,12 @@
  *     `wiring` (the framework holds the edge, nothing ran) is dim.
  *
  * A graph with no run has no flow arrows at all. That emptiness is a measurement.
+ *
+ * They can also be **hidden**, and that is a view preference and nothing more: a dense
+ * agent draws an arrow per pair of nodes a test walked, which is a lot of ink over the one
+ * thing a person is reading at the time. Hiding them changes nothing about the run -- the
+ * evidence is still there, the marks are unmoved, and `Observe` is untouched -- so the
+ * control belongs beside zoom rather than in the cluster the project's verbs live in.
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -21,6 +27,7 @@ import {
   applyNodeChanges,
   Background,
   BackgroundVariant,
+  ControlButton,
   Controls,
   ReactFlow,
   type Edge,
@@ -30,13 +37,15 @@ import {
 
 import "@xyflow/react/dist/style.css";
 
-import type { GraphRead, Layout, Placement } from "../core/types";
+import { TalkCard } from "./TalkCard";
+
+import type { GraphNode, GraphRead, Layout, Placement } from "../core/types";
 import { BpGroup } from "./BpGroup";
 import { BpNode } from "./BpNode";
 import { tintOf } from "./kinds";
-import { descendants, frameBox, NODE_WIDTH, placeAll, topLevel } from "./place";
+import { descendants, frameBox, NODE_WIDTH, placeAll, TALK_WIDTH, topLevel } from "./place";
 
-const nodeTypes = { bpNode: BpNode, bpGroup: BpGroup };
+const nodeTypes = { bpNode: BpNode, bpGroup: BpGroup, bpTalk: TalkCard };
 
 /**
  * A frame is drawn as a React Flow node, so it needs an id -- and it must not be the
@@ -45,6 +54,14 @@ const nodeTypes = { bpNode: BpNode, bpGroup: BpGroup };
  */
 const FRAME = "frame:";
 const groupOf = (id: string): string | null => (id.startsWith(FRAME) ? id.slice(FRAME.length) : null);
+
+/**
+ * The chat card attached to a node (Q34). A prefix and not an id: nothing the core has ever
+ * heard of, so it must be impossible to mistake for one -- both when a click asks what was
+ * selected and when a drag asks what to store.
+ */
+const TALK = "talk:";
+const talkOf = (id: string): string | null => (id.startsWith(TALK) ? id.slice(TALK.length) : null);
 
 type Props = {
   graph: GraphRead;
@@ -86,6 +103,21 @@ type Props = {
    * same table the writer uses -- there is no second list here.
    */
   compositions: { source: string; target: string }[];
+  /** Draw flow arrows, or leave them out. A view preference (Q13), never graph state. */
+  showFlow: boolean;
+  onToggleFlow: () => void;
+  /**
+   * The kinds a person can talk to, from `NodeKind.converses` (Q34).
+   *
+   * A set of kind names and **not a list of nodes**: which nodes get a chat card is the
+   * registry's rule applied to the graph, the same derivation that used to decide whether
+   * the button appeared. A list here would be a second opinion about the registry.
+   */
+  conversableKinds: Set<string>;
+  /** The project, needed because the card holds a live conversation rather than a link. */
+  project: string;
+  /** A conversation is evidence while it is open (P17.4), so an answer re-reads the graph. */
+  onAnswered: () => void;
 };
 
 export function Canvas({
@@ -102,6 +134,11 @@ export function Canvas({
   onMenu,
   onConnect,
   compositions,
+  showFlow,
+  onToggleFlow,
+  conversableKinds,
+  project,
+  onAnswered,
 }: Props) {
   const nodes = graph.graph.nodes;
 
@@ -142,7 +179,7 @@ export function Canvas({
       const contract = graph.graph.edges.filter(
         (edge) => drawn(edge.source) && drawn(edge.target),
       );
-      const flow = graph.flow.filter(
+      const flow = (showFlow ? graph.flow : []).filter(
         (arrow) => drawn(arrow.source) && drawn(arrow.target),
       );
       const kind = nodes.find((node) => node.id === id)?.kind ?? "";
@@ -153,14 +190,36 @@ export function Canvas({
       const canLeave = compositions.some((one) => one.source === kind);
       const canArrive = compositions.some((one) => one.target === kind);
       return {
-        dataIn: contract.some((edge) => edge.target === id) || canArrive,
+        // `|| conversable`: the dashed line from a chat card arrives at this pin, and an
+        // edge whose handle was never rendered is dropped in silence -- the same trap the
+        // frame's anchor exists for. Both conversable kinds happen to be groups today; this
+        // is here so the first one that is not does not lose its line without saying so.
+        dataIn:
+          contract.some((edge) => edge.target === id) || canArrive || conversableKinds.has(kind),
         dataOut: contract.some((edge) => edge.source === id) || canLeave,
         execIn: flow.some((arrow) => arrow.target === id),
         execOut: flow.some((arrow) => arrow.source === id),
       };
     },
-    [graph, hidden, placed, nodes, compositions],
+    [graph, hidden, placed, nodes, compositions, showFlow, conversableKinds],
   );
+
+  /**
+   * For each node, the top-level node it lives under -- itself, when it is top-level.
+   *
+   * A chat card is placed clear of *that* node's frame rather than of its subject's own
+   * box, so a card never lands inside the region it is talking to no matter how deep the
+   * subject sits. Which is the whole of "always to the right of the frame".
+   */
+  const topOwner = useMemo(() => {
+    const byId = new Map(nodes.map((node) => [node.id, node]));
+    const map = new Map<string, GraphNode>();
+    for (const top of topLevel(nodes)) {
+      map.set(top.id, top);
+      for (const { node } of descendants(top, byId)) map.set(node.id, top);
+    }
+    return map;
+  }, [nodes]);
 
   /** For each group, every id under it. Held so a frame drag knows what it carries. */
   const subtreeOf = useMemo(() => {
@@ -245,6 +304,42 @@ export function Canvas({
         },
       });
     }
+
+    // The chat cards (Q34). Derived from the registry's `converses` and from nothing else,
+    // which is what keeps this a projection rather than a second graph: a kind that stops
+    // naming a way in stops drawing one, and no gesture here can make or unmake one.
+    for (const node of nodes) {
+      if (hidden.has(node.id)) continue;
+      if (!conversableKinds.has(node.kind)) continue;
+      const key = `${TALK}${node.id}`;
+      // **To the left of the frame, and always clear of it, whatever the subject is.**
+      // Measuring from the node put a card on top of its own region whenever the subject
+      // was a member rather than the group, and which of those it is depends on the
+      // technology -- an agent is a group, a pipeline's stage is not. The region a card
+      // must not overlap is the same one either way, so it is measured from the top-level
+      // frame and never from the node. Left, because the graph grows rightwards from its
+      // first column and a card on that side ends up in the path of everything added next.
+      const owner = topOwner.get(node.id) ?? node;
+      const box =
+        owner.members.length > 0
+          ? frameBox(owner, placed, nodes, layout)
+          : { ...(placed[owner.id] ?? { x: 0, y: 0 }), width: NODE_WIDTH };
+      const saved = layout[key];
+      result.push({
+        id: key,
+        type: "bpTalk",
+        position:
+          saved?.x !== undefined && saved?.y !== undefined
+            ? { x: saved.x, y: saved.y }
+            : { x: box.x - TALK_WIDTH - 60, y: box.y },
+        style: { width: TALK_WIDTH },
+        // Not selectable: selecting it would put an id the core never issued into the
+        // inspector. A click reaches the subject instead, see `onNodeClick`.
+        selectable: false,
+        zIndex: 2,
+        data: { node: node.id, title: node.title, kind: node.kind, project, onAnswered },
+      });
+    }
     return result;
   }, [
     nodes,
@@ -262,6 +357,10 @@ export function Canvas({
     onToggleExpand,
     onKnob,
     onMenu,
+    conversableKinds,
+    project,
+    onAnswered,
+    topOwner,
   ]);
 
   const flowEdges = useMemo<Edge[]>(() => {
@@ -284,7 +383,7 @@ export function Canvas({
       });
     }
 
-    for (const arrow of graph.flow) {
+    for (const arrow of showFlow ? graph.flow : []) {
       if (!drawn(arrow.source) || !drawn(arrow.target)) continue;
       const observed = arrow.origin === "observed";
       edges.push({
@@ -302,8 +401,33 @@ export function Canvas({
         markerEnd: { type: "arrowclosed", color: observed ? "var(--exec)" : "var(--exec-dim)" } as never,
       });
     }
+    // Card to subject. **Not a contract edge and not a flow arrow** -- it carries no type
+    // and describes no order, it just says who is answering -- so it is drawn as neither:
+    // dashed, unlabelled, and with no arrowhead to suggest a direction of execution.
+    // A group is drawn as its frame, so the element to attach to is `frame:<id>` and not
+    // the id itself -- an edge naming a node React Flow never rendered is dropped in
+    // silence, which is how a line to an agent (the one kind that is always a group)
+    // would have been simply absent.
+    const groupIds = new Set(topLevel(nodes).filter((n) => n.members.length > 0).map((n) => n.id));
+    for (const node of nodes) {
+      if (hidden.has(node.id) || !conversableKinds.has(node.kind)) continue;
+      // The card sits to the **left** of its subject, so the line runs card -> subject and
+      // the pins swap ends: the card's is on its right, the subject's on its left. Drawn in
+      // the direction the geometry actually goes, because a line doubling back around a
+      // frame to reach a pin on the far side is unreadable however correct it is.
+      edges.push({
+        id: `talkline:${node.id}`,
+        source: `${TALK}${node.id}`,
+        sourceHandle: "talk-out",
+        target: groupIds.has(node.id) ? `${FRAME}${node.id}` : node.id,
+        targetHandle: groupIds.has(node.id) ? "talk-in" : "data-in",
+        type: "smoothstep",
+        className: "bp-edge-talk",
+        style: { stroke: "var(--muted-3)", strokeWidth: 1.2, strokeDasharray: "3 4" },
+      });
+    }
     return edges;
-  }, [graph, hidden, placed, nodes]);
+  }, [graph, hidden, placed, nodes, showFlow, conversableKinds]);
 
   /**
    * Where the nodes are **while they are being moved.**
@@ -409,7 +533,13 @@ export function Canvas({
         // same inspector its bar does. Passing the element's id straight through selected
         // `frame:api`, which is nothing the graph has ever heard of, so the panel came up
         // empty and the frame read as unclickable.
-        onNodeClick={(_, node) => onSelect(groupOf(node.id) ?? node.id)}
+        // A chat card selects **nothing**. Reaching the subject was the obvious mapping and
+        // it was wrong: the card is a place a person is typing, and a click inside it that
+        // threw the inspector open over the canvas moved the thing they were looking at.
+        // It is not a node, so there is nothing here for a selection to mean.
+        onNodeClick={(_, node) =>
+          talkOf(node.id) === null ? onSelect(groupOf(node.id) ?? node.id) : undefined
+        }
         onPaneClick={() => onSelect(null)}
         // Connectable, and **nothing is added to `edges` here**: the handler writes code and
         // the picture catches up from the next read. React Flow would happily keep a wire it
@@ -425,8 +555,46 @@ export function Canvas({
         maxZoom={1.6}
         fitView
       >
-        <Background variant={BackgroundVariant.Dots} gap={22} size={1} color="var(--grid-coarse)" />
-        <Controls showInteractive={false} position="bottom-right" />
+        {/* The reference's ground: a tight dot field on near-white, fine enough to read as a
+            texture rather than as a grid somebody is meant to align to. 22px apart the dots
+            were sparse enough to look like a measurement. */}
+        <Background
+          variant={BackgroundVariant.Dots}
+          gap={15}
+          size={1.4}
+          color="var(--grid-coarse)"
+        />
+        <Controls showInteractive={false} position="bottom-right">
+          {/* A view control, beside zoom rather than in the cluster: hiding an arrow says
+              nothing about the project, and a switch that lived next to `Observe` would
+              read as one that changes what a run means. */}
+          <ControlButton
+            onClick={onToggleFlow}
+            title={showFlow ? "Hide flow arrows" : "Show flow arrows"}
+            aria-label={showFlow ? "Hide flow arrows" : "Show flow arrows"}
+            aria-pressed={showFlow}
+          >
+            <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true">
+              <path
+                d="M4 12h13m0 0-4-4m4 4-4 4"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2.4"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+              {showFlow ? null : (
+                <path
+                  d="M3 21 21 3"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2.4"
+                  strokeLinecap="round"
+                />
+              )}
+            </svg>
+          </ControlButton>
+        </Controls>
       </ReactFlow>
     </div>
   );

@@ -707,7 +707,9 @@ textarea {
   position: relative;
   flex: 1 1 auto;
   min-width: 0;
-  background-color: var(--bg-2);
+  /* Near-white rather than the shell's grey: the cards carry the contrast, and a ground
+     that competed with them made every card look like a panel floating on a panel. */
+  background-color: var(--bg);
 }
 .bp-canvas .react-flow__attribution {
   display: none;
@@ -954,7 +956,7 @@ textarea {
   height: 100%;
   border: 1px solid var(--line);
   border-radius: 12px;
-  background: var(--surface-3);
+  background: var(--surface-region);
   /* The region moves what it contains, so it says so before it is pressed. */
   cursor: grab;
 }
@@ -1017,18 +1019,19 @@ textarea {
    address through the syntax tree (Q3, Q5). One block, drawn on the card and in the
    inspector, because there is one write verb behind both. */
 .bp-block {
-  margin-top: 10px;
-  padding: 9px 10px 10px;
-  border-radius: var(--radius-2);
-  background: var(--bg-3);
+  margin-top: 12px;
+  padding: 0;
+  background: none;
 }
+/* No chip and no ground behind it. A label sitting on a filled panel inside a filled card
+   was three surfaces deep for one value, and the nesting read as structure that is not
+   there -- a knob is a field, not a region. What separates one from the next is space. */
 .bp-block-label {
-  display: inline-block;
-  margin-bottom: 7px;
-  padding: 2px 7px;
-  border-radius: 5px;
-  background: var(--surface);
-  color: var(--muted);
+  display: block;
+  margin-bottom: 6px;
+  padding: 0;
+  background: none;
+  color: var(--muted-2);
   font-size: 10.5px;
   font-weight: 600;
   letter-spacing: 0.06em;
@@ -1058,6 +1061,30 @@ textarea.bp-field {
 .bp-field:focus {
   outline: none;
   border-color: var(--line-strong);
+}
+
+/* A select with no box. Its list is its own affordance the moment it is opened, and a
+   caret is enough to say it has one -- the border was drawing a container around a word.
+   The underline stays: without it there is nothing to say the word is editable at all. */
+select.bp-field {
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  border-radius: 0;
+  background: none;
+  padding: 0 20px 0 2px;
+  appearance: none;
+  cursor: pointer;
+  background-image: linear-gradient(45deg, transparent 50%, var(--muted-2) 50%),
+    linear-gradient(135deg, var(--muted-2) 50%, transparent 50%);
+  background-position: right 8px center, right 3px center;
+  background-size: 5px 5px, 5px 5px;
+  background-repeat: no-repeat;
+}
+select.bp-field:hover {
+  border-bottom-color: var(--line-strong);
+}
+select.bp-field:focus {
+  border-bottom-color: var(--fg-2);
 }
 
 /* A switch that looks like one: the reference has no bordered box reading "True". */
@@ -1090,28 +1117,51 @@ textarea.bp-field {
   color: var(--fg);
 }
 
+/* A hairline with a dot on it, and the number beside them.
+   The bordered box that filled from the left read as a progress bar -- a thing reporting
+   how far along something is -- when what it actually is is a value a person sets. A track
+   and a handle say "drag me" and say nothing else. The row keeps the old 32px so a card
+   with a slider on it does not change height. */
 .bp-slider {
   position: relative;
-  display: block;
+  display: flex;
+  align-items: center;
+  gap: 10px;
   height: 32px;
-  border: 1px solid var(--line);
-  border-radius: var(--radius-2);
-  background: var(--surface);
-  overflow: hidden;
+  padding: 0 2px;
+}
+.bp-slider-track {
+  position: relative;
+  flex: 1 1 auto;
+  height: 2px;
+  border-radius: 1px;
+  background: var(--line-strong);
 }
 .bp-slider-fill {
   position: absolute;
   inset: 0 auto 0 0;
-  background: var(--bg-3);
+  border-radius: 1px;
+  background: var(--fg-2);
+}
+/* The handle. Drawn on the fill's end rather than as a third element: one fewer thing to
+   keep in step, and it cannot drift from the value it marks. */
+.bp-slider-fill::after {
+  content: "";
+  position: absolute;
+  right: -5px;
+  top: -4px;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--surface);
+  border: 2px solid var(--fg-2);
 }
 .bp-slider-value {
-  position: absolute;
-  inset: 0;
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  padding-right: 10px;
+  flex: 0 0 auto;
+  min-width: 40px;
+  text-align: right;
   font-size: 13px;
+  font-variant-numeric: tabular-nums;
   pointer-events: none;
 }
 .bp-slider input {
@@ -3008,4 +3058,577 @@ textarea {
 .bp-btn-slim {
   padding: 3px 8px;
   font-size: 9px;
+}
+
+/* The `.env` editor (rail → Environment).
+   A monospace box and two buttons: the file is text, so the surface is a text surface.
+   The warn tag is the only alarm colour in the flyout, and it earns it -- it is the one
+   state where saving here puts a key on its way into a commit. */
+.bp-env {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  height: 100%;
+  min-height: 0;
+}
+.bp-env-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.bp-env-path {
+  font: 600 12px/1 var(--mono);
+  color: var(--fg);
+}
+.bp-env-tag {
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1.5;
+  color: var(--muted);
+  background: var(--surface-2);
+  border-radius: 5px;
+  padding: 2px 7px;
+}
+.bp-env-tag.is-safe {
+  color: var(--ok);
+  background: var(--ok-bg);
+}
+.bp-env-tag.is-warn {
+  color: var(--bad);
+  background: var(--bad-bg);
+}
+.bp-env-why {
+  margin: 0;
+  font-size: 11.5px;
+  font-weight: 400;
+  line-height: 1.5;
+  color: var(--muted);
+}
+.bp-env-why code {
+  font: 500 11px/1 var(--mono);
+}
+.bp-env-text {
+  flex: 1 1 auto;
+  min-height: 180px;
+  resize: vertical;
+  font: 400 12px/1.65 var(--mono);
+  color: var(--fg);
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 10px 11px;
+  tab-size: 4;
+}
+.bp-env-text:focus-visible {
+  outline: 2px solid var(--select);
+  outline-offset: -1px;
+}
+.bp-env-acts {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.bp-env-note {
+  font-size: 11px;
+  font-weight: 400;
+  line-height: 1.45;
+  color: var(--muted-2);
+}
+.bp-env-note code {
+  font: 500 10.5px/1 var(--mono);
+}
+
+/* -- the chat card on the canvas (Q34) ----------------------------------------
+   The node card's furniture, minus the two elements that make a node card a claim: no kind
+   pill and no verdict mark. The dashed border is the whole of the visual difference, and it
+   is enough -- it says "attached to that" without saying "unproven". */
+.bp-talkcard-wrap {
+  width: 100%;
+}
+.bp-talkcard-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: 14px;
+  margin-bottom: -6px;
+  padding: 5px 12px 9px;
+  border-radius: 8px 8px 0 0;
+  background: var(--surface-2);
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1;
+}
+.bp-talkcard {
+  position: relative;
+  border: 1px dashed var(--line-strong);
+  border-radius: 11px;
+  background: var(--surface);
+  box-shadow: var(--shadow-2);
+  padding: 12px 13px 11px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 460px;
+}
+.bp-talkcard-h {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: grab;
+}
+.bp-talkcard-glyph {
+  flex: 0 0 auto;
+  color: var(--fg-2);
+}
+.bp-talkcard-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-weight: 600;
+  font-size: 14.5px;
+  letter-spacing: -0.01em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.bp-talkcard-id {
+  flex: 0 0 auto;
+  max-width: 42%;
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--muted-2);
+  background: var(--surface-2);
+  border-radius: var(--radius-pill);
+  padding: 2px 8px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.bp-talkcard-why {
+  margin: 0;
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: var(--muted);
+}
+.bp-talkcard-body {
+  overflow: auto;
+  cursor: default;
+  min-height: 0;
+}
+/* The composer: a box to type in with its actions on a strip inside it, which is the
+   reference's shape and is also the honest one -- the actions belong to the text, so they
+   sit with it rather than under the whole card where they read as the card's verbs. */
+.bp-compose {
+  border: 1px solid var(--line);
+  border-radius: var(--radius-2);
+  background: var(--surface);
+  overflow: hidden;
+}
+.bp-compose:focus-within {
+  border-color: var(--line-strong);
+}
+.bp-compose-text {
+  display: block;
+  width: 100%;
+  border: 0;
+  background: none;
+  resize: none;
+  padding: 10px 11px;
+  font-size: 13px;
+  line-height: 1.55;
+}
+.bp-compose-text:focus {
+  outline: none;
+}
+.bp-compose-bar {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 5px 6px 5px 11px;
+  background: var(--bg-3);
+}
+.bp-compose-state {
+  flex: 1 1 auto;
+  font-size: 10.5px;
+  letter-spacing: 0.04em;
+  color: var(--muted-2);
+}
+.bp-compose-icon,
+.bp-compose-send {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border: 0;
+  border-radius: var(--radius-2);
+  background: none;
+  color: var(--muted);
+  cursor: pointer;
+}
+.bp-compose-icon:hover:not(:disabled),
+.bp-compose-send:hover:not(:disabled) {
+  background: var(--surface);
+  color: var(--fg);
+}
+.bp-compose-send:not(:disabled) {
+  background: var(--primary);
+  color: var(--primary-fg);
+}
+.bp-compose-icon:disabled,
+.bp-compose-send:disabled {
+  color: var(--muted-3);
+  cursor: default;
+}
+
+/* Hollow, and on the dashed line's colour: the pin says who is answering, and a filled one
+   would read as a pin an edge of one of the two real relations lands on. */
+.bp-pin-talk {
+  width: 7px;
+  height: 7px;
+  background: var(--pin-hollow);
+  border: 1.4px solid var(--muted-3);
+}
+
+/* An anchor, not a pin. It has no affordance because nothing may be dragged from it: the
+   only edge that uses it is the dashed line to a chat card. */
+.bp-pin-hidden {
+  opacity: 0;
+  pointer-events: none;
+  width: 1px;
+  height: 1px;
+  min-width: 1px;
+  min-height: 1px;
+  border: 0;
+}
+
+/* -- the Use tab's selector bar -----------------------------------------------
+   The reference's row of use-case cards: a glyph, a name, and a line under it. Each one is
+   a node here rather than a scenario, and the line under the name is the author's own
+   docstring -- so the bar is written by the project, not by us.
+
+   It scrolls sideways rather than wrapping: a bar that grew to three rows would stop being
+   a bar and start being the list it exists to replace. */
+.bp-usebar {
+  display: flex;
+  gap: 10px;
+  padding: 16px 24px 4px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.bp-usebar::-webkit-scrollbar {
+  display: none;
+}
+.bp-usebar-item {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  width: 232px;
+  padding: 13px 15px;
+  text-align: left;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+  box-shadow: var(--shadow-1);
+  cursor: pointer;
+}
+.bp-usebar-item:hover {
+  border-color: var(--line-strong);
+}
+/* The chosen one is stated by weight, not by tint: a coloured card in this row would read
+   as a family the way a node card's tab does, and these are not families. */
+.bp-usebar-item.is-on {
+  border-color: var(--fg);
+  box-shadow: 0 0 0 1px var(--fg), var(--shadow-1);
+}
+.bp-usebar-glyph {
+  flex: 0 0 auto;
+  margin-top: 1px;
+  color: var(--fg-2);
+}
+.bp-usebar-text {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+.bp-usebar-title {
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.bp-usebar-why {
+  font-size: 11.5px;
+  line-height: 1.4;
+  color: var(--muted-2);
+  /* Two lines, then cut. A docstring line is one sentence by convention and a paragraph in
+     practice, and a card that grew to fit one would set the height of the whole row. */
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+/* -- the Use tab --------------------------------------------------------------
+   A reading column, not a canvas: centred, bounded, and scrolling as a page does. The
+   width is where a sentence of description stops being a long line -- the same reason the
+   node card is 300 and for the same reader. */
+.bp-use {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  /* The bar stays; the panel under it scrolls. A selector that scrolled away with its
+     content is a selector you have to scroll back up to use. */
+  overflow: hidden;
+  background: var(--bg);
+}
+.bp-use-col {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  width: 100%;
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 18px 24px 64px;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+.bp-use-card {
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+  box-shadow: var(--shadow-1);
+  padding: 18px 20px 20px;
+}
+.bp-use-head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+.bp-use-title {
+  margin: 0;
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: 17px;
+  font-weight: 600;
+  letter-spacing: -0.015em;
+}
+.bp-use-id {
+  flex: 0 0 auto;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--muted-2);
+}
+.bp-use-why {
+  margin: 6px 0 0;
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--muted);
+}
+/* The verbs sit under the sentence with air, rather than in the inspector's tight column:
+   this is a page somebody reads, not a pane they scan. */
+.bp-use-card .bp-acts {
+  margin-top: 14px;
+}
+.bp-use-card .bp-cap:first-of-type {
+  margin-top: 16px;
+}
+
+/* -- choosing documents for an index (P17.5) ----------------------------------
+   The chosen files are listed by name and carry their full path in a title: a person
+   picking three reports needs to see three, and the path is what tells two `report.pdf`
+   apart. The list is this panel's, not the project's -- nothing here is written down. */
+.bp-index-files {
+  margin: 8px 0 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  max-height: 120px;
+  overflow: auto;
+}
+.bp-index-file {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--muted);
+  background: var(--surface-2);
+  border-radius: var(--radius-pill);
+  padding: 3px 9px;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.bp-index .bp-knob-note {
+  margin-top: 8px;
+}
+
+/* -- calling a remote tool (P15) ----------------------------------------------
+   The tool's name is the button, because the name is what a person is looking at when they
+   decide to call it. An unallowed one keeps the same type and loses the affordance: the
+   core refuses it, so a form here could only ever produce a refusal. */
+.bp-offer-name {
+  border: 0;
+  padding: 0;
+  background: none;
+  font: inherit;
+  cursor: pointer;
+  text-align: left;
+}
+.bp-offer-name:hover .bp-offer-on {
+  text-decoration: underline;
+}
+.bp-offer-name.is-open .bp-offer-on {
+  text-decoration: underline;
+}
+.bp-offer-call {
+  margin: 7px 0 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+.bp-offer-call textarea.bp-field {
+  font-family: var(--mono);
+  font-size: 11.5px;
+}
+
+/* -- the integrations window --------------------------------------------------
+   The one surface in this application that is a window rather than a flyout or a sheet.
+   A flyout is a column you glance at; this holds a catalog and a form, and both need width
+   the rail's 320px does not have. The scrim closes it, because a window over the canvas
+   that could only be dismissed by a target the size of a glyph is a window people leave
+   open. */
+.bp-big-back {
+  position: absolute;
+  inset: 0;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 32px;
+  background: rgba(24, 24, 27, 0.28);
+}
+.bp-big {
+  display: flex;
+  flex-direction: column;
+  width: min(860px, 100%);
+  max-height: 100%;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+  box-shadow: var(--shadow-3);
+  overflow: hidden;
+}
+.bp-big-top {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--line);
+}
+.bp-big-top .bp-seg {
+  flex: 1 1 auto;
+}
+.bp-big-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 16px 20px 24px;
+}
+
+/* The servers already declared. A grid because it is a catalog, and two columns is where a
+   command line stops wrapping in the middle of a package name. */
+.bp-int-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 12px;
+  margin-top: 4px;
+}
+.bp-int-card {
+  border: 1px solid var(--line);
+  border-radius: var(--radius-2);
+  padding: 13px 14px;
+  background: var(--surface);
+}
+.bp-int-title {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+.bp-int-cmd {
+  display: block;
+  margin-top: 5px;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--muted-2);
+  word-break: break-all;
+}
+.bp-int-why {
+  margin: 7px 0 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--muted);
+}
+.bp-int-form {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 4px 18px;
+  margin-bottom: 14px;
+}
+
+/* The tiles: a known server, one press. Same grid as the cards above them, because they
+   are the same kind of thing at two moments — one this project has, one it could. */
+.bp-int-tile {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding: 13px 14px;
+  text-align: left;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-2);
+  background: var(--surface);
+  cursor: pointer;
+}
+.bp-int-tile:hover:not(:disabled) {
+  border-color: var(--line-strong);
+}
+.bp-int-tile:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+.bp-int-tile .bp-int-title {
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+.bp-int-add {
+  margin-top: 3px;
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted-2);
+}
+/* The repair, drawn where the problem is rather than as an alarm: an unclaimed node is a
+   step in a two-press gesture, not damage. */
+.bp-int-claim {
+  border: 1px solid var(--line);
+  border-left: 2px solid var(--accent);
+  border-radius: var(--radius-2);
+  padding: 11px 13px;
+  margin-bottom: 10px;
+}
+.bp-int-claim .bp-knob-note {
+  margin: 0 0 9px;
 }

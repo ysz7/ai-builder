@@ -5,6 +5,8 @@ question with what came back. The order of the stages is the pipeline, and it is
 through the graph rather than here.
 """
 
+from pathlib import Path
+
 from bp import generated
 from rag.chunking import Chunker
 from rag.corpus import DOCUMENTS
@@ -14,10 +16,16 @@ from rag.retrieval import Retriever
 
 
 @generated()
-def build_index() -> object:
+def build_index(documents: list[str] | None = None) -> object:
     # GENERATED. Stage wiring; edited through the graph, not by hand.
+    #
+    # `documents` are paths a person chose in the builder. Given none, the corpus this
+    # project already declares is what gets indexed -- the two halves of one verb.
+    corpus = (
+        [Path(one).read_text(encoding="utf-8") for one in documents] if documents else DOCUMENTS
+    )
     chunker = Chunker()
-    chunks = [chunk for document in DOCUMENTS for chunk in chunker.split(document)]
+    chunks = [chunk for document in corpus for chunk in chunker.split(document)]
     return Embedder().index(chunks)
 
 

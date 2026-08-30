@@ -19,6 +19,18 @@
       "id": "mcp-agent",
       "title": "MCP agent and server",
       "description": "All three MCP roles at once: a server exposed, consumed, and bound."
+    },
+    {
+      "id": "mcp-filesystem",
+      "title": "Filesystem MCP Server",
+      "description": "Read, list and search files under roots the node allows.",
+      "part": true
+    },
+    {
+      "id": "mcp-gmail",
+      "title": "Gmail MCP Server",
+      "description": "Search, read and send mail. The credential is named, never stored.",
+      "part": true
     }
   ]
 }

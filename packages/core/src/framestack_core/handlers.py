@@ -36,6 +36,7 @@ from framestack_core.api import (
     agent_sign_out,
     blueprint_insert,
     blueprint_plan,
+    claim_node,
     command_list,
     command_logs,
     command_start,
@@ -45,6 +46,8 @@ from framestack_core.api import (
     connectable_kinds,
     create_new_project,
     describe_kinds,
+    dotenv_read,
+    dotenv_write,
     env_call,
     environment_status,
     layout_get,
@@ -149,6 +152,24 @@ def graph_read(params: dict[str, Any]) -> dict[str, Any]:
 def env_status(params: dict[str, Any]) -> dict[str, Any]:
     """Describe the environment. Reads; starts nothing."""
     return environment_status(_project_of(params), _optional_str(params, "python"))
+
+
+def env_file_read(params: dict[str, Any]) -> dict[str, Any]:
+    """The project's `.env`, as text. **No path parameter, ever** -- see `DOTENV_PATH`."""
+    return dotenv_read(_project_of(params))
+
+
+def env_file_write(params: dict[str, Any]) -> dict[str, Any]:
+    """Store `.env`, whole and verbatim. The client holds the text and sends the text.
+
+    `_required_str` is deliberately not used: it rejects `""`, and emptying this file is an
+    ordinary edit -- somebody deleting the last variable they had. A missing key is still a
+    fault, because that is a caller who forgot the argument rather than one who cleared it.
+    """
+    text = params.get("text")
+    if not isinstance(text, str):
+        raise ProtocolError("invalid_params", "'text' must be a string")
+    return dotenv_write(_project_of(params), text)
 
 
 def env_up(params: dict[str, Any]) -> dict[str, Any]:
@@ -754,10 +775,33 @@ def command_stop_method(params: dict[str, Any]) -> dict[str, Any]:
     return command_stop(_project_of(params))
 
 
+def node_claim(params: dict[str, Any]) -> dict[str, Any]:
+    """Claim a node as a member of a group. Two ids, because membership is a relation."""
+    return claim_node(
+        _project_of(params),
+        _required_str(params, "group"),
+        _required_str(params, "member"),
+    )
+
+
 def rag_index_method(params: dict[str, Any]) -> dict[str, Any]:
-    """Hand the pipeline its documents. A write into somebody's store, so: a press (P17.5)."""
+    """Hand the pipeline its documents. A write into somebody's store, so: a press (P17.5).
+
+    `documents` is optional and absent means what it always meant -- rebuild from what the
+    project considers its documents. A non-string in the list is a fault rather than a
+    silently dropped entry: a caller who sent five paths and had four indexed would have no
+    way to find out.
+    """
+    given = params.get("documents")
+    if given is not None and (
+        not isinstance(given, list) or not all(isinstance(one, str) and one for one in given)
+    ):
+        raise ProtocolError("invalid_params", "'documents' must be a list of non-empty strings")
     return rag_index(
-        _project_of(params), _required_str(params, "node"), _optional_str(params, "python")
+        _project_of(params),
+        _required_str(params, "node"),
+        _optional_str(params, "python"),
+        given,
     )
 
 
@@ -776,6 +820,7 @@ HANDLERS: dict[str, Handler] = {
     "knob.set": knob_set,
     "node.set_title": node_set_title,
     "node.connect": node_connect,
+    "node.claim": node_claim,
     "node.source": node_source_method,
     "node.set_body": node_set_body,
     "repair.list": repair_list,
@@ -787,6 +832,8 @@ HANDLERS: dict[str, Handler] = {
     "agent.record": agent_record_method,
     "agent.failures": agent_failures_method,
     "env.status": env_status,
+    "env.read_file": env_file_read,
+    "env.write_file": env_file_write,
     "env.up": env_up,
     "env.down": env_down,
     "env.call": env_call_method,

@@ -105,23 +105,30 @@ export function Talk({ project, node, onAnswered }: Props) {
     }
   }
 
-  const start = () =>
-    void act("Open", async () => {
-      const answer = await talkOpen(project, node);
-      if (!answer.ok) {
-        setFailed(answer.detail);
-        return;
-      }
-      setOpen(true);
-      offset.current = 0;
-      // Read once, so the reason the project gave for being ready is not lost.
-      await read();
-    });
-
+  /**
+   * Ask, opening the conversation first if this is the first question.
+   *
+   * **The surface is open from the start; the process is not** (P11). The card shows a box
+   * to type in because a chat with a button in front of it is a chat nobody has yet, and a
+   * canvas that spawned the project's interpreter for every conversable node the moment it
+   * drew one would be starting things nobody asked for -- a process per agent, held open
+   * for a question that may never come. Typing is not asking; pressing Ask is, and that is
+   * the gesture the spawn hangs off.
+   */
   const send = () =>
     void act("Ask", async () => {
       const text = draft.trim();
       if (!text) return;
+      if (!open) {
+        const started = await talkOpen(project, node);
+        if (!started.ok) {
+          setFailed(started.detail);
+          return;
+        }
+        setOpen(true);
+        offset.current = 0;
+        await read();
+      }
       const answer = await talkSay(project, node, text);
       if (!answer.ok) {
         setFailed(answer.detail);
@@ -144,11 +151,6 @@ export function Talk({ project, node, onAnswered }: Props) {
 
   return (
     <>
-      <div className="bp-cap">
-        Talk{" "}
-        <span className="bp-cap-n">{open ? "listening" : "not open"}</span>
-      </div>
-
       {lines.length > 0 ? (
         <div className="bp-talk-log" ref={tail}>
           {lines.map((event, index) => (
@@ -166,32 +168,72 @@ export function Talk({ project, node, onAnswered }: Props) {
         </div>
       ) : null}
 
-      <div className="bp-acts">
-        {open ? (
-          <>
-            <input
-              className="bp-field"
-              value={draft}
-              placeholder="Ask it something"
-              spellCheck={false}
+      {/* The reference's composer: a box to type in with its actions on a strip inside it,
+          rather than a field and a row of buttons under the card. There is no `Talk to it`
+          in front of it -- see `send` for why the *surface* being open does not mean a
+          process is (P11). */}
+      <div className="bp-compose">
+        <textarea
+          className="bp-compose-text"
+          value={draft}
+          rows={3}
+          placeholder="Ask it something"
+          spellCheck={false}
+          disabled={busy !== ""}
+          onChange={(event) => setDraft(event.target.value)}
+          onKeyDown={(event) => {
+            // Enter asks; Shift+Enter is a newline, because a question can be a paragraph.
+            if (event.key === "Enter" && !event.shiftKey) {
+              event.preventDefault();
+              send();
+            }
+          }}
+        />
+        <div className="bp-compose-bar">
+          {/* What the process is doing, said where the reference puts its word count. It is
+              the only place `open` is visible now, and it is a report rather than a switch:
+              the button that opened it is gone, and closing lives beside it. */}
+          <span className="bp-compose-state">
+            {busy !== "" ? "…" : open ? "listening" : "not started"}
+          </span>
+          {open ? (
+            <button
+              className="bp-compose-icon"
+              title="Close the conversation"
+              aria-label="Close the conversation"
               disabled={busy !== ""}
-              onChange={(event) => setDraft(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.key === "Enter") send();
-              }}
-            />
-            <button className="bp-btn" disabled={busy !== ""} onClick={send}>
-              {busy === "Ask" ? "…" : "Ask"}
+              onClick={shut}
+            >
+              <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true">
+                <path
+                  d="M6 6l12 12M18 6L6 18"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                />
+              </svg>
             </button>
-            <button className="bp-btn" disabled={busy !== ""} onClick={shut}>
-              {busy === "Close" ? "…" : "Close"}
-            </button>
-          </>
-        ) : (
-          <button className="bp-btn" disabled={busy !== ""} onClick={start}>
-            {busy === "Open" ? "…" : "Talk to it"}
+          ) : null}
+          <button
+            className="bp-compose-send"
+            title="Ask"
+            aria-label="Ask"
+            disabled={busy !== "" || draft.trim() === ""}
+            onClick={send}
+          >
+            <svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true">
+              <path
+                d="M5 12h13m0 0-5-5m5 5-5 5"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2.2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+            </svg>
           </button>
-        )}
+        </div>
       </div>
 
       {failed ? (
