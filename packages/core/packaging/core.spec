@@ -14,29 +14,11 @@ a = Analysis(
     [str(ROOT / "src" / "framestack_core" / "__main__.py")],
     pathex=[str(ROOT / "src")],
     binaries=[],
-    # The system prompt is data the core reads at runtime, not documentation, so it
-    # travels with the binary -- under the package directory, which is where
-    # `agent.prompt_path` looks from source as well. One file, one lookup.
-    datas=[
-        (
-            str(ROOT / "src" / "framestack_core" / "prompts" / "system-prompt-claude-code.md"),
-            "framestack_core/prompts",
-        ),
-        # The probe is handed to the *project's* interpreter as a plain file (P11), so it
-        # has to exist on disk -- a module frozen into the archive cannot be run by anyone
-        # but this binary.
-        (str(ROOT / "src" / "framestack_core" / "probe.py"), "framestack_core"),
-        # The bundled blueprint catalog (P20). It is package data for the reason the system
-        # prompt is: the core reads it at runtime and a frozen sidecar has no repository
-        # around it to look in. It is also the whole of Q28's first source -- the catalog
-        # shipped *with the application*, whose trust decision was made at install -- so a
-        # build that dropped it would leave only the named one, which most people have not
-        # got.
-        (
-            str(ROOT / "src" / "framestack_core" / "blueprints"),
-            "framestack_core/blueprints",
-        ),
-    ],
+    # Nothing to carry yet. The system prompt, the probe and the bundled blueprint catalog
+    # were all data this binary read at runtime, and the rebuild deleted the mechanisms they
+    # belonged to. The prompts come back in Phase 4 and go here when they do -- a datas entry
+    # for a file that is not there is a build that fails on somebody else's machine.
+    datas=[],
     # libcst pulls its grammar and native parser in dynamically; without this the
     # frozen binary imports cleanly and then fails at first parse.
     hiddenimports=["libcst", "libcst.native"],

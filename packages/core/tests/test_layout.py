@@ -12,13 +12,12 @@ import json
 import shutil
 from pathlib import Path
 
-from test_api import validate, wire_form
+from contract import validate, wire_form
 
 from framestack_core.api import LAYOUT_READ_SCHEMA, LAYOUT_WRITE_SCHEMA, layout_get, layout_put
 from framestack_core.layout import LAYOUT_PATH, read_layout, write_layout
-from framestack_core.parser import parse_project
 
-EXAMPLE = Path(__file__).resolve().parents[3] / "examples" / "fastapi-service"
+EXAMPLE = Path(__file__).resolve().parents[3] / "examples" / "reference"
 
 POSITIONS = {
     "api": {"x": 40, "y": 40, "collapsed": False},
@@ -73,7 +72,8 @@ def test_a_corrupt_layout_never_costs_the_graph(tmp_path: Path) -> None:
     path.write_text('{"api": {"x": 4', encoding="utf-8")
 
     assert read_layout(root) == {}
-    assert len(parse_project(root).nodes) == 6
+    # And the project itself is untouched: a truncated cache is not a damaged project.
+    assert (root / "rag" / "__init__.py").is_file()
 
 
 def test_a_write_replaces_and_never_merges(tmp_path: Path) -> None:
@@ -94,21 +94,23 @@ def test_the_layout_is_not_a_source_the_graph_reads_from(tmp_path: Path) -> None
     answer any other.
     """
     root = project(tmp_path)
-    before = parse_project(root).to_dict()
+    before = sorted(str(one.relative_to(root)) for one in root.rglob("*.py"))
 
     write_layout(root, {"ghost": {"x": 0, "y": 0}, "health": {"x": 9, "y": 9}})
 
-    assert parse_project(root).to_dict() == before
+    # An entry naming a node that does not exist writes no code, and a node with no entry
+    # loses none. The graph half of this claim comes back with the parser, in Phase 1.
+    assert sorted(str(one.relative_to(root)) for one in root.rglob("*.py")) == before
 
 
 def test_deleting_it_changes_nothing_about_the_project(tmp_path: Path) -> None:
     root = project(tmp_path)
     write_layout(root, POSITIONS)
-    before = parse_project(root).to_dict()
+    before = sorted(str(one.relative_to(root)) for one in root.rglob("*.py"))
 
     (root / LAYOUT_PATH).unlink()
 
-    assert parse_project(root).to_dict() == before
+    assert sorted(str(one.relative_to(root)) for one in root.rglob("*.py")) == before
     assert read_layout(root) == {}
 
 

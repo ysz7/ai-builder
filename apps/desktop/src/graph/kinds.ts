@@ -1,126 +1,74 @@
 /**
- * How a kind and a verdict become something you can see.
+ * How a kind becomes something you can see.
  *
- * Two rules from the design, and they are the ones a convenience would erode first:
+ * One rule, and it is the one a convenience would erode first: **colour identifies the
+ * kind, never the state.** In the reference it is the category tab above the card, and ours
+ * carries the kind in that tab, in that geometry. A verdict — when there is one to have —
+ * gets a mark of its own rather than a hue that fights the tab for the same pixels.
  *
- *   - **Colour identifies the kind, never the state.** In the reference it is the category
- *     tab sitting above the card -- `Input` blue, `Action` amber, `Output` green -- and
- *     ours carries the kind's *family* in that tab, in that geometry (P18.3).
- *   - **The quiet state is the unproven one.** A project nobody has run yet is grey, and
- *     green is spent on what a run earned (Q23).
- *
- * The kind itself comes from the registry (`graph.kinds`), never from a string invented
- * here -- an unregistered kind falls through to the neutral family rather than being
- * guessed at.
+ * There are exactly five entries and there is no registry behind them. A kind here is what
+ * the core returned, which is one of the four conventions or `file`; anything else falls
+ * through to the neutral tint rather than being guessed at. The old version of this file
+ * mapped twenty-seven registry kinds onto framework families, and mapping a node to a
+ * framework is precisely the claim the convention removed.
  */
 
-import type { Verdict } from "../core/types";
-
-/** The technology a kind belongs to, by its prefix. The registry's own rule. */
-export function technologyOf(kind: string): string {
-  return kind.split(".")[0] ?? "";
-}
-
-/**
- * The families, in the tint pair the reference's category tab wears: an ink and a ground.
- *
- * A pair rather than one colour because the tab is a filled chip and the card's edge is a
- * line, and the same hue cannot do both jobs at the two contrasts they need.
- */
-const FAMILIES = new Set([
-  "fastapi",
-  "mcp",
-  "langgraph",
-  "rag",
-  "queue",
-  "docker",
-  "db",
-  "vector",
-]);
-
-/** The family, as a token suffix. Anything unregistered lands on the neutral one. */
-export function familyOf(kind: string): string {
-  const technology = technologyOf(kind);
-  return FAMILIES.has(technology) ? technology : "none";
-}
-
-/** The ink: the card's edge, the tab's text, a contract wire leaving this node. */
-export function tintOf(kind: string): string {
-  const family = familyOf(kind);
-  // db and vector have no ground of their own in the token file; they read as the
-  // persistence family, which is what a compose file's services are.
-  const token = family === "db" || family === "vector" ? "docker" : family;
-  return `var(--k-${token})`;
-}
-
-/** The ground: the tab's fill, and nothing else. A card is never filled with a family. */
-export function tintBgOf(kind: string): string {
-  const family = familyOf(kind);
-  const token = family === "db" || family === "vector" ? "docker" : family;
-  return `var(--k-${token}-bg)`;
-}
-
-/** The mark in the corner. A question, never a warning triangle -- unproven is not a fault. */
-export const MARKS: Record<Verdict, string> = {
-  green: "✓",
-  unproven: "?",
-  broken: "✕",
-};
-
-export function verdictOf(verdicts: Record<string, string>, id: string): Verdict {
-  const value = verdicts[id];
-  return value === "green" || value === "broken" ? value : "unproven";
-}
-
-/**
- * The family's name, as the tab says it.
- *
- * The registry's own word, capitalised and nothing else. The reference names a *role*
- * (`Input`, `Action`, `LLM`) because its nodes have roles; ours name the technology,
- * because that is the fact our graph actually holds -- inventing a role would be the
- * front end deciding something the code did not say.
- */
-const NAMES: Record<string, string> = {
-  fastapi: "FastAPI",
-  mcp: "MCP",
-  langgraph: "LangGraph",
+/** What the category tab says. The kind as a person names it, not as the payload spells it. */
+const LABELS: Record<string, string> = {
+  agent: "Agent",
+  api: "Service",
   rag: "RAG",
-  queue: "Queue",
-  docker: "Docker",
-  db: "Database",
-  vector: "Vector store",
-  none: "Node",
+  worker: "Worker",
+  file: "File",
 };
-
-export function familyName(kind: string): string {
-  return NAMES[familyOf(kind)] ?? "Node";
-}
 
 /**
- * The glyph in a card's header, one per family.
- *
- * Drawn here rather than pulled from an icon set: six paths are less than a dependency,
- * and every one of them has to answer to the same 24-box and the same stroke weight as
- * the rest of this application's marks.
+ * A path in a 24-box, stroked. Two of these is less than an icon dependency, and an icon
+ * set is a thing to keep in step with a design that is already ported by hand.
  */
-export const GLYPHS: Record<string, string> = {
-  // a route: something arriving and being answered
-  fastapi: "M4 12h11M11 8l4 4-4 4M17 5h3v14h-3",
-  // a socket a foreign program is reached through
-  mcp: "M8 4v6a4 4 0 0 0 8 0V4M12 14v6M8 20h8",
-  // a state machine: two nodes and the edge between them
-  langgraph: "M6 7a2 2 0 1 0 0-.01M18 17a2 2 0 1 0 0-.01M8 8l8 8M17 7l-9 9",
-  // a store being read from
-  rag: "M4 6c0-1.1 3.6-2 8-2s8 .9 8 2-3.6 2-8 2-8-.9-8-2ZM4 6v12c0 1.1 3.6 2 8 2s8-.9 8-2V6",
-  // work waiting in a line
-  queue: "M4 7h10M4 12h13M4 17h7M19 10v7M16 14l3 3 3-3",
-  // a container
-  docker: "M4 10h4v4H4zM9 10h4v4H9zM14 10h4v4h-4zM9 5h4v4H9zM3 14c0 3 3 5 7 5s10-2 11-6",
-  db: "M4 6c0-1.1 3.6-2 8-2s8 .9 8 2-3.6 2-8 2-8-.9-8-2ZM4 6v12c0 1.1 3.6 2 8 2s8-.9 8-2V6",
-  vector: "M12 3 3 8v8l9 5 9-5V8zM3 8l9 5 9-5M12 13v8",
-  none: "M5 5h14v14H5z",
+const GLYPHS: Record<string, string> = {
+  // A figure: the thing that is asked and answers.
+  agent: "M12 3a3.5 3.5 0 1 1 0 7 3.5 3.5 0 0 1 0-7zM5 21v-1.5A4.5 4.5 0 0 1 9.5 15h5a4.5 4.5 0 0 1 4.5 4.5V21",
+  // A server that answers over a wire.
+  api: "M4 5h16v5H4zM4 14h16v5H4zM7.5 7.5h.01M7.5 16.5h.01",
+  // Stacked documents with a query going in.
+  rag: "M4 6c0-1.4 3.6-2.5 8-2.5s8 1.1 8 2.5-3.6 2.5-8 2.5S4 7.4 4 6zM4 6v6c0 1.4 3.6 2.5 8 2.5s8-1.1 8-2.5V6M4 12v6c0 1.4 3.6 2.5 8 2.5s8-1.1 8-2.5v-6",
+  // A queue of jobs waiting to be handled.
+  worker: "M5 4h14v4H5zM5 10h14v4H5zM5 16h14v4H5z",
+  // A page with a folded corner.
+  file: "M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8zM14 3v5h5",
 };
+
+/** A kind the core actually names. Anything else lands on the neutral tint. */
+function known(kind: string): boolean {
+  return kind in LABELS;
+}
+
+export function labelOf(kind: string): string {
+  return LABELS[kind] ?? kind;
+}
 
 export function glyphOf(kind: string): string {
-  return GLYPHS[familyOf(kind)] ?? GLYPHS.none;
+  return GLYPHS[kind] ?? GLYPHS.file;
+}
+
+/** The ink: the tab's text, and the ring on a pin an edge lands on. */
+export function tintOf(kind: string): string {
+  return `var(--k-${known(kind) ? kind : "none"})`;
+}
+
+/** The ground: the tab's fill, and nothing else. A card is never filled with a kind. */
+export function tintBgOf(kind: string): string {
+  return `var(--k-${known(kind) ? kind : "none"}-bg)`;
+}
+
+/**
+ * What the kind requires, as one line for the card's pill.
+ *
+ * The export **is** the node's identity, so it is on the face of the card rather than
+ * hidden in a panel: `agent/` is an Agent because it exports `run`, and a person reading
+ * the canvas should be able to see the reason a thing is there.
+ */
+export function contractOf(exports: string[]): string {
+  return exports.join(", ");
 }

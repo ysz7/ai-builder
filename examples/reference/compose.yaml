@@ -1,0 +1,28 @@
+# What this project needs running around it. A node on the graph, and the thing `Deploy`
+# brings up.
+services:
+  api:
+    build: .
+    command: ["python", "-m", "uvicorn", "api:app", "--host", "0.0.0.0", "--port", "8000"]
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    depends_on:
+      - postgres
+
+  worker:
+    build: .
+    command: ["python", "-c", "import worker; print(sorted(worker.HANDLERS))"]
+    env_file:
+      - .env
+    depends_on:
+      - postgres
+
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_PASSWORD: reference
+      POSTGRES_DB: reference
+    ports:
+      - "5432:5432"

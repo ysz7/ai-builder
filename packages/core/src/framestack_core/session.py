@@ -40,8 +40,6 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from framestack_core.agent import prompt_path
-
 __all__ = [
     "AGENT_LOG_PATH",
     "AGENT_STATE_PATH",
@@ -852,9 +850,9 @@ def start_session(
         *STRICT_MCP,
         "--disallowed-tools",
         *DENIED,
-        # Verbatim, and on every invocation: what `--resume` keeps is not ours to assume.
-        "--append-system-prompt-file",
-        str(prompt_path()),
+        # No system prompt is appended. The old one taught an annotation layer that no longer
+        # exists; the four command prompts that replace it arrive in Phase 4, and until then
+        # an agent told nothing is better than one told rules the parser cannot read.
     ]
     # A standing yes about commands, for somebody who does not want to be asked about every
     # one of them. Absent by default: being asked is the arrangement, and this is the opt-out.

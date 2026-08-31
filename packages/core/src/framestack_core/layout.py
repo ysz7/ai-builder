@@ -1,9 +1,9 @@
 """Where the person put things on the canvas.
 
-The fifth file in `.framestack/`, and it belongs to the same family as the other four: the
-snapshot, the run record, the worker record and the agent log are all state the toolchain
-keeps *about* a project without the project depending on any of it. Delete this one and
-nothing changes except that the nodes come back in different places.
+One of the files in `.framestack/`, and it belongs to the same family as the rest: the agent
+log and the shell records are state the toolchain keeps *about* a project without the project
+depending on any of it. Delete this one and nothing changes except that the nodes come back
+in different places.
 
 **The core stores it and refuses to understand it.** What is in here is `id -> whatever the
 canvas needs` -- coordinates today, a collapsed flag beside them, something else in a year --

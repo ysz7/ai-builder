@@ -10,9 +10,10 @@ this does not.
 from __future__ import annotations
 
 import json
+from itertools import takewhile
 from pathlib import Path
 
-from test_api import validate, wire_form
+from contract import validate, wire_form
 
 from framestack_core.api import AGENT_SESSION_SCHEMA, agent_poll, agent_session
 from framestack_core.layout import create_project
@@ -320,10 +321,14 @@ def test_a_fork_keeps_the_branch_it_came_from(monkeypatch, tmp_path: Path) -> No
     assert "--fork-session" in command
 
 
-def test_the_prompt_is_appended_on_every_way_in(monkeypatch, tmp_path: Path) -> None:
-    """`--resume` restores a conversation, and what it restores of the system prompt is not
-    ours to assume -- so the file is handed over again every time (§3: one set of rules)."""
-    from framestack_core.session import prompt_path, start_session
+def test_no_system_prompt_is_appended_on_any_way_in(monkeypatch, tmp_path: Path) -> None:
+    """The rebuild deleted the prompt that taught an annotation layer, and did not replace it.
+
+    An agent told nothing writes ordinary Python; an agent told rules no parser can read
+    writes markup that colours nothing. The four command prompts arrive in Phase 4, and when
+    they do this test becomes the one asserting each command loads its own file and no other.
+    """
+    from framestack_core.session import start_session
 
     seen = spawn(monkeypatch, tmp_path)
     start_session(tmp_path)
@@ -331,7 +336,7 @@ def test_the_prompt_is_appended_on_every_way_in(monkeypatch, tmp_path: Path) -> 
     start_session(tmp_path, resume="abc-123", fork=True)
 
     for command in seen:
-        assert command[command.index("--append-system-prompt-file") + 1] == str(prompt_path())
+        assert "--append-system-prompt-file" not in command
         assert "Write(.framestack/**)" in command
 
 
@@ -1639,7 +1644,8 @@ def test_the_only_thing_denied_by_name_is_the_builders_own_directory(
     start_session(tmp_path)
 
     line = seen[-1]
-    refused = line[line.index("--disallowed-tools") + 1 : line.index("--append-system-prompt-file")]
+    rest = line[line.index("--disallowed-tools") + 1 :]
+    refused = list(takewhile(lambda rule: not rule.startswith("--"), rest))
     assert "Write(.framestack/**)" in refused
     assert not any(rule.startswith("Bash(") for rule in refused)
 

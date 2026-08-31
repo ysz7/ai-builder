@@ -1,10 +1,9 @@
 [project]
 name = "framestack-ai-builder"
 version = "0.1.0"
-description = "Workspace root. The shippable pieces are packages/bp and packages/core."
+description = "Workspace root. The shippable piece is packages/core."
 requires-python = ">=3.10"
 dependencies = [
-    "bp",
     "framestack-core",
 ]
 
@@ -14,69 +13,38 @@ dev = [
     "pyinstaller>=6.22.2",
     "ruff>=0.9",
     "mypy>=1.14",
-    # The example projects the gates are proven against. Test-only, every one of them:
-    # neither `bp` nor the core may ever depend on a web framework, an agent runtime or a
-    # vector store. The core reads those projects statically and runs them in a subprocess.
-    "fastapi>=0.115",
-    "httpx>=0.28",
-    "langgraph>=1.2.11",
-    # Pulled in by the RAG example's vector store, and pinned for one reason: numpy 2.5's
-    # bundled stubs are written in syntax newer than the Python floor we typecheck against,
-    # and mypy ignores `follow_imports` for stub files, so there is no way to tell it not
-    # to read someone else's package. Lift the pin when the floor moves past 3.11.
-    "numpy<2.5",
-    "psycopg[binary]>=3.3.4",
-    # The background-work example: celery and the redis transport its broker speaks. The
-    # checks ask celery what it knows; nothing here reads the library's source.
-    "celery>=5.6",
-    "redis>=5.0",
-    "uvicorn>=0.52.4",
-    "mcp>=1.0",
+    # The reference project's settings classes. Test-only: the core reads a settings class
+    # with libcst and never imports it, so nothing here may become a dependency of the core.
+    "pydantic>=2.0",
+    "pydantic-settings>=2.0",
 ]
 
 [tool.uv.workspace]
 members = ["packages/*"]
 
 [tool.uv.sources]
-bp = { workspace = true }
 framestack-core = { workspace = true }
 
 [tool.pytest.ini_options]
-testpaths = ["packages/bp/tests", "packages/core/tests"]
+# The reference project's own suite runs here too: it is the run the graph is observed by,
+# so a reference whose tests do not pass is a fixture that proves nothing.
+testpaths = ["packages/core/tests", "examples/reference/tests"]
 
 [tool.ruff]
 line-length = 100
 target-version = "py310"
-# The mis-annotated fixture is broken on purpose, down to a file that will not parse.
-# The bundled catalog's `files/` are **data**, not this package's source: they are somebody
-# else's project, carried across to be copied into somebody else's project, and holding them
-# to this repository's lint settings would be this application having an opinion about the
-# code it hands over. They are linted where they are authored, in `examples/`.
-extend-exclude = [
-    "examples/*/stripped",
-    "packages/core/tests/fixtures",
-    "packages/core/src/framestack_core/blueprints",
-]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "SIM", "TID"]
 
 [tool.ruff.lint.isort]
-# `app` and `work` are the example projects' own packages.
-known-first-party = ["bp", "framestack_core", "app", "work"]
-
-[tool.ruff.lint.per-file-ignores]
-# The example is generated-agent output: it exists to be parsed, not to be tidy.
-"examples/**" = ["B008"]
+# The reference project's own packages, so its imports sort as first-party where it lives.
+known-first-party = ["framestack_core", "agent", "api", "rag", "worker"]
 
 [tool.mypy]
 python_version = "3.10"
 strict = true
-files = ["packages/bp/src", "packages/core/src"]
-# The bundled catalog is data, for the reason ruff excludes it -- and mechanically it also
-# holds four `conftest.py` files, which is a duplicate-module error before it is anything
-# else. They are type-checked where they are authored, in `examples/`.
-exclude = "packages/core/src/framestack_core/blueprints/"
+files = ["packages/core/src", "examples/reference"]
 
 [[tool.mypy.overrides]]
 # libcst ships types, but its matchers module is loose enough to fight strict mode.

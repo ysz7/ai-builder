@@ -4109,3 +4109,119 @@ textarea {
   line-height: 1.4;
   color: var(--bad);
 }
+
+/* ---------- the file card, and the node panel ---------- */
+
+/* A file node carries a name and nothing else, so it gets no tab, no pill and no room for
+   one. It is never coloured either -- nothing runs a `.env`, so nothing can prove it -- and
+   the smaller card is what says that without a badge having to say it. */
+.bp-card-file {
+  padding: 10px 12px;
+}
+.bp-card-file .bp-card-title {
+  font-size: 13.5px;
+  font-family: var(--mono);
+  font-weight: 500;
+}
+
+/* The panel a node opens. A column of label-and-value rows: what it is, where it is, what
+   its kind requires, what it contains. Each row is a reading of the code, never a control
+   -- the controls arrive beside the capability that can answer for them. */
+.bp-node-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 14px;
+}
+.bp-node-row {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+.bp-node-label {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted-2);
+}
+.bp-node-value {
+  font-size: 13px;
+  color: var(--fg-2);
+}
+.bp-node-value code {
+  font-family: var(--mono);
+  font-size: 11.5px;
+  color: var(--fg-2);
+}
+.bp-node-exports {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.bp-node-exports code {
+  padding: 3px 9px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-2);
+  background: var(--surface);
+}
+/* The half of the contract the package does not have. Named rather than coloured red: this
+   is a reading of the code and not a verdict from a run, and the two must not share a hue. */
+.bp-node-exports code.is-missing {
+  border-style: dashed;
+  border-color: var(--line-strong);
+  color: var(--muted-3);
+  text-decoration: line-through;
+}
+.bp-node-why {
+  padding: 9px 11px;
+  border-radius: var(--radius-2);
+  background: var(--bg-2);
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--muted-2);
+}
+.bp-node-list,
+.bp-node-files {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.bp-node-files code {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--muted-2);
+}
+.bp-node-list button {
+  align-self: flex-start;
+  border: none;
+  background: none;
+  padding: 0;
+  color: var(--accent);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+/* The child count on a system card, and the fold it belongs to. It is the one number on the
+   canvas that moves when the agent writes a package -- a new `agents/researcher/` takes it
+   from 0 to 1 -- so it sits in the header where the title is, not in a footer. */
+.bp-card-count {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-pill);
+  background: var(--surface);
+  color: var(--muted-2);
+  font-size: 11.5px;
+  line-height: 1.5;
+  cursor: pointer;
+}
+.bp-card-count:hover {
+  border-color: var(--line-strong);
+  color: var(--fg);
+}

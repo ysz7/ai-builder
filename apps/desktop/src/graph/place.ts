@@ -1,190 +1,186 @@
 /**
- * Where to draw a node that has no saved position.
+ * Where to draw a node that has no saved position, and what shape the canvas takes.
  *
- * The layout cache answers "where do I draw this?" for the nodes the person has arranged.
- * This answers it for the rest -- a node the agent has just written, or a project opened
- * for the first time -- and it must be **deterministic**, so that opening the same project
- * twice without touching anything puts everything in the same place.
+ * Two rules govern everything here.
  *
- * Group frames are deliberately absent from this file. A frame has no geometry of its own:
- * it is the bounding box of what it contains, computed at render. That is why it can never
- * disagree with its members, and why moving a node moves the frame around it.
+ * **Position carries no meaning.** It does not set execution order and moving a node
+ * changes nothing in the project — the graph is a projection of the code, not a document
+ * that runs. So this file answers one question, "where do I draw this?", and it is allowed
+ * no others.
+ *
+ * **It must be deterministic.** Opening the same project twice without touching anything
+ * has to put everything in the same place, or the canvas moves under a person for reasons
+ * they did not cause. A saved position always wins: they put it there on purpose.
+ *
+ * The frame around a system's children is deliberately absent from the layout it produces.
+ * A frame has no geometry of its own — it is the box around what it contains, computed at
+ * render — which is why it can never disagree with its members.
  */
 
-import type { GraphNode, Layout, Placement } from "../core/types";
+import type { Graph, GraphEdge, GraphNode, Layout } from "../core/types";
 
-/** Somewhere on the canvas. Not a `Placement` -- that one also carries collapsed state. */
 export type Point = { x: number; y: number };
+export type Box = Point & { width: number; height: number };
 
-/**
- * The reference's cards are wide enough for a sentence of description and a field block to
- * read as prose rather than as a column of fragments, and ours carry the same things. 300
- * is where a docstring line stops wrapping every three words.
- */
-export const NODE_WIDTH = 300;
-/**
- * A chat card (Q34). Wider than a node card, because what it holds is prose somebody wrote
- * and prose somebody is reading, not a column of labelled fields.
- */
-export const TALK_WIDTH = 360;
-/**
- * The distance between two top-level columns.
- *
- * Wide enough for the deepest card plus the frame's padding on both sides: a frame wraps
- * everything **under** it, not just its direct members, so a router's routes are inside it
- * and indented, and the widest thing a column ever holds is a card at the deepest level.
- */
-const COLUMN = 470;
-/** How far a card is set in from its parent's. Containment, drawn as position. */
+/** Wide enough for a dotted path and a contract line to read without wrapping. */
+export const NODE_WIDTH = 268;
+/** A file node says a name and nothing else, so it is given no more room than that. */
+export const FILE_WIDTH = 176;
+
+const COLUMN = 372;
+const GUTTER = 30;
+/** How far a child is set in from its parent. Containment, drawn as position. */
 const INDENT = 24;
-const FRAME_PAD = 26;
-const FRAME_TOP = 52;
-/** The gap between two stacked cards. Constant; what varies is the card, not the gap. */
-const GUTTER = 26;
+const FRAME_PAD = 22;
+/** Room for the frame's bar, which is what carries the parent's name and its fold. */
+const FRAME_TOP = 34;
+const ORIGIN = 60;
 
 /**
  * How tall a card will be, derived from what it will draw.
  *
- * An estimate and not a measurement, because this file runs **before** anything is drawn:
- * it answers "where does the next one go?" and "how big is the frame around these?", and
- * both questions are asked while the cards are still a list of nodes. Deriving it from the
- * card's own anatomy is what keeps the two in step -- the old constant was written for a
- * two-line node, and the reference's card is not one, so a group's frame stopped short of
- * its own members the moment the card grew (P18.3).
- *
- * It is deliberately structural: knobs, a description line, the pill row. Nothing here
- * depends on a verdict or an observation, so the same graph lays out the same way before
- * and after somebody presses Observe -- a frame that resized itself when a test passed
- * would move the person's canvas as a side effect of running their tests.
+ * An estimate rather than a measurement, because this runs *before* anything is drawn: it
+ * answers "where does the next one go?" while the cards are still a list of nodes. It is
+ * structural on purpose — the tab, the header, the path line, the reason where there is
+ * one, the contract pill — so nothing that Observe will later add can move a person's
+ * canvas as a side effect of running their tests.
  */
-export function cardHeight(node: GraphNode, placement?: Placement): number {
-  const shown = placement?.expanded ? node.knobs.length : Math.min(node.knobs.length, 3);
+export function cardHeight(node: GraphNode): number {
+  if (node.kind === "file") return 44;
   return (
     22 + // the category tab, above the card and overlapping it
-    46 + // the header row and the card's own padding
-    (node.summary ? 22 : 0) +
-    shown * 82 + // a field block: its label chip, its control, its margin
-    (node.knobs.length > 3 ? 22 : 0) + // "n more"
-    38 // the pill row
+    44 + // the header row and the card's own padding
+    20 + // the path line
+    (node.reason ? 34 : 0) +
+    38 // the contract pill
   );
 }
 
-/** The nodes no group claims. Top level is groups and artifact nodes only (Q4, Q10). */
-export function topLevel(nodes: GraphNode[]): GraphNode[] {
-  const claimed = new Set(nodes.flatMap((node) => node.members));
-  return nodes.filter((node) => !claimed.has(node.id));
+export function cardWidth(node: GraphNode): number {
+  return node.kind === "file" ? FILE_WIDTH : NODE_WIDTH;
+}
+
+/** Is this system showing its children, or a count? View state, and only ever that. */
+export function isExpanded(layout: Layout, id: string): boolean {
+  return layout[id]?.expanded === true;
+}
+
+/** The nodes the canvas draws: every top-level one, and a child only inside an open parent. */
+export function visible(graph: Graph, layout: Layout): GraphNode[] {
+  return graph.nodes.filter(
+    (node) => node.parent === "" || isExpanded(layout, node.parent),
+  );
 }
 
 /**
- * Everything under a node, in declaration order, with how deep it sits.
+ * The visible node an edge should land on.
  *
- * A frame is drawn around a **whole subtree**, never around one generation of it. A router
- * owns its routes and the service owns the router, so a frame that stopped at its direct
- * members left the routes outside the region that claims them -- drawn far away, on a row
- * for nodes nothing could place, with a wire crossing back in. The picture said the routes
- * were not part of the service, and the code says they are.
- *
- * The visited set is defence, not decoration: containment is declared and the gate is what
- * rejects a cycle, but this walk runs on whatever the parser returned, including a project
- * that is currently wrong. A cycle here would be an infinite loop in the canvas.
+ * A collapsed parent stands in for its children. Dropping the edge instead would make a
+ * dependency disappear because somebody folded a card — the import is still there, and a
+ * view state must not be able to contradict the code. Two children importing the same
+ * system collapse to one line, which is what a folded parent is claiming.
  */
-export function descendants(
-  group: GraphNode,
-  byId: Map<string, GraphNode>,
-  seen: Set<string> = new Set(),
-): { node: GraphNode; depth: number }[] {
-  const out: { node: GraphNode; depth: number }[] = [];
-  const walk = (parent: GraphNode, depth: number): void => {
-    for (const id of parent.members) {
-      if (seen.has(id)) continue;
-      seen.add(id);
-      const child = byId.get(id);
-      if (!child) continue;
-      out.push({ node: child, depth });
-      walk(child, depth + 1);
-    }
-  };
-  walk(group, 0);
-  return out;
+function stand(id: string, byId: Map<string, GraphNode>, drawn: Set<string>): string {
+  let at: GraphNode | undefined = byId.get(id);
+  while (at && !drawn.has(at.id)) at = at.parent ? byId.get(at.parent) : undefined;
+  return at?.id ?? "";
+}
+
+/** The edges the canvas draws, each rerouted onto whatever is actually on screen. */
+export function foldEdges(graph: Graph, shown: GraphNode[]): GraphEdge[] {
+  const byId = new Map(graph.nodes.map((node) => [node.id, node]));
+  const drawn = new Set(shown.map((node) => node.id));
+  const out = new Map<string, GraphEdge>();
+
+  for (const edge of graph.edges) {
+    const source = stand(edge.source, byId, drawn);
+    const target = stand(edge.target, byId, drawn);
+    if (!source || !target || source === target) continue;
+    const id = `${source}->${target}:${edge.kind}:${edge.label}`;
+    out.set(id, { ...edge, id, source, target });
+  }
+  return [...out.values()];
 }
 
 /**
- * A position for every node, saved ones kept and the rest placed beside their group.
+ * A position for every visible node: saved ones kept, the rest placed.
  *
- * A saved entry always wins, including one whose node has moved to a different group: the
- * person put it there on purpose, and quietly relocating it would be the toolchain having
- * an opinion about their canvas.
+ * Systems take a column each in the order the core returned them, an open system's children
+ * stack under it, and the four file nodes take a row along the bottom. The arrangement is
+ * arbitrary and says nothing — what matters is that it is the same every time and that a
+ * person can move any of it.
  */
-export function placeAll(nodes: GraphNode[], saved: Layout): Record<string, Point> {
-  const byId = new Map(nodes.map((node) => [node.id, node]));
+export function placeAll(graph: Graph, layout: Layout): Record<string, Point> {
+  const shown = visible(graph, layout);
   const placed: Record<string, Point> = {};
-  const at = (id: string): Point | null => {
-    const entry = saved[id];
-    return entry && entry.x !== undefined && entry.y !== undefined
+  const saved = (id: string): Point | null => {
+    const entry = layout[id];
+    return entry?.x !== undefined && entry.y !== undefined
       ? { x: entry.x, y: entry.y }
       : null;
   };
 
-  let column = 0;
-  for (const group of topLevel(nodes)) {
-    const x = 60 + column * COLUMN;
-    let row = 0;
+  const systems = shown.filter((node) => node.kind !== "file" && node.parent === "");
+  const files = shown.filter((node) => node.kind === "file");
 
-    // Deliberately no entry for the group: a frame is derived from what it contains.
-    let cursor = 60 + FRAME_TOP;
-    // The whole subtree, not one generation: a node the frame will wrap has to be placed
-    // inside the column, or the frame grows to reach it somewhere across the canvas.
-    for (const { node: member, depth } of descendants(group, byId)) {
-      placed[member.id] = at(member.id) ?? { x: x + FRAME_PAD + depth * INDENT, y: cursor };
-      // Stepped by the card's own height rather than by a fixed row: cards differ by
-      // several field blocks now, and a constant stride either overlaps the tall ones or
-      // strands the short ones in whitespace.
-      cursor += cardHeight(member, saved[member.id]) + GUTTER;
-      row += 1;
+  let column = 0;
+  let deepest = 0;
+  for (const system of systems) {
+    const x = ORIGIN + column * COLUMN;
+    placed[system.id] = saved(system.id) ?? { x, y: ORIGIN };
+
+    let cursor = ORIGIN + cardHeight(system) + GUTTER + FRAME_TOP;
+    if (isExpanded(layout, system.id)) {
+      for (const child of shown.filter((node) => node.parent === system.id)) {
+        placed[child.id] = saved(child.id) ?? { x: x + INDENT, y: cursor };
+        cursor += cardHeight(child) + GUTTER;
+      }
+      cursor += FRAME_PAD;
     }
-    if (row === 0) placed[group.id] = at(group.id) ?? { x, y: 60 };
+    deepest = Math.max(deepest, cursor);
     column += 1;
   }
 
-  // Anything the walk above missed -- a node whose parent is unresolved, say. It is still
-  // in the graph, so it still gets drawn; the gate is what says the containment is wrong.
+  // The files sit under everything, on one row. They are never coloured and they depend on
+  // nothing, so they are the one part of the canvas with no relation to arrange around.
+  const row = Math.max(deepest, ORIGIN + 200) + 90;
+  files.forEach((file, index) => {
+    placed[file.id] =
+      saved(file.id) ?? { x: ORIGIN + index * (FILE_WIDTH + 26), y: row };
+  });
+
+  // Anything the walk above missed — a child whose parent the core did not return, say. It
+  // is in the graph, so it is drawn; being unplaceable is not a reason to hide a node.
   let stray = 0;
-  for (const node of nodes) {
+  for (const node of shown) {
     if (placed[node.id]) continue;
-    placed[node.id] = at(node.id) ?? { x: 60 + stray * COLUMN, y: 640 };
+    placed[node.id] = saved(node.id) ?? { x: ORIGIN + stray * COLUMN, y: row + 140 };
     stray += 1;
   }
   return placed;
 }
 
-/** The box a frame draws around its members. Derived, never stored. */
+/**
+ * The box a frame draws around a system's children. Derived, never stored.
+ *
+ * `null` when the system has none on screen: there is nothing to wrap, and a frame around
+ * nothing is a region claiming a membership that does not exist.
+ */
 export function frameBox(
-  group: GraphNode,
+  system: GraphNode,
+  shown: GraphNode[],
   placed: Record<string, Point>,
-  nodes: GraphNode[] = [],
-  saved: Layout = {},
-): { x: number; y: number; width: number; height: number } {
-  const byId = new Map(nodes.map((node) => [node.id, node]));
-  // Every node under the group, however deep. The frame is a region that says "these are
-  // the service", so a route the service owns through its router belongs inside it.
-  const members = descendants(group, byId)
-    .map(({ node }) => {
-      const point = placed[node.id];
-      return point ? { ...point, height: cardHeight(node, saved[node.id]) } : null;
-    })
-    .filter(Boolean) as (Point & { height: number })[];
-  const own = placed[group.id] ?? { x: 60, y: 60 };
+): Box | null {
+  const members = shown
+    .filter((node) => node.parent === system.id)
+    .map((node) => ({ at: placed[node.id], node }))
+    .filter((member) => member.at !== undefined);
+  if (members.length === 0) return null;
 
-  if (members.length === 0) {
-    return { x: own.x, y: own.y, width: NODE_WIDTH + FRAME_PAD * 2, height: 84 };
-  }
-
-  const left = Math.min(...members.map((p) => p.x));
-  const top = Math.min(...members.map((p) => p.y));
-  const right = Math.max(...members.map((p) => p.x + NODE_WIDTH));
-  // Each member's own height, so the frame ends below the tallest card rather than below a
-  // constant somebody chose when cards were two lines.
-  const bottom = Math.max(...members.map((p) => p.y + p.height));
+  const left = Math.min(...members.map((m) => m.at.x));
+  const top = Math.min(...members.map((m) => m.at.y));
+  const right = Math.max(...members.map((m) => m.at.x + cardWidth(m.node)));
+  const bottom = Math.max(...members.map((m) => m.at.y + cardHeight(m.node)));
 
   return {
     x: left - FRAME_PAD,

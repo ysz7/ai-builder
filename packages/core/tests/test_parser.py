@@ -1,574 +1,389 @@
-"""The parser reads what the code says, and nothing else.
+"""The graph, read from a project's own directories and imports (Phase 1).
 
-Two things are being defended here. That the graph is *derived* -- every fact traced to a
-syntax node, never to a convention or a guess (I-1). And that reading a project never runs
-it: a parser that imported would execute a stranger's module to draw a picture of it, and
-would go blind exactly when a project is broken and the graph matters most.
+Every test here is stated about `examples/reference` or about a copy of it, because that is
+the fixture the plan's acceptance criteria are written against: four systems, four file
+nodes, and one import between two of them.
+
+The shape of these tests is the point of the rebuild. Each one changes **one thing in the
+project** -- an import, a directory name, an export -- and asserts the one thing that
+changes in the graph. That is only possible because recognition is a convention rather than
+an annotation: there is nothing else the change could have broken.
 """
 
 from __future__ import annotations
 
-import textwrap
+import json
+import shutil
+import time
 from pathlib import Path
 
-from framestack_core.parser import parse_project, parse_source
+from contract import validate, wire_form
+
+from framestack_core.api import GRAPH_SCHEMA, graph_get
+from framestack_core.parser import Graph, Node, read_graph
+
+EXAMPLE = Path(__file__).resolve().parents[3] / "examples" / "reference"
 
 
-def parse(source: str) -> object:
-    return parse_source(textwrap.dedent(source).lstrip())
-
-
-def write_project(root: Path, files: dict[str, str]) -> Path:
-    for relative, source in files.items():
-        path = root / relative
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(textwrap.dedent(source).lstrip(), encoding="utf-8")
+def project(tmp_path: Path) -> Path:
+    """A writable copy. These tests edit the project; the reference is not theirs to edit."""
+    root = tmp_path / "project"
+    shutil.copytree(EXAMPLE, root, ignore=shutil.ignore_patterns("__pycache__", ".framestack"))
     return root
 
 
-# -- carriers and zones ----------------------------------------------------------
+def ids(graph: Graph, family: str) -> list[str]:
+    """The node ids of one family: `"file"` for the four root files, `"system"` for the rest."""
+    wanted = family == "file"
+    return sorted(item.id for item in graph.nodes if (item.kind == "file") is wanted)
 
 
-def test_a_decorated_function_becomes_a_node_with_its_carrier() -> None:
-    graph = parse(
-        """
-        from bp import editable, node
+def edges(graph: Graph) -> set[tuple[str, str, str]]:
+    return {(edge.source, edge.target, edge.kind) for edge in graph.edges}
 
-        @node(id="health", kind="fastapi.route", title="Health")
-        @editable(signature_locked=True)
-        def health() -> dict[str, str]:
-            return {"status": "ok"}
-        """
+
+def node(graph: Graph, node_id: str) -> Node:
+    found = [item for item in graph.nodes if item.id == node_id]
+    assert found, f"no node {node_id!r} in {[item.id for item in graph.nodes]}"
+    return found[0]
+
+
+# -- what the reference is -------------------------------------------------------------
+
+
+def test_the_reference_is_four_systems_and_four_files() -> None:
+    """The acceptance criterion, stated as one assertion.
+
+    `exactly` is the load-bearing word. A parser that found five would be one that guessed
+    about a directory, and every guess this file exists to prevent starts as one extra node.
+    """
+    graph = read_graph(EXAMPLE)
+
+    assert graph.ok is True
+    assert ids(graph, "system") == ["agent", "api", "rag", "worker"]
+    assert ids(graph, "file") == [".env", "Dockerfile", "compose.yaml", "mcp.json"]
+
+
+def test_every_system_in_the_reference_is_complete() -> None:
+    """Its four packages export what their kinds require, which is what makes it a fixture."""
+    graph = read_graph(EXAMPLE)
+
+    for item in graph.nodes:
+        assert item.complete is True, f"{item.id}: {item.reason}"
+        assert item.missing == ()
+
+
+def test_a_kind_is_never_a_framework() -> None:
+    """The whole reason there are four kinds and not twenty-seven.
+
+    `agent/` is recognised because it exports `run`, and nothing in the payload may say what
+    it is built on -- the moment a stack appears in a kind, the registry is back.
+    """
+    graph = read_graph(EXAMPLE)
+
+    assert {item.kind for item in graph.nodes} == {"agent", "api", "rag", "worker", "file"}
+
+
+def test_file_nodes_carry_no_contract() -> None:
+    """They are shown, opened and edited. Nothing runs them, so nothing can prove them."""
+    graph = read_graph(EXAMPLE)
+
+    for item in graph.nodes:
+        if item.kind != "file":
+            continue
+        assert item.exports == ()
+        assert item.children == ()
+        assert item.parent == ""
+
+
+def test_a_project_that_is_not_there_is_a_result_and_not_a_crash() -> None:
+    graph = read_graph(EXAMPLE / "nowhere")
+
+    assert graph.ok is False
+    assert graph.nodes == ()
+    assert "no project" in graph.detail
+
+
+# -- edges -----------------------------------------------------------------------------
+
+
+def test_the_agent_rag_edge_exists_because_of_one_import() -> None:
+    """`agent/tools.py` does `from rag import search`. That import is the whole edge."""
+    assert ("agent", "rag", "import") in edges(read_graph(EXAMPLE))
+
+
+def test_removing_the_import_removes_the_edge(tmp_path: Path) -> None:
+    """The projection, proven in one step: change the code, the graph follows.
+
+    Nothing is invalidated, nothing is migrated, and no stored edge has to be found and
+    deleted -- because there was never anywhere for one to be stored.
+    """
+    root = project(tmp_path)
+    assert ("agent", "rag", "import") in edges(read_graph(root))
+
+    (root / "agent" / "tools.py").write_text(
+        "def look_up(query: str, passages: int) -> list[str]:\n    return []\n",
+        encoding="utf-8",
     )
 
-    node = graph.node("health")
-    assert node is not None
-    assert (node.kind, node.title) == ("fastapi.route", "Health")
-    assert node.carrier == "module.health"
-    assert node.carrier_type == "function"
-    assert node.zone == "editable"
-    assert node.location.file == "module.py"
-    assert node.location.start_line == 3
+    assert ("agent", "rag", "import") not in edges(read_graph(root))
 
 
-def test_a_decorated_class_becomes_a_node() -> None:
-    graph = parse(
-        """
-        from bp import node
-
-        @node(id="settings", kind="fastapi.settings")
-        class ApiSettings:
-            pass
-        """
+def test_a_relative_import_states_the_same_fact_as_an_absolute_one(tmp_path: Path) -> None:
+    """`from ..rag import search` is the same dependency, written differently."""
+    root = project(tmp_path)
+    (root / "agent" / "tools.py").write_text(
+        "from ..rag import search\n\n\ndef look_up(q: str, n: int) -> list[str]:\n"
+        "    return [c.text for c in search(q, top_k=n)]\n",
+        encoding="utf-8",
     )
 
-    node = graph.node("settings")
-    assert node is not None
-    assert node.carrier_type == "class"
-    assert node.carrier == "module.ApiSettings"
+    assert ("agent", "rag", "import") in edges(read_graph(root))
 
 
-def test_an_editable_signature_is_locked_unless_it_says_otherwise() -> None:
-    """An omitted argument must not quietly turn the contract optional."""
-    graph = parse(
-        """
-        from bp import editable
+def test_a_package_importing_itself_is_not_an_edge() -> None:
+    """`agent/__init__.py` reads `agent.tools`. That is its own internals, not a relation."""
+    for edge in read_graph(EXAMPLE).edges:
+        assert edge.source != edge.target
 
-        @editable()
-        def rank(items: list[int]) -> list[int]:
-            return items
-        """
-    )
 
-    assert graph.functions[0].signature_locked is True
+def test_mcp_servers_are_edges_from_the_agent_to_the_file_that_configures_them() -> None:
+    """One edge per configured server. The servers themselves are not nodes.
 
+    They are somebody else's process reached over a protocol; the project's fact about them
+    is the file, so that is where the edges land -- each carrying the server's name.
+    """
+    graph = read_graph(EXAMPLE)
+    mcp = [edge for edge in graph.edges if edge.kind == "mcp"]
 
-def test_an_unlocked_signature_is_reported_as_unlocked() -> None:
-    graph = parse(
-        """
-        from bp import editable
-
-        @editable(signature_locked=False)
-        def rank(items: list[int]) -> list[int]:
-            return items
-        """
-    )
-
-    assert graph.functions[0].signature_locked is False
-
-
-def test_unmarked_functions_are_reported_not_dropped() -> None:
-    """The gate's rule is "no unmarked functions"; it cannot check what it never sees."""
-    graph = parse(
-        """
-        from bp import generated
-
-        @generated()
-        def wired() -> None:
-            pass
-
-        def forgotten() -> None:
-            pass
-        """
-    )
-
-    zones = {function.path: function.zone for function in graph.functions}
-    assert zones == {"module.wired": "generated", "module.forgotten": None}
-
-
-def test_methods_of_a_class_carrier_are_classified_too() -> None:
-    graph = parse(
-        """
-        from bp import editable, node
-
-        @node(id="chunker", kind="fastapi.settings")
-        class Chunker:
-            @editable()
-            def chunk(self, text: str) -> list[str]:
-                return [text]
-        """
-    )
-
-    assert [function.path for function in graph.functions] == ["module.Chunker.chunk"]
-    assert graph.functions[0].zone == "editable"
-
-
-def test_signatures_are_read_in_full() -> None:
-    graph = parse(
-        """
-        from bp import editable
-
-        @editable()
-        def search(q: str, *, limit: int = 10, **extra: str) -> list[str]:
-            return []
-        """
-    )
-
-    rendered = graph.functions[0].signature.render()
-
-    assert rendered == "(q: str, limit: int = 10, **extra: str) -> list[str]"
-
-
-# -- knobs -----------------------------------------------------------------------
-
-
-def test_knobs_are_read_with_their_metadata_and_address() -> None:
-    graph = parse(
-        """
-        from typing import Annotated
-
-        from bp import Param, node
-
-        @node(id="settings", kind="fastapi.settings")
-        class ApiSettings:
-            timeout_s: Annotated[int, Param(min=1, max=120, label="Timeout")] = 30
-            level: Annotated[str, Param(widget="select", choices=("info", "debug"))] = "info"
-        """
-    )
-
-    timeout, level = graph.node("settings").knobs
-
-    assert (timeout.name, timeout.type, timeout.default) == ("timeout_s", "int", "30")
-    assert (timeout.min, timeout.max, timeout.label) == (1, 120, "Timeout")
-    assert timeout.widget is None  # the type picks the control (architecture §5.5)
-    assert timeout.location.object == "ApiSettings.timeout_s"
-
-    assert (level.widget, level.choices) == ("select", ("info", "debug"))
-
-
-def test_an_annotated_field_without_param_is_not_a_knob() -> None:
-    """`Annotated` is a general-purpose type tool; only `Param` declares a knob."""
-    graph = parse(
-        """
-        from typing import Annotated
-
-        from bp import node
-
-        @node(id="settings", kind="fastapi.settings")
-        class ApiSettings:
-            name: Annotated[str, "not ours"] = "x"
-            plain: int = 5
-        """
-    )
-
-    assert graph.node("settings").knobs == ()
-
-
-def test_a_computed_bound_is_reported_as_absent_rather_than_invented() -> None:
-    graph = parse(
-        """
-        from typing import Annotated
-
-        from bp import Param, node
-
-        LIMIT = 120
-
-        @node(id="settings", kind="fastapi.settings")
-        class ApiSettings:
-            timeout_s: Annotated[int, Param(min=1, max=LIMIT)] = 30
-        """
-    )
-
-    knob = graph.node("settings").knobs[0]
-    assert knob.min == 1
-    assert knob.max is None
-
-
-# -- groups ----------------------------------------------------------------------
-
-
-def test_group_members_resolve_across_modules_by_reference(tmp_path: Path) -> None:
-    root = write_project(
-        tmp_path,
-        {
-            "app/__init__.py": "",
-            "app/health.py": """
-                from bp import node
-
-                @node(id="health", kind="fastapi.route")
-                def health() -> dict[str, str]:
-                    return {}
-            """,
-            "app/__node__.py": """
-                from bp import group_node
-
-                from app.health import health
-
-                service = group_node(id="api", kind="fastapi.service", members=[health])
-            """,
-        },
-    )
-
-    graph = parse_project(root)
-    service = graph.node("api")
-
-    assert service.members == ("health",)
-    assert service.carrier_type == "group"
-    # The carrier is the subsystem, not the file that happens to declare it.
-    assert service.carrier == "app"
-    assert [node.id for node in graph.top_level] == ["api"]
-
-
-def test_a_single_carrier_node_may_declare_members() -> None:
-    """Containment is not carriership: a router has one carrier and still holds routes."""
-    graph = parse(
-        """
-        from bp import editable, generated, node
-
-        @node(id="route", kind="fastapi.route")
-        @editable()
-        def list_users() -> list[str]:
-            return []
-
-        @node(id="router", kind="fastapi.router", members=[list_users])
-        @generated()
-        def users_router() -> object:
-            return list_users
-        """
-    )
-
-    assert graph.node("router").members == ("route",)
-    assert [node.id for node in graph.top_level] == ["router"]
-
-
-def test_membership_is_declared_not_inferred_from_references() -> None:
-    """A reference is not a claim. Only `members=` makes one node the parent of another."""
-    graph = parse(
-        """
-        from bp import generated, node
-
-        @node(id="route", kind="fastapi.route")
-        def list_users() -> list[str]:
-            return []
-
-        @node(id="router", kind="fastapi.router")
-        @generated()
-        def users_router() -> object:
-            return list_users
-        """
-    )
-
-    assert graph.node("router").members == ()
-    assert {node.id for node in graph.top_level} == {"router", "route"}
-    # The relation is still visible -- as what it actually is, an edge.
-    assert [(edge.source, edge.target) for edge in graph.edges] == [("router", "route")]
-
-
-def test_relative_imports_resolve(tmp_path: Path) -> None:
-    root = write_project(
-        tmp_path,
-        {
-            "app/__init__.py": "",
-            "app/health.py": """
-                from bp import node
-
-                @node(id="health", kind="fastapi.route")
-                def health() -> dict[str, str]:
-                    return {}
-            """,
-            "app/__node__.py": """
-                from bp import group_node
-
-                from .health import health
-
-                service = group_node(id="api", kind="fastapi.service", members=[health])
-            """,
-        },
-    )
-
-    assert parse_project(root).node("api").members == ("health",)
-
-
-def test_aliased_markup_imports_are_followed() -> None:
-    graph = parse(
-        """
-        from bp import node as declare
-
-        @declare(id="health", kind="fastapi.route")
-        def health() -> None:
-            pass
-        """
-    )
-
-    assert graph.node("health") is not None
-
-
-# -- edges -----------------------------------------------------------------------
-
-
-def test_an_edge_carries_the_target_signature_as_its_contract() -> None:
-    graph = parse(
-        """
-        from bp import editable, generated, node
-
-        @node(id="route", kind="fastapi.route")
-        @editable()
-        def list_users(limit: int = 10) -> list[str]:
-            return []
-
-        @node(id="router", kind="fastapi.router")
-        @generated()
-        def users_router() -> object:
-            return list_users
-        """
-    )
-
-    assert len(graph.edges) == 1
-    edge = graph.edges[0]
-    assert (edge.source, edge.target) == ("router", "route")
-    assert edge.contract == "(limit: int = 10) -> list[str]"
-
-
-def test_a_name_bound_to_a_carrier_still_resolves_to_it(tmp_path: Path) -> None:
-    """`settings = ApiSettings()` is how a settings node is actually reached."""
-    root = write_project(
-        tmp_path,
-        {
-            "app/__init__.py": "",
-            "app/settings.py": """
-                from bp import node
-
-                @node(id="settings", kind="fastapi.settings")
-                class ApiSettings:
-                    page_size: int = 25
-
-                settings = ApiSettings()
-            """,
-            "app/routes.py": """
-                from bp import editable, node
-
-                from app.settings import settings
-
-                @node(id="route", kind="fastapi.route")
-                @editable()
-                def list_users() -> int:
-                    return settings.page_size
-            """,
-        },
-    )
-
-    graph = parse_project(root)
-
-    assert [(edge.source, edge.target, edge.contract) for edge in graph.edges] == [
-        ("route", "settings", "ApiSettings")
+    assert [(edge.source, edge.target, edge.label) for edge in mcp] == [
+        ("agent", "mcp.json", "filesystem")
     ]
 
 
-def test_a_reference_to_something_that_is_not_a_node_draws_no_edge() -> None:
-    graph = parse(
-        """
-        from bp import generated, node
+def test_an_unreadable_mcp_file_costs_the_edges_and_nothing_else(tmp_path: Path) -> None:
+    """A person edits this file by hand. A trailing comma must not stop the graph."""
+    root = project(tmp_path)
+    (root / "mcp.json").write_text("{ not json", encoding="utf-8")
 
-        def helper() -> int:
-            return 1
+    graph = read_graph(root)
 
-        @node(id="router", kind="fastapi.router")
-        @generated()
-        def users_router() -> int:
-            return helper()
-        """
+    assert graph.ok is True
+    assert [edge for edge in graph.edges if edge.kind == "mcp"] == []
+    assert "mcp.json" in ids(graph, "file")
+
+
+# -- a directory that is not a node, and one that is broken ------------------------------
+
+
+def test_renaming_a_system_makes_it_disappear_rather_than_fail(tmp_path: Path) -> None:
+    """A directory not in the table is ordinary code. Not an error, not a warning."""
+    root = project(tmp_path)
+    (root / "rag").rename(root / "rag_old")
+
+    graph = read_graph(root)
+
+    assert graph.ok is True
+    assert "rag" not in ids(graph, "system")
+    assert "rag_old" not in ids(graph, "system")
+    # And the edge that pointed at it goes with it, because the import now names nothing.
+    assert ("agent", "rag", "import") not in edges(graph)
+
+
+def test_a_missing_export_is_an_incomplete_node_and_names_what_is_missing(
+    tmp_path: Path,
+) -> None:
+    """Never guessed at. The node is drawn, and it says which half of the contract is absent."""
+    root = project(tmp_path)
+    init = root / "rag" / "__init__.py"
+    init.write_text(
+        init.read_text(encoding="utf-8").replace(
+            "def index(paths: list[str]) -> None:", "def fill(paths: list[str]) -> None:"
+        ),
+        encoding="utf-8",
     )
 
-    assert graph.edges == ()
+    rag = node(read_graph(root), "rag")
+
+    assert rag.complete is False
+    assert rag.missing == ("index",)
+    assert "index" in rag.reason
 
 
-def test_field_names_are_not_mistaken_for_references() -> None:
-    """In `settings.page_size` the reference is `settings`; `page_size` is not a name."""
-    graph = parse(
-        """
-        from bp import generated, node
+def test_a_system_directory_with_no_init_is_incomplete_not_absent(tmp_path: Path) -> None:
+    """It is the state a half-written package is in, and hiding it hides the way out of it."""
+    root = project(tmp_path)
+    (root / "rag" / "__init__.py").unlink()
 
-        @node(id="a", kind="fastapi.route")
-        def page_size() -> int:
-            return 1
+    rag = node(read_graph(root), "rag")
 
-        @node(id="b", kind="fastapi.router")
-        @generated()
-        def router(config: object) -> int:
-            return config.page_size
-        """
-    )
-
-    assert graph.edges == ()
+    assert rag.complete is False
+    assert rag.missing == ("index", "search")
 
 
-# -- robustness ------------------------------------------------------------------
+def test_a_package_that_cannot_be_parsed_is_incomplete_and_not_a_crash(tmp_path: Path) -> None:
+    """Half-typed code is the ordinary state of code. The rest of the graph still draws."""
+    root = project(tmp_path)
+    (root / "rag" / "__init__.py").write_text("def search(  :::\n", encoding="utf-8")
+
+    graph = read_graph(root)
+
+    assert graph.ok is True
+    assert node(graph, "rag").complete is False
+    assert node(graph, "api").complete is True
 
 
-def test_the_parser_does_not_import_the_project(tmp_path: Path) -> None:
-    """A module that would blow up on import still parses. Reading is not running."""
-    root = write_project(
-        tmp_path,
-        {
-            "app/__init__.py": "",
-            "app/boom.py": """
-                from bp import node
+def test_an_export_may_arrive_by_any_binding(tmp_path: Path) -> None:
+    """A re-export, an assignment and a def are the same fact: the name is there.
 
-                raise RuntimeError("importing this would fail")
-
-                @node(id="boom", kind="fastapi.route")
-                def boom() -> None:
-                    pass
-            """,
-        },
-    )
-
-    graph = parse_project(root)
-
-    assert graph.node("boom") is not None
-    assert graph.unparsed == ()
-
-
-def test_a_file_that_will_not_parse_is_reported_and_the_rest_survives(tmp_path: Path) -> None:
-    root = write_project(
-        tmp_path,
-        {
-            "app/__init__.py": "",
-            "app/broken.py": "def (:\n",
-            "app/good.py": """
-                from bp import node
-
-                @node(id="good", kind="fastapi.route")
-                def good() -> None:
-                    pass
-            """,
-        },
-    )
-
-    graph = parse_project(root)
-
-    assert graph.node("good") is not None
-    assert [location.file for location in graph.unparsed] == ["app/broken.py"]
-
-
-def test_a_node_without_a_usable_id_still_reaches_the_graph() -> None:
-    """It is exactly the case the gate must report, so it needs a handle to be reported by."""
-    graph = parse(
-        """
-        from bp import node
-
-        @node(kind="fastapi.route")
-        def nameless() -> None:
-            pass
-        """
-    )
-
-    assert [node.id for node in graph.nodes] == ["<unidentified:module.nameless>"]
-
-
-def test_caches_and_environments_are_not_read(tmp_path: Path) -> None:
-    root = write_project(
-        tmp_path,
-        {
-            "app/__init__.py": "",
-            "app/.venv/lib/vendored.py": """
-                from bp import node
-
-                @node(id="vendored", kind="fastapi.route")
-                def vendored() -> None:
-                    pass
-            """,
-        },
-    )
-
-    assert parse_project(root).nodes == ()
-
-
-# -- the example project, whole --------------------------------------------------
-
-EXAMPLE = Path(__file__).resolve().parents[3] / "examples" / "fastapi-service"
-SNAPSHOT = Path(__file__).parent / "data" / "fastapi_service_graph.json"
-
-
-def test_the_example_project_produces_the_expected_graph() -> None:
-    """The acceptance test for the parser (roadmap P2).
-
-    A snapshot rather than a handful of assertions, because the thing being fixed is the
-    *whole* shape -- ids, carriers, zones, knobs, members, contracts and every address.
-    A change here is never incidental: either the example changed on purpose, or the
-    parser started reading the same code differently. Regenerate with
-
-        UPDATE_SNAPSHOTS=1 uv run pytest packages/core/tests/test_parser.py
-
-    and read the diff before committing it.
+    The contract is the symbol, not how it came to exist -- which is what lets a package be
+    rewritten onto a different stack without becoming a different node.
     """
-    import json
-    import os
+    root = project(tmp_path)
+    (root / "agent" / "__init__.py").write_text(
+        "from agent.tools import look_up as run\n", encoding="utf-8"
+    )
+    assert node(read_graph(root), "agent").complete is True
 
-    graph = parse_project(EXAMPLE).to_dict()
-    graph.pop("root")  # an absolute path; it says nothing about the graph
-
-    # Compared as JSON, not as Python objects: JSON is the form the shell and the UI
-    # actually receive, and it is where a tuple and a list stop being different things.
-    serialized = json.dumps(graph, indent=2) + "\n"
-    if os.environ.get("UPDATE_SNAPSHOTS"):
-        SNAPSHOT.write_text(serialized, encoding="utf-8")
-
-    assert json.loads(serialized) == json.loads(SNAPSHOT.read_text(encoding="utf-8"))
+    (root / "agent" / "__init__.py").write_text("run = lambda m, **kw: m\n", encoding="utf-8")
+    assert node(read_graph(root), "agent").complete is True
 
 
-def test_every_kind_in_the_example_is_registered() -> None:
-    """An unregistered kind has no shape and no observable check -- it is a typo (§5.6)."""
-    from framestack_core.kinds import is_registered
+def test_a_name_bound_only_under_type_checking_is_not_an_export(tmp_path: Path) -> None:
+    """It does not exist at runtime, and a parser that credited it would be guessing.
 
-    unknown = [node.kind for node in parse_project(EXAMPLE).nodes if not is_registered(node.kind)]
-
-    assert unknown == []
-
-
-def test_the_example_has_no_unmarked_functions_inside_a_carrier() -> None:
-    """The rule the gate enforces: unmarked *inside a carrier* is a forgotten mark (§4).
-
-    Outside every carrier -- the project's own tests, its conftest -- a function needs no
-    mark and gets none. The parser still sees those functions; they simply are not the
-    graph's to classify.
+    The same rule covers `try/except ImportError`: which branch ran is a question only
+    running the code can answer, and this never runs anything.
     """
-    from framestack_core.gate import check_graph
+    root = project(tmp_path)
+    (root / "agent" / "__init__.py").write_text(
+        "from typing import TYPE_CHECKING\n\nif TYPE_CHECKING:\n    from agent.tools import run\n",
+        encoding="utf-8",
+    )
 
-    unclassified = [
-        diagnostic.location.object
-        for diagnostic in check_graph(parse_project(EXAMPLE)).diagnostics
-        if diagnostic.code == "function.unclassified"
-    ]
+    assert node(read_graph(root), "agent").complete is False
 
-    assert unclassified == []
+
+# -- one level of nesting ----------------------------------------------------------------
+
+
+def child(root: Path, name: str, body: str = "") -> None:
+    """Write `agent/agents/<name>/` as a node, plus whatever else the test needs."""
+    package = root / "agent" / "agents" / name
+    package.mkdir(parents=True, exist_ok=True)
+    (package / "__init__.py").write_text(
+        f"from agent.agents.{name}.work import run\n\n__all__ = ['run']\n", encoding="utf-8"
+    )
+    (package / "work.py").write_text(
+        body or "def run(message: str, **kw: object) -> str:\n    return message\n",
+        encoding="utf-8",
+    )
+
+
+def test_a_child_appears_under_its_parent_and_the_count_moves(tmp_path: Path) -> None:
+    root = project(tmp_path)
+    assert node(read_graph(root), "agent").children == ()
+
+    child(root, "researcher")
+
+    graph = read_graph(root)
+    assert node(graph, "agent").children == ("agent.researcher",)
+    assert node(graph, "agent.researcher").parent == "agent"
+    assert node(graph, "agent.researcher").kind == "agent"
+
+
+def test_a_child_gets_its_own_edges(tmp_path: Path) -> None:
+    """The same rule one level down, including the one that draws the lines."""
+    root = project(tmp_path)
+    child(root, "researcher")
+    (root / "agent" / "agents" / "researcher" / "tools.py").write_text(
+        "from rag import search\n\n\ndef look(q: str) -> list[object]:\n    return search(q)\n",
+        encoding="utf-8",
+    )
+
+    assert ("agent.researcher", "rag", "import") in edges(read_graph(root))
+
+
+def test_a_parent_does_not_own_its_children_s_files(tmp_path: Path) -> None:
+    """Listed once, under the node they belong to. Twice would make the parent look bigger."""
+    root = project(tmp_path)
+    child(root, "researcher")
+
+    graph = read_graph(root)
+    parent_files = node(graph, "agent").files
+
+    assert "agent/tools.py" in parent_files
+    assert not any(item.startswith("agent/agents/") for item in parent_files)
+    assert "agent/agents/researcher/work.py" in node(graph, "agent.researcher").files
+
+
+def test_a_third_level_produces_no_nodes_and_no_error(tmp_path: Path) -> None:
+    """Only one level is recognised. Deeper is ordinary code, and silence is the answer."""
+    root = project(tmp_path)
+    child(root, "researcher")
+    deeper = root / "agent" / "agents" / "researcher" / "agents" / "assistant"
+    deeper.mkdir(parents=True)
+    (deeper / "__init__.py").write_text(
+        "def run(message: str, **kw: object) -> str:\n    return message\n", encoding="utf-8"
+    )
+
+    graph = read_graph(root)
+
+    assert graph.ok is True
+    assert not any(item.id.endswith(".assistant") for item in graph.nodes)
+    assert node(graph, "agent.researcher").children == ()
+
+
+def test_a_directory_in_the_nest_that_is_not_a_package_is_not_a_node(tmp_path: Path) -> None:
+    """In here the name is the author's, so the signal is being a package -- nothing else."""
+    root = project(tmp_path)
+    plain = root / "agent" / "agents" / "notes"
+    plain.mkdir(parents=True)
+    (plain / "readme.md").write_text("not a package\n", encoding="utf-8")
+
+    assert node(read_graph(root), "agent").children == ()
+
+
+def test_a_child_missing_its_export_is_incomplete_rather_than_absent(tmp_path: Path) -> None:
+    root = project(tmp_path)
+    package = root / "agent" / "agents" / "half"
+    package.mkdir(parents=True)
+    (package / "__init__.py").write_text("PLANNED = True\n", encoding="utf-8")
+
+    half = node(read_graph(root), "agent.half")
+
+    assert half.complete is False
+    assert half.missing == ("run",)
+
+
+# -- the payload, and what it costs ------------------------------------------------------
+
+
+def test_the_payload_matches_the_declared_contract() -> None:
+    """Strictly, in both directions: an undeclared field fails as loudly as a missing one."""
+    validate(wire_form(graph_get(EXAMPLE)), GRAPH_SCHEMA)
+
+
+def test_a_refusal_matches_the_same_contract(tmp_path: Path) -> None:
+    validate(wire_form(graph_get(tmp_path / "nowhere")), GRAPH_SCHEMA)
+
+
+def test_reading_the_reference_twice_gives_the_same_answer() -> None:
+    """Determinism (I-2), stated as the cheapest possible test.
+
+    The graph is a function of the tree and the imports in it. If two reads of an unchanged
+    project ever differ, something in here is reading the filesystem's ordering as meaning.
+    """
+    first = wire_form(graph_get(EXAMPLE))
+    second = wire_form(graph_get(EXAMPLE))
+
+    assert json.dumps(first, sort_keys=True) == json.dumps(second, sort_keys=True)
+
+
+def test_reading_the_reference_is_under_500ms() -> None:
+    """The acceptance number. A parse a person waits for is a parse they stop asking for."""
+    started = time.perf_counter()
+    read_graph(EXAMPLE)
+    elapsed = time.perf_counter() - started
+
+    assert elapsed < 0.5, f"{elapsed:.3f}s"

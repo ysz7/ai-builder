@@ -38,6 +38,10 @@ apps/desktop/src-tauri/gen/schemas/
 # that does cannot make its first commit the one that leaks a key.
 .env
 .env.*
+# ...except the reference project's, which is one of its four file nodes and therefore has
+# to be in the repository for the graph to have anything to draw. It holds defaults and no
+# credentials, and it is the one .env in here that a person is meant to read.
+!examples/reference/.env
 !.env.example
 
 # the reconciliation reference: a build artifact, rewritten by any passing gate run
