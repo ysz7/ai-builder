@@ -15,12 +15,25 @@
  *     And a settings write goes through `libcst` into the file the moment it is made, so a
  *     Save button would imply a buffer this application deliberately does not have.
  *
- * The buttons arrive with the capability behind them. `Observe` colours the graph from a
- * test run (Phase 2); `Run` and `Deploy` come with Phase 5. Drawing one before the core can
- * answer for it would be a control whose only possible outcome is an error.
+ * The buttons arrive with the capability behind them. `Observe` is here because the core can
+ * answer for it; `Run` and `Deploy` come with Phase 5. Drawing one before the core can answer
+ * for it would be a control whose only possible outcome is an error.
  */
 
-export function TopBar({ name, onAgent }: { name: string; onAgent: () => void }) {
+export function TopBar({
+  name,
+  onAgent,
+  onObserve,
+  observing,
+  observed,
+}: {
+  name: string;
+  onAgent: () => void;
+  onObserve: () => void;
+  observing: boolean;
+  /** Has anything been run here? Not whether it passed — that is the graph's to say. */
+  observed: boolean;
+}) {
   return (
     <header className="bp-top">
       <span className="bp-top-name" title={name}>
@@ -43,6 +56,27 @@ export function TopBar({ name, onAgent }: { name: string; onAgent: () => void })
             />
           </svg>
           Ask AI
+        </button>
+
+        {/* A statement about the button beside it: this picture was earned by a run, or
+            nothing has been run yet. It says *whether*, never *how it went* — the graph is
+            where a colour belongs, and a green dot up here would be a second verdict with
+            no node attached to it. */}
+        <span
+          className={`bp-evidence-dot${observed ? " is-on" : ""}`}
+          title={observed ? "these colours came from a run" : "nothing has been run here yet"}
+        />
+
+        {/* The black primary, where the reference puts `Publish`. That placement is the
+            argument of the whole product: the most emphatic button on the screen is the one
+            that produces evidence, because evidence is the thing no competitor can print. */}
+        <button
+          className="bp-btn is-primary"
+          onClick={onObserve}
+          disabled={observing}
+          title="Run this project's tests and colour the graph from what happened"
+        >
+          {observing ? "Observing…" : "Observe"}
         </button>
       </div>
     </header>

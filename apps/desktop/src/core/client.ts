@@ -67,7 +67,15 @@ export function ping(echo?: string): Promise<PingResult> {
 
 // -- the graph ---------------------------------------------------------------
 
-import type { Graph, Layout, LayoutRead, WriteResult } from "./types";
+import type {
+  Graph,
+  Layout,
+  LayoutRead,
+  Opened,
+  ObserveResult,
+  SettingsResult,
+  WriteResult,
+} from "./types";
 
 /**
  * Read a project into a graph.
@@ -81,6 +89,73 @@ export function graphRead(project: string): Promise<Graph> {
   return coreRequest<Graph>("graph.read", { project });
 }
 
+
+/**
+ * Run the project's own tests and colour the graph from what happened.
+ *
+ * The one call in this file that executes a stranger's code, which is why it is a verb
+ * somebody presses and never something a window does on opening. It returns as soon as the
+ * suite is running; what it decided arrives through `observeRead`.
+ */
+export function observeStart(project: string): Promise<ObserveResult> {
+  return coreRequest<ObserveResult>("observe.start", { project });
+}
+
+/** Poll the run. The caller keeps the offset it was last given (P13). */
+export function observeRead(
+  project: string,
+  offset = 0,
+): Promise<ObserveResult> {
+  return coreRequest<ObserveResult>("observe.read", { project, offset });
+}
+
+/** The last verdict set. A read: it starts no suite and changes no colour. */
+export function observeLast(project: string): Promise<ObserveResult> {
+  return coreRequest<ObserveResult>("observe.last", { project });
+}
+
+/** One system's knobs, read from its own `settings.py`. Imports nothing, creates nothing. */
+export function settingsRead(
+  project: string,
+  node: string,
+): Promise<SettingsResult> {
+  return coreRequest<SettingsResult>("settings.read", { project, node });
+}
+
+/**
+ * Set one field's default.
+ *
+ * The whole write path of this phase, and it is deliberately this small: one field, in one
+ * class, in one file, through libcst. What comes back is the file re-read — never what the
+ * panel believes it just wrote.
+ */
+export function settingsWrite(
+  project: string,
+  node: string,
+  field: string,
+  value: number | string | boolean,
+): Promise<SettingsResult> {
+  return coreRequest<SettingsResult>("settings.write", {
+    project,
+    node,
+    field,
+    value,
+  });
+}
+
+/**
+ * Open one of the project's files in the person's own editor, at the line.
+ *
+ * Not a convenience. The claim of the product is that the code is the source of truth, and a
+ * panel with no way through to the file would be asking somebody to take that on faith.
+ */
+export function editorOpen(
+  project: string,
+  path: string,
+  line = 0,
+): Promise<Opened> {
+  return coreRequest<Opened>("editor.open", { project, path, line });
+}
 
 /** Where the person put things. An empty layout is the ordinary first answer. */
 export function layoutRead(project: string): Promise<LayoutRead> {

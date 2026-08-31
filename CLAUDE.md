@@ -11,8 +11,8 @@ Assembled applications deploy as plain Python projects with no runtime dependenc
 
 **The repository is mid-rebuild, and the plan is `docs/framestack_rebuild_plan.md`.** Read it before
 proposing anything: it is the specification, and *rule zero is that anything not described in it is
-deleted*. Phase 0 (demolition) and Phase 1 (the read-only graph) are done. Phases 2–5 —
-Observe, the settings panel, the chat and Run/Deploy — are ahead, in that order, one at a time.
+deleted*. Phases 0–3 — demolition, the read-only graph, Observe and the settings panel — are
+done. Phases 4 and 5 — the chat and Run/Deploy — are ahead, in that order, one at a time.
 
 ### Why the rebuild exists
 
@@ -119,10 +119,19 @@ commands reachable from the graph — `Observe`, `Run`, `Deploy`, `Open` — and
 slide-out drawer, not a tab. Everything else lives on a node: click it and a panel opens with its
 settings, its files, its last verdict and its Run controls.
 
-**A control is drawn when the core can answer for it.** `Observe` arrives with Phase 2, `Run` and
-`Deploy` with Phase 5. A button whose only possible outcome is an error is worse than no button. For
-the same reason the graph payload carries **no verdict field at all** until Phase 2: a default the
-UI had to remember to disbelieve is how a node ends up green because it exists.
+**Every write goes through libcst, and the smallest one is the model for the rest.**
+`settings.write` changes one field's default in one class in one file; `git diff` afterwards is
+one line, and a test asks `git` itself rather than taking our word for it. A default built by a
+call is shown and refused rather than overwritten, a wrong type is refused with the file
+untouched, and the answer is always the file **re-read** — never a description of what the
+writer believes it did.
+
+**A control is drawn when the core can answer for it.** `Run` and `Deploy` arrive with Phase 5. A
+button whose only possible outcome is an error is worse than no button. For the same reason the
+**graph payload carries no verdict field**: a verdict comes from `observe.*` and is held beside the
+graph, never folded into it — they answer different questions and go stale at different moments, and
+a node with no entry has no verdict rather than a default one. A default the UI had to remember to
+disbelieve is how a node ends up green because it exists.
 
 ## The direction, and who this is for
 
@@ -210,8 +219,9 @@ Three layers, and the boundaries between them are load-bearing:
 Inside the core: `protocol.py` is the wire; `handlers.py` is the method table and `api.py` the
 payloads it assembles; `parser.py` derives the graph from the convention; `session.py` is the chat
 agent's process; `shell.py` is the terminal the person types into; `layout.py` is where a person put
-things. The observer and the writer are rebuilt on the convention in the phases ahead and land
-beside these.
+things; `observe.py` runs the project's tests and turns what happened into colour;
+`settings.py` reads and writes the one `BaseSettings` class a system may declare; `editor.py`
+is `Open`.
 
 **`parser.py` is the whole of recognition, and it is one read.** `graph.read` walks the four
 candidate directories, parses each `__init__.py` with libcst and reports the node as complete or as
@@ -248,14 +258,27 @@ connection. Never add a YAML reader, a Dockerfile reader or a migration reader t
 parser for someone else's format is a second opinion about a thing that already has a first one, and
 it is wrong in ways that look right.
 
+**Observe is the only thing that executes a project, and it earns every colour it draws.** A node
+is green because a passing test ran code inside it — the join of coverage.py's dynamic contexts and
+pytest's JUnit report, on the test's name, with no naming convention or directory heuristic
+anywhere in it. `grey` ("no test reached it") and `skipped` ("the run did not happen") are
+different claims and are never merged; a run that reached the network is `skipped` outright,
+because a check that passes or fails for reasons outside the repository is not evidence. Code
+executed at *import* time earns nothing: its coverage context is empty, and a module imported during
+collection has been proven by nobody.
+
 **The core imports no user code.** Everything reads statically so that drawing a graph never runs a
 stranger's code; a project that hangs or crashes must cost a subprocess rather than the core the UI
 is talking to.
 
-**Four things spawn a process** and they are one shape: the chat agent (`agent.*`, in `session.py`),
-the terminal (`shell.*`), and — from Phase 5 — `Run` and `Deploy`. All four follow the same rules:
+**Five things spawn a process** and they are one shape: the chat agent (`agent.*`, in
+`session.py`), the terminal (`shell.*`), Observe (`observe.*`), and — from Phase 5 — `Run` and
+`Deploy`. All of them follow the same rules:
 nothing is pushed, output is polled with an offset the caller keeps, a record on disk survives a
-crash, and nothing starts implicitly. The agent is denied writes to `.framestack/`, because an agent
+crash, and nothing starts implicitly. For Observe, *running* means the run table still holds it —
+the suite exiting is not the end of the run, because the coverage database and the test report
+still have to be read, and a caller told "idle" in that window would take the previous verdict set
+for the new one. The agent is denied writes to `.framestack/`, because an agent
 that could edit the state directory would be forging evidence about itself.
 
 **A permission is a question with an answer.** `--permission-prompt-tool stdio` makes the agent's

@@ -32,7 +32,7 @@ import {
 
 import "@xyflow/react/dist/style.css";
 
-import type { Graph, Layout } from "../core/types";
+import type { Graph, Layout, Observation } from "../core/types";
 import { FileCard } from "./FileCard";
 import { Frame } from "./Frame";
 import { SystemCard } from "./SystemCard";
@@ -51,6 +51,7 @@ const NODE_TYPES = { system: SystemCard, file: FileCard, frame: Frame };
 export function GraphCanvas({
   graph,
   layout,
+  observation,
   selected,
   onSelect,
   onMove,
@@ -58,6 +59,15 @@ export function GraphCanvas({
 }: {
   graph: Graph | null;
   layout: Layout;
+  /**
+   * The last run, or null where there has never been one.
+   *
+   * Held apart from the graph rather than folded into it, because they answer different
+   * questions and go stale at different moments: the graph is what the code says right now,
+   * and this is what a run proved at a commit. A node with no entry here has no verdict —
+   * never a default one.
+   */
+  observation: Observation | null;
   selected: string;
   onSelect: (id: string) => void;
   /**
@@ -74,6 +84,9 @@ export function GraphCanvas({
   const { nodes, edges } = useMemo(() => {
     if (!graph || !graph.ok) return { nodes: [] as Node[], edges: [] as Edge[] };
 
+    const found = new Map(
+      (observation?.verdicts ?? []).map((verdict) => [verdict.node, verdict]),
+    );
     const shown = visible(graph, layout);
     const placed = placeAll(graph, layout);
     const drawn = foldEdges(graph, shown);
@@ -107,6 +120,7 @@ export function GraphCanvas({
           name: system.name,
           kind: system.kind,
           count: system.children.length,
+          verdict: found.get(system.id)?.verdict ?? "",
           onToggle,
         },
       });
@@ -124,6 +138,10 @@ export function GraphCanvas({
             ? { node, pinned: pinned.up.has(node.id), onOpen: onSelect }
             : {
                 node,
+                // File nodes are never coloured, and they never reach here: nothing runs
+                // them, so nothing can prove them.
+                verdict: found.get(node.id)?.verdict ?? "",
+                reason: found.get(node.id)?.reason ?? "",
                 pins: {
                   in: pinned.in.has(node.id),
                   out: pinned.out.has(node.id),
@@ -158,7 +176,7 @@ export function GraphCanvas({
     }));
 
     return { nodes: flow, edges: wires };
-  }, [graph, layout, selected, onSelect, onToggle]);
+  }, [graph, layout, observation, selected, onSelect, onToggle]);
 
   const onNodesChange = useCallback(
     (changes: NodeChange[]) => {

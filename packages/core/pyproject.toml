@@ -6,6 +6,10 @@ requires-python = ">=3.10"
 license = "MIT"
 dependencies = [
     "libcst>=1.9.0",
+    # Observe. Both sides of it: the project's suite is run under `coverage run`, and the
+    # database it leaves behind is read back through this rather than out of its SQLite --
+    # nothing here parses somebody else's file format.
+    "coverage>=7.6",
 ]
 
 [project.optional-dependencies]

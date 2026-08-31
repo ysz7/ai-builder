@@ -10,19 +10,28 @@
  * canvas can see why `agent/` is an Agent without opening anything, which is the difference
  * between a graph that explains itself and a picture of one.
  *
- * There is no verdict mark here and no colour on the card, because nothing has run. Colour
- * is earned (I-3) and Phase 1 earns none; the incomplete state is not a verdict but a
- * reading of the code itself — the export the package does not have — so it is said in
- * words rather than in a hue that would later fight Observe's.
+ * The verdict is a **mark in the header and never a fill on the card**: the tab carries the
+ * kind, and a card washed in a state colour would be two facts fighting over one element.
+ * Before anything has been observed there is no mark at all — an absent verdict must read as
+ * absent, not as an early guess at a good one (I-3).
+ *
+ * The incomplete state is separate from all of that and is drawn separately: it is a reading
+ * of the code itself, the export the package does not have, so it is said in words. A hue
+ * there would later fight Observe's for the same meaning.
  */
 
 import { Handle, Position, type NodeProps } from "@xyflow/react";
 
 import type { GraphNode } from "../core/types";
 import { contractOf, glyphOf, labelOf, tintBgOf, tintOf } from "./kinds";
+import { known, markOf, wordsFor } from "./verdicts";
 
 export type CardData = {
   node: GraphNode;
+  /** What the last run proved, or `""` where nothing has been observed here. */
+  verdict: string;
+  /** Why, in the run's own words. Shown on hover rather than on the card: a card is not a log. */
+  reason: string;
   /** Whether an edge actually lands on each side. A pin nothing uses is decoration. */
   pins: { in: boolean; out: boolean; up: boolean; down: boolean };
   /** Showing its children rather than a count. View state; it changes nothing in the project. */
@@ -32,7 +41,8 @@ export type CardData = {
 };
 
 export function SystemCard({ data, selected }: NodeProps) {
-  const { node, pins, expanded, onOpen, onToggle } = data as unknown as CardData;
+  const { node, verdict, reason, pins, expanded, onOpen, onToggle } =
+    data as unknown as CardData;
 
   return (
     <div
@@ -94,6 +104,19 @@ export function SystemCard({ data, selected }: NodeProps) {
             />
           </svg>
           <span className="bp-card-title">{node.name}</span>
+
+          {/* Drawn only when there is one. An absent verdict is drawn as absent, because a
+              default would be this application deciding what an unobserved project looks
+              like — and every builder that decided that decided "fine". */}
+          {known(verdict) ? (
+            <span
+              className={`bp-mark is-${verdict}`}
+              title={reason || wordsFor(verdict)}
+              aria-label={wordsFor(verdict)}
+            >
+              {markOf(verdict)}
+            </span>
+          ) : null}
 
           {/* The count, and the fold it belongs to. A system with children says how many
               before it is opened — the plan's `0 to 1`, which is the one number on the

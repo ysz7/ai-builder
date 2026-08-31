@@ -13,7 +13,9 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+from framestack_core.editor import open_in_editor
 from framestack_core.layout import create_project, read_layout, write_layout
+from framestack_core.observe import last_observation, read_observation, start_observation
 from framestack_core.parser import read_graph
 from framestack_core.session import (
     COMMANDS,
@@ -34,6 +36,7 @@ from framestack_core.session import (
     start_session,
     stop_session,
 )
+from framestack_core.settings import read_settings, write_setting
 from framestack_core.shell import (
     close_shell,
     list_shells,
@@ -125,6 +128,93 @@ GRAPH_SCHEMA = {
     # Read from imports and from `mcp.json`, never declared. Nothing in the UI creates one.
     "edges": [{"id": "str", "source": "str", "target": "str", "kind": "str", "label": "str"}],
 }
+
+
+#: The `observe.*` payload: what a run proved, and what it printed while it proved it.
+#:
+#: One schema for all three verbs because they are one shape, as `shell.*` is: a run was
+#: started, a run was polled, or the last verdict set was asked for. Output is polled with an
+#: offset the caller keeps (P13) — a suite can take minutes, and a verb that answered only at
+#: the end would freeze the terminal and the chat behind it.
+#:
+#: **`skipped` is a verdict here and `green` is never a default.** A check that could not run
+#: has proven nothing, and the whole product rests on that being said out loud rather than
+#: rendered as an absence somebody has to notice.
+OBSERVE_SCHEMA = {
+    "api_version": "int",
+    "ok": "bool",
+    "detail": "str",
+    "running": "bool",
+    "output": "str",
+    "offset": "int",
+    # Null where this project has never been observed — which is not the same as observed and
+    # found wanting, and is why it is a nullable structure rather than an empty verdict list.
+    "observation": {
+        "<nullable>": {
+            # Of the observation, in UTC. The commit is what makes the set a claim about a
+            # state of the code rather than a floating fact somebody has to date by hand.
+            "at": "str",
+            "commit": "str",
+            "ok": "bool",
+            "detail": "str",
+            "verdicts": [
+                {
+                    "node": "str",
+                    # green, red, amber, grey or skipped. Amber is a distinct state and not a
+                    # shade of green: "nothing I could check failed and something was never
+                    # checked" is a different claim from "everything passed".
+                    "verdict": "str",
+                    "reason": "str",
+                    # The evidence itself, as pytest names it, rather than a count of it. A
+                    # person can paste one of these into a terminal and see what we saw.
+                    "tests": ["str"],
+                }
+            ],
+        }
+    },
+}
+
+
+#: The `settings.*` payload: the knobs of one system, as its own class declares them.
+#:
+#: One schema for the read and the write because they answer the same question -- what does
+#: this class say now -- and the write answers it by **re-reading the file** rather than by
+#: describing what it believes it did.
+#:
+#: `path` is `""` where the system has no `settings.py`, and that is `ok: true`: a system with
+#: no knobs is the ordinary case, and a refusal in front of it would make the commonest state
+#: look like a fault.
+SETTINGS_SCHEMA = {
+    "api_version": "int",
+    "ok": "bool",
+    "detail": "str",
+    "node": "str",
+    "path": "str",
+    "class_name": "str",
+    "fields": [
+        {
+            "name": "str",
+            # The annotation exactly as the author wrote it, not our reading of it.
+            "annotation": "str",
+            # integer, number, toggle, text, select, or none. What a caller branches on.
+            "control": "str",
+            # The default, **as the field's own type** -- an int, a float, a bool or a string.
+            # Opaque here because the type is genuinely the user's rather than ours, and a
+            # contract that flattened it to text would make the panel guess it back.
+            "value": "<opaque>",
+            "choices": ["str"],
+            # Where it is written. What "open in editor" points at, so a person can always
+            # leave the panel and look at the code it is talking about.
+            "line": "int",
+            # Why there is no control, when there is none. Never a repair, never a guess.
+            "reason": "str",
+        }
+    ],
+}
+
+
+#: The `editor.open` payload. Which program was started, so the answer says what happened.
+EDITOR_SCHEMA = {"api_version": "int", "ok": "bool", "detail": "str", "editor": "str"}
 
 
 #: The `layout.read` payload: where the person put things (Q13).
@@ -247,6 +337,39 @@ def create_new_project(parent: Path | str, name: str) -> dict[str, Any]:
 def graph_get(project: Path | str) -> dict[str, Any]:
     """The project as a graph. A read: it imports nothing and runs nothing."""
     return {"api_version": GRAPH_API_VERSION, **read_graph(project).as_dict()}
+
+
+def observe_start(project: Path | str) -> dict[str, Any]:
+    """Run the project's tests and colour the graph from what happened. Never implicit."""
+    return {"api_version": GRAPH_API_VERSION, **start_observation(project).as_dict()}
+
+
+def observe_read(project: Path | str, offset: int = 0) -> dict[str, Any]:
+    """What the run has printed since `offset`, and the verdicts once there are any."""
+    return {"api_version": GRAPH_API_VERSION, **read_observation(project, offset).as_dict()}
+
+
+def observe_last(project: Path | str) -> dict[str, Any]:
+    """The stored verdict set. A read: it starts nothing and proves nothing new."""
+    return {"api_version": GRAPH_API_VERSION, **last_observation(project).as_dict()}
+
+
+def settings_get(project: Path | str, node: str) -> dict[str, Any]:
+    """One system's knobs. Reads the file; never imports it and never creates it."""
+    return {"api_version": GRAPH_API_VERSION, **read_settings(project, node).as_dict()}
+
+
+def settings_put(project: Path | str, node: str, field: str, value: Any) -> dict[str, Any]:
+    """Set one field's default, through libcst. Everything else stays byte-identical."""
+    return {
+        "api_version": GRAPH_API_VERSION,
+        **write_setting(project, node, field, value).as_dict(),
+    }
+
+
+def editor_open(project: Path | str, path: str, line: int = 0) -> dict[str, Any]:
+    """Open one of the project's files in the person's own editor, at the line."""
+    return {"api_version": GRAPH_API_VERSION, **open_in_editor(project, path, line).as_dict()}
 
 
 def layout_get(project: Path | str) -> dict[str, Any]:

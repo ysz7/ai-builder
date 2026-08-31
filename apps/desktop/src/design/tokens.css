@@ -74,6 +74,11 @@
   --unknown-bg: #ececE6;
   --bad: #c2410c;
   --bad-bg: #fdf0ea;
+  /* Amber: a state of its own and not a shade of green. "Everything I could check passed
+     and something was never checked" is a different claim from "everything passed", and it
+     needs a colour nobody can mistake for either. */
+  --part: #a26a06;
+  --part-bg: #fbeecd;
 
   /* kind -- one ink and one ground per kind, the reference's category-tab pair. The tab
      above the card wears both; the card's own edge wears the ink.
@@ -165,6 +170,8 @@
   --unknown-bg: rgba(255, 255, 255, 0.07);
   --bad: #fb923c;
   --bad-bg: rgba(251, 146, 60, 0.14);
+  --part: #dcae5a;
+  --part-bg: rgba(220, 174, 90, 0.15);
 
   --k-api: #8fb0f0;
   --k-api-bg: rgba(143, 176, 240, 0.15);

@@ -86,3 +86,94 @@ export type Graph = {
   nodes: GraphNode[];
   edges: GraphEdge[];
 };
+
+/**
+ * What was proven about one node, and by what.
+ *
+ * `verdict` is one of `green`, `red`, `amber`, `grey`, `skipped`, and each is a different
+ * claim. **`grey` and `skipped` are not the same**: the first says no test reached this code,
+ * the second says the run did not happen. Collapsing them would let a broken environment read
+ * as untested code, which is how a person ends up fixing the wrong thing.
+ */
+export type Verdict = {
+  node: string;
+  verdict: string;
+  /** Why, in a sentence. Empty on green: there is nothing on the other side of it. */
+  reason: string;
+  /** The tests that executed this node's own code, as pytest names them. The evidence itself. */
+  tests: string[];
+};
+
+/**
+ * One run, kept whole.
+ *
+ * The commit is what makes it a claim about a state of the code rather than a floating fact:
+ * a verdict set nobody can tell is stale is one that will be read as current.
+ */
+export type Observation = {
+  at: string;
+  commit: string;
+  ok: boolean;
+  detail: string;
+  verdicts: Verdict[];
+};
+
+/** `observe.start`, `observe.read`, `observe.last` — one shape, as `shell.*` is. */
+export type ObserveResult = {
+  api_version: number;
+  ok: boolean;
+  detail: string;
+  running: boolean;
+  output: string;
+  offset: number;
+  /** Null where this project has never been observed. Not the same as observed and found wanting. */
+  observation: Observation | null;
+};
+
+/**
+ * One knob, as a system's own `settings.py` declares it.
+ *
+ * `value` is the field's **own type** — a number, a boolean or a string — rather than text
+ * the panel would have to parse back. `control` is what a caller branches on: `none` means
+ * the field is shown and not editable, with `reason` saying why, because a knob nobody can
+ * see is one nobody knows they have and a knob edited by guesswork deletes somebody's code.
+ */
+export type SettingField = {
+  name: string;
+  /** The annotation exactly as the author wrote it. Their words for the type, not ours. */
+  annotation: string;
+  /** `integer`, `number`, `toggle`, `text`, `select`, or `none`. */
+  control: string;
+  value: number | string | boolean | null;
+  /** What a `Literal` allows. Empty for every other control. */
+  choices: string[];
+  /** Where it is written. What "open" points at. */
+  line: number;
+  /** Why there is no control, when there is none. */
+  reason: string;
+};
+
+/**
+ * `settings.read` and `settings.write` — one shape, because the write answers by re-reading
+ * the file rather than by describing what it believes it did.
+ *
+ * `path` is `""` where the system has no `settings.py`, and that is `ok: true`: a system with
+ * no knobs is the ordinary case, not a fault.
+ */
+export type SettingsResult = {
+  api_version: number;
+  ok: boolean;
+  detail: string;
+  node: string;
+  path: string;
+  class_name: string;
+  fields: SettingField[];
+};
+
+/** `editor.open`: which program was started, so the answer says what happened. */
+export type Opened = {
+  api_version: number;
+  ok: boolean;
+  detail: string;
+  editor: string;
+};

@@ -17,6 +17,7 @@ import sys
 from typing import TextIO
 
 from framestack_core.handlers import dispatch
+from framestack_core.observe import close_everything_observed_here
 from framestack_core.protocol import (
     ProtocolError,
     decode_request,
@@ -83,6 +84,10 @@ def main() -> int:
         # be reopened from a pid, so one left running is a process nothing on this machine
         # can ever type into again -- along with whatever server was running inside it.
         close_everything_opened_here()
+        # And any suite still running. Unlike a shell, nobody opened one on purpose to keep:
+        # a test run with nothing left to report to is a process writing into a project for
+        # no reader, and it holds whatever the tests themselves started.
+        close_everything_observed_here()
     log("stdin closed, exiting")
     return 0
 

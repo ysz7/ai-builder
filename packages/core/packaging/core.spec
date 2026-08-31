@@ -19,9 +19,9 @@ a = Analysis(
     # belonged to. The prompts come back in Phase 4 and go here when they do -- a datas entry
     # for a file that is not there is a build that fails on somebody else's machine.
     datas=[],
-    # libcst pulls its grammar and native parser in dynamically; without this the
-    # frozen binary imports cleanly and then fails at first parse.
-    hiddenimports=["libcst", "libcst.native"],
+    # libcst pulls its grammar and native parser in dynamically; coverage's data layer is
+    # imported inside a function, so neither is found by following imports from `__main__`.
+    hiddenimports=["libcst", "libcst.native", "coverage", "coverage.sqldata"],
     hookspath=[],
     runtime_hooks=[],
     excludes=["tkinter", "unittest", "pydoc_data"],

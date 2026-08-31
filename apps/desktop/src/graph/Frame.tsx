@@ -15,6 +15,7 @@
 import type { NodeProps } from "@xyflow/react";
 
 import { labelOf, tintBgOf, tintOf } from "./kinds";
+import { known, markOf, wordsFor } from "./verdicts";
 
 export type FrameData = {
   /** The parent's id — what the fold is about. Never the frame's own: it does not have one. */
@@ -22,11 +23,13 @@ export type FrameData = {
   name: string;
   kind: string;
   count: number;
+  /** The parent's aggregate, repeated on the bar so a folded-open card still says it. */
+  verdict: string;
   onToggle: (id: string) => void;
 };
 
 export function Frame({ data }: NodeProps) {
-  const { system, name, kind, count, onToggle } = data as unknown as FrameData;
+  const { system, name, kind, count, verdict, onToggle } = data as unknown as FrameData;
 
   return (
     <div
@@ -44,6 +47,11 @@ export function Frame({ data }: NodeProps) {
         <span className="bp-chev">▾</span>
         {name} · {labelOf(kind).toLowerCase()}s
         <span className="bp-count">{count}</span>
+        {known(verdict) ? (
+          <span className={`bp-mark is-${verdict}`} title={wordsFor(verdict)}>
+            {markOf(verdict)}
+          </span>
+        ) : null}
       </button>
     </div>
   );

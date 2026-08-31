@@ -691,10 +691,14 @@ textarea {
 .bp-dot.is-green {
   background: var(--ok);
 }
-.bp-dot.is-unproven {
+.bp-dot.is-grey,
+.bp-dot.is-skipped {
   background: var(--unknown);
 }
-.bp-dot.is-broken {
+.bp-dot.is-amber {
+  background: var(--part);
+}
+.bp-dot.is-red {
   background: var(--bad);
 }
 
@@ -933,11 +937,20 @@ button.bp-mark:hover {
   background: currentColor;
   color: var(--surface);
 }
-.bp-mark.is-unproven {
-  color: var(--unknown);
-}
-.bp-mark.is-broken {
+.bp-mark.is-red {
   color: var(--bad);
+}
+/* Amber gets its own token rather than a lighter green: the whole reason the state exists is
+   that it is not green, and a reader must not have to compare two swatches to see it. */
+.bp-mark.is-amber {
+  color: var(--part);
+}
+/* The quiet ones. A project nobody has run yet must not read as a screen full of warnings,
+   so "no test reached it" is grey and so is "the run did not happen" -- they differ in the
+   glyph and in the words, which is where a difference of *meaning* belongs. */
+.bp-mark.is-grey,
+.bp-mark.is-skipped {
+  color: var(--unknown);
 }
 
 /* pins: round for a contract, triangular for execution -- and only where an edge lands. */
@@ -4224,4 +4237,87 @@ textarea {
 .bp-card-count:hover {
   border-color: var(--line-strong);
   color: var(--fg);
+}
+
+/* ---------- what a run said ---------- */
+
+/* The suite's own output, unedited. A summary here would be this application paraphrasing
+   the evidence, and the verdict already is the summary. */
+.bp-observe-log {
+  margin: 0;
+  padding: 12px 14px;
+  font-family: var(--mono);
+  font-size: 11.5px;
+  line-height: 1.6;
+  color: var(--fg-2);
+  white-space: pre-wrap;
+  word-break: break-word;
+  overflow: auto;
+  height: 100%;
+}
+.bp-node-verdict {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12.5px;
+  color: var(--fg-2);
+}
+/* When, and at what commit. Quiet, and always shown beside a verdict: evidence nobody can
+   date is evidence that will be read as current long after it stopped being true. */
+.bp-node-when {
+  margin-top: 5px;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--muted-3);
+}
+
+/* ---------- the knobs on a node ---------- */
+
+/* The annotation, doubling as the way into the file. A person can always leave the panel and
+   look at the code it is talking about, which is the only honest way to claim the file is
+   the truth -- so the type the author wrote *is* the link, rather than an icon beside it. */
+.bp-knob-open {
+  float: right;
+  border: none;
+  background: none;
+  padding: 0;
+  color: var(--muted-3);
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0;
+  text-transform: none;
+  cursor: pointer;
+}
+.bp-knob-open:hover {
+  color: var(--accent);
+  text-decoration: underline;
+}
+/* Shown, and not editable. Hiding it would be worse: a knob nobody can see is one nobody
+   knows they have, and the note under it is what makes it fixable. */
+.bp-field.is-locked {
+  display: flex;
+  align-items: center;
+  background: var(--bg-2);
+  color: var(--muted-2);
+  font-family: var(--mono);
+  font-size: 11.5px;
+  border-style: dashed;
+}
+.bp-node-open {
+  margin-top: 12px;
+  border: none;
+  background: none;
+  padding: 0;
+  color: var(--accent);
+  font-family: var(--mono);
+  font-size: 11px;
+  cursor: pointer;
+}
+.bp-node-open:hover {
+  text-decoration: underline;
+}
+.bp-node-quiet {
+  color: var(--muted-2);
+  font-size: 12px;
 }

@@ -33,8 +33,15 @@ import { Welcome } from "./panels/Welcome";
 import { Rail } from "./shell/Rail";
 import { Sheet } from "./shell/Sheet";
 import { TopBar } from "./shell/TopBar";
-import { graphRead, layoutRead, layoutWrite } from "./core/client";
-import type { Graph, Layout } from "./core/types";
+import {
+  graphRead,
+  layoutRead,
+  layoutWrite,
+  observeLast,
+  observeRead,
+  observeStart,
+} from "./core/client";
+import type { Graph, Layout, Observation } from "./core/types";
 
 /**
  * The last project, remembered per machine.
@@ -58,6 +65,18 @@ export default function App() {
     () => localStorage.getItem(LAST_PROJECT) ?? "",
   );
   const [graph, setGraph] = useState<Graph | null>(null);
+  /**
+   * What the last run proved, held apart from the graph.
+   *
+   * They answer different questions and go stale at different moments: the graph is what the
+   * code says right now, and this is what a run proved at a commit. Folding one into the
+   * other would make a re-parse look like a re-run, which is exactly the confusion that lets
+   * a node be green because it exists.
+   */
+  const [observation, setObservation] = useState<Observation | null>(null);
+  const [observing, setObserving] = useState(false);
+  /** What the run is printing. Polled with an offset we keep, never pushed (P13). */
+  const [log, setLog] = useState("");
   const [layout, setLayout] = useState<Layout>({});
   const [selected, setSelected] = useState("");
   const [refused, setRefused] = useState<string | null>(null);
@@ -86,9 +105,19 @@ export default function App() {
       // Two answers to two different questions, asked side by side and never derived from
       // one another: the graph says what exists, the cache says where it was put. A layout
       // entry for a node that is gone is harmless; a node with no entry still draws.
-      const [read, stored] = await Promise.all([graphRead(path), layoutRead(path)]);
+      // Three answers to three different questions, asked side by side and never derived
+      // from one another: the graph says what exists, the cache says where it was put, and
+      // the observation says what a run proved. **None of these runs anything** — opening a
+      // window must never execute a stranger's code.
+      const [read, stored, proof] = await Promise.all([
+        graphRead(path),
+        layoutRead(path),
+        observeLast(path),
+      ]);
       setGraph(read);
       setLayout(stored.layout);
+      setObservation(proof.observation);
+      setObserving(proof.running);
       if (!read.ok) setRefused(read.detail);
     } catch (error) {
       setRefused(error instanceof Error ? error.message : String(error));
@@ -97,9 +126,68 @@ export default function App() {
 
   useEffect(() => {
     setGraph(null);
+    setObservation(null);
     setSelected("");
+    setLog("");
     void open(project);
   }, [project, open]);
+
+  /**
+   * Run the project's tests. Never automatic, and never on a re-parse.
+   *
+   * A window that observed on open would execute a stranger's code because they double-clicked
+   * a folder, and a graph that re-ran its own tests after every edit would be a graph whose
+   * colours nobody could trust to be about the commit they are looking at.
+   */
+  const runObserve = useCallback(async () => {
+    if (!project || observing) return;
+    setRefused(null);
+    setLog("");
+    setSheet("observe");
+    try {
+      const started = await observeStart(project);
+      setObserving(started.running);
+      if (started.observation) setObservation(started.observation);
+      // A run that never started still answered: `skipped`, with the reason. That is a
+      // result and it is shown as one rather than as an empty panel.
+      if (!started.ok && !started.running) setRefused(started.detail);
+    } catch (error) {
+      setObserving(false);
+      setRefused(error instanceof Error ? error.message : String(error));
+    }
+  }, [project, observing]);
+
+  // Polled while it runs, with the offset the core last gave us. It stops on its own: the
+  // core reports `running` false only once the verdicts are written down, so the answer that
+  // ends the loop is the answer that carries the result.
+  useEffect(() => {
+    if (!observing || !project) return;
+    let offset = 0;
+    let live = true;
+    const tick = async () => {
+      while (live) {
+        try {
+          const answer = await observeRead(project, offset);
+          offset = answer.offset;
+          if (answer.output) setLog((held) => held + answer.output);
+          if (!answer.running) {
+            setObservation(answer.observation);
+            setObserving(false);
+            return;
+          }
+        } catch (error) {
+          setRefused(error instanceof Error ? error.message : String(error));
+          setObserving(false);
+          return;
+        }
+        await new Promise((wake) => setTimeout(wake, 400));
+      }
+    };
+    void tick();
+    return () => {
+      live = false;
+    };
+  }, [observing, project]);
 
   /**
    * Store the whole layout, as the core's contract requires: it keeps this and refuses to
@@ -181,7 +269,13 @@ export default function App() {
       />
 
       <div className="bp-main">
-        <TopBar name={nameOf(project)} onAgent={() => setSummon((n) => n + 1)} />
+        <TopBar
+          name={nameOf(project)}
+          onAgent={() => setSummon((n) => n + 1)}
+          onObserve={() => void runObserve()}
+          observing={observing}
+          observed={observation !== null}
+        />
 
         {/* A refusal is an answer, and an answer nobody is shown is the same as no answer. */}
         {refused ? (
@@ -197,6 +291,7 @@ export default function App() {
           <GraphCanvas
             graph={graph}
             layout={layout}
+            observation={observation}
             selected={selected}
             onSelect={setSelected}
             onMove={move}
@@ -223,6 +318,22 @@ export default function App() {
             onClose={() => setSheet("")}
             faces={[
               {
+                id: "observe",
+                label: observing ? "Observe (running)" : "Observe",
+                // The suite's own output, unedited. A summary here would be this application
+                // paraphrasing the evidence, and the verdict already is the summary.
+                content: (
+                  <pre className="bp-observe-log">
+                    {log ||
+                      (observation
+                        ? `${observation.detail}\n${observation.at}${
+                            observation.commit ? ` · ${observation.commit.slice(0, 7)}` : ""
+                          }`
+                        : "Nothing has been run here yet.")}
+                  </pre>
+                ),
+              },
+              {
                 id: "terminal",
                 label: "Terminal",
                 content: <Terminal project={project} />,
@@ -241,10 +352,17 @@ export default function App() {
       {/* Everything that is not the graph lives on a node. */}
       {graph && selected ? (
         <NodePanel
+          project={project}
           graph={graph}
+          observation={observation}
           id={selected}
           onClose={() => setSelected("")}
           onSelect={setSelected}
+          // A knob was written, so the code changed. The graph is re-read — the edge set and
+          // the exports could have moved — and the colours are **deliberately left alone**:
+          // they are still what the last run proved, and quietly clearing them would say a
+          // test failed. What they are now stale about is a commit, which the panel says.
+          onEdited={() => void open(project)}
         />
       ) : null}
 

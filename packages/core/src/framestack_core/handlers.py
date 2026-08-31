@@ -30,9 +30,15 @@ from framestack_core.api import (
     agent_sign_in,
     agent_sign_out,
     create_new_project,
+    editor_open,
     graph_get,
     layout_get,
     layout_put,
+    observe_last,
+    observe_read,
+    observe_start,
+    settings_get,
+    settings_put,
     shell_close,
     shell_list,
     shell_open,
@@ -264,6 +270,65 @@ def graph_read(params: dict[str, Any]) -> dict[str, Any]:
     return graph_get(_project_of(params))
 
 
+def observe_start_method(params: dict[str, Any]) -> dict[str, Any]:
+    """Run the project's own tests under measurement and colour the nodes from the result.
+
+    A method of its own, for the reason `shell.open` is one: this starts somebody's test
+    suite, which is not something a caller should do by accident (P11). A window opening must
+    never run a stranger's code -- that is why `graph.read` is a separate, static read.
+    """
+    return observe_start(_project_of(params))
+
+
+def observe_read_method(params: dict[str, Any]) -> dict[str, Any]:
+    """Poll the run. The caller keeps the offset it was last given (P13)."""
+    offset = params.get("offset", 0)
+    if not isinstance(offset, int) or isinstance(offset, bool):
+        raise ProtocolError("invalid_params", "'offset' must be a number")
+    return observe_read(_project_of(params), offset)
+
+
+def observe_last_method(params: dict[str, Any]) -> dict[str, Any]:
+    """The last verdict set. A read: it starts no suite and changes no colour."""
+    return observe_last(_project_of(params))
+
+
+def settings_read(params: dict[str, Any]) -> dict[str, Any]:
+    """The knobs of one system. A read: it opens the file and imports nothing."""
+    return settings_get(_project_of(params), _required_str(params, "node"))
+
+
+def settings_write(params: dict[str, Any]) -> dict[str, Any]:
+    """Set one field's default.
+
+    `value` is checked here only for being one of the four things a control can carry. What
+    it is *allowed* to be for this particular field -- a whole number, one of a Literal's
+    choices -- is the writer's decision, because that is where the annotation is known, and a
+    rule enforced in two places is a rule that will one day disagree with itself.
+    """
+    value = params.get("value")
+    if not isinstance(value, (str, int, float, bool)):
+        raise ProtocolError("invalid_params", "'value' must be text, a number or true/false")
+    return settings_put(
+        _project_of(params),
+        _required_str(params, "node"),
+        _required_str(params, "field"),
+        value,
+    )
+
+
+def editor_open_method(params: dict[str, Any]) -> dict[str, Any]:
+    """Open one of the project's files in the person's own editor.
+
+    A method of its own because it starts somebody else's program (P11), and it refuses a
+    path outside the project: this takes a path from a webview and hands it to an editor.
+    """
+    line = params.get("line", 0)
+    if not isinstance(line, int) or isinstance(line, bool) or line < 0:
+        raise ProtocolError("invalid_params", "'line' must be a number, zero or more")
+    return editor_open(_project_of(params), _required_str(params, "path"), line)
+
+
 def layout_read(params: dict[str, Any]) -> dict[str, Any]:
     """What the canvas stored last time. The core keeps it and looks inside none of it."""
     return layout_get(_project_of(params))
@@ -334,6 +399,12 @@ HANDLERS: dict[str, Handler] = {
     "ping": ping,
     "project.create": project_create,
     "graph.read": graph_read,
+    "observe.start": observe_start_method,
+    "observe.read": observe_read_method,
+    "observe.last": observe_last_method,
+    "settings.read": settings_read,
+    "settings.write": settings_write,
+    "editor.open": editor_open_method,
     "layout.read": layout_read,
     "layout.write": layout_write,
     "agent.session": agent_session_method,
