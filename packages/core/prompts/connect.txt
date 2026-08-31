@@ -1,0 +1,15 @@
+Create an edge between two systems by writing the import that makes it real.
+
+Both packages must already exist and export what the convention requires. If
+either is missing or incomplete, stop and say which.
+
+Write the import at the place that actually uses it, not at the top of a file
+where it would be unused. If nothing uses it yet, write the small piece of code
+that does — for example, a tool in agent/tools.py that calls rag.search — and a
+test for it.
+
+An unused import is not an edge. Do not create one.
+
+Nested systems are addressed by dotted path: `agent.researcher`. Connecting
+`agent.researcher` to `rag` means writing the import inside
+`agent/agents/researcher/`, not at the top of `agent/`.

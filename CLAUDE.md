@@ -11,8 +11,8 @@ Assembled applications deploy as plain Python projects with no runtime dependenc
 
 **The repository is mid-rebuild, and the plan is `docs/framestack_rebuild_plan.md`.** Read it before
 proposing anything: it is the specification, and *rule zero is that anything not described in it is
-deleted*. Phases 0–3 — demolition, the read-only graph, Observe and the settings panel — are
-done. Phases 4 and 5 — the chat and Run/Deploy — are ahead, in that order, one at a time.
+deleted*. Phases 0–4 — demolition, the read-only graph, Observe, the settings panel and the
+chat — are done. Phase 5, Run and Deploy, is what remains.
 
 ### Why the rebuild exists
 
@@ -221,7 +221,17 @@ payloads it assembles; `parser.py` derives the graph from the convention; `sessi
 agent's process; `shell.py` is the terminal the person types into; `layout.py` is where a person put
 things; `observe.py` runs the project's tests and turns what happened into colour;
 `settings.py` reads and writes the one `BaseSettings` class a system may declare; `editor.py`
-is `Open`.
+is `Open`; `chat.py` dispatches a message to exactly one command.
+
+**There is no free-form write path, and `agent.say` is gone rather than discouraged.**
+`chat.send` is the only way a person's words reach the agent, and every turn carries the shared
+base plus exactly one command's prompt from `packages/core/prompts/` — never more, because an
+agent holding all four sets of instructions is back to choosing between them. A message that
+does not name its command is classified by the agent binary itself (`--print`, no tools, no MCP
+servers, off the transcript), and a classification that is not confident **asks**: a wrong
+command writes the wrong files into somebody's project. Prompts are text files so they can be
+reviewed without touching Python, and they ship as PyInstaller data — a prompt that exists only
+in the repository is one the shipped application does not have.
 
 **`parser.py` is the whole of recognition, and it is one read.** `graph.read` walks the four
 candidate directories, parses each `__init__.py` with libcst and reports the node as complete or as

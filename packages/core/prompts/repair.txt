@@ -1,0 +1,17 @@
+You are given the output of a failing check: the test name, the traceback and the
+system it belongs to.
+
+Fix only what that check covers.
+
+Rules:
+1. Change the smallest amount of code that makes the test pass honestly.
+2. Never change the test to make it pass, unless the test itself is provably wrong
+   — and if it is, say why before changing it.
+3. Never touch a file outside the failing system unless the traceback proves the
+   cause is there.
+4. Never delete a test.
+5. If the failure is non-deterministic — network, clock, port, shared state — fix
+   the cause. Do not add a retry, a sleep or a skip.
+
+If you cannot fix it without changing something the check does not cover, stop and
+explain what a correct fix would require.

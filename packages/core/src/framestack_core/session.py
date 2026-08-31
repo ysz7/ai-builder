@@ -960,6 +960,7 @@ def say(
     project: Path | str,
     text: str,
     images: tuple[dict[str, str], ...] = (),
+    said: str | None = None,
 ) -> SessionResult:
     """Send one turn to the agent, with any pictures that were pasted into it.
 
@@ -969,6 +970,11 @@ def say(
 
     A picture goes **before** the words, which is the order the message is read in: "here is
     the thing, and here is what I am asking about it".
+
+    `said` is **what the person typed**, where that differs from what is sent. Every turn from
+    the chat carries a command's prompt in front of the message (`chat.py`), and a transcript
+    that showed it would open every exchange with two pages of instructions the person did not
+    write. The agent gets the whole thing; the record keeps their words.
     """
     root = Path(project).resolve()
     process = _LIVE.get(str(root))
@@ -1005,8 +1011,9 @@ def say(
     # is noted rather than stored: without the note the person's turn reads as a question
     # about nothing, and with the picture itself the transcript would be a second copy of a
     # thing the agent already has.
-    carried = f"{text}\n\n[{len(images)} image{'' if len(images) == 1 else 's'} attached]"
-    _remember_said(root, carried if images else text)
+    spoken = text if said is None else said
+    carried = f"{spoken}\n\n[{len(images)} image{'' if len(images) == 1 else 's'} attached]"
+    _remember_said(root, carried if images else spoken)
     return SessionResult(True, "sent", running=True)
 
 

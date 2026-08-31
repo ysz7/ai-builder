@@ -68,6 +68,9 @@ export function ping(echo?: string): Promise<PingResult> {
 // -- the graph ---------------------------------------------------------------
 
 import type {
+  Changes,
+  ChatChoices,
+  Dispatch,
   Graph,
   Layout,
   LayoutRead,
@@ -112,6 +115,41 @@ export function observeRead(
 /** The last verdict set. A read: it starts no suite and changes no colour. */
 export function observeLast(project: string): Promise<ObserveResult> {
   return coreRequest<ObserveResult>("observe.last", { project });
+}
+
+/**
+ * Send one message to the agent, as exactly one command. **The only way in.**
+ *
+ * `agent.say` used to be the other way and is gone rather than discouraged: a verb that sent
+ * whatever it was handed is a free-form write path, and the claim of the chat is that there
+ * is not one. A message reaches the agent with a command's prompt in front of it or it does
+ * not reach the agent.
+ *
+ * `command` and `stack` are **answers to questions a previous call asked**, never options to
+ * invent: a first call may come back with `asking` set, and the second carries the answer.
+ */
+export function chatSend(
+  project: string,
+  text: string,
+  options: { command?: string; stack?: string; images?: Pasted[] } = {},
+): Promise<Dispatch> {
+  return coreRequest<Dispatch>("chat.send", {
+    project,
+    text,
+    command: options.command ?? "",
+    stack: options.stack ?? "",
+    images: options.images ?? [],
+  });
+}
+
+/** What changed in the working tree, asked of `git`. Runs no tests and observes nothing. */
+export function chatChanges(project: string): Promise<Changes> {
+  return coreRequest<Changes>("chat.changes", { project });
+}
+
+/** The commands, and the stacks each kind may be generated on. */
+export function chatChoices(): Promise<ChatChoices> {
+  return coreRequest<ChatChoices>("chat.choices", {});
 }
 
 /** One system's knobs, read from its own `settings.py`. Imports nothing, creates nothing. */
@@ -328,17 +366,10 @@ export function agentStart(
  */
 export type Pasted = { media_type: string; data: string };
 
-/** Send one turn. What comes back arrives through `agentPoll`, never from here. */
-
-
-/** Send one turn. What comes back arrives through `agentPoll`, never from here. */
-export function agentSay(
-  project: string,
-  text: string,
-  images: Pasted[] = [],
-): Promise<AgentSession> {
-  return coreRequest<AgentSession>("agent.say", { project, text, images });
-}
+/* There is no `agentSay` here, and its absence is the contract rather than an omission: a
+   verb that sent whatever it was handed is the free-form write path, and the core no longer
+   has a method for it. Everything a person types goes through `chatSend` above, which carries
+   exactly one command's prompt. */
 
 /** What the agent has said since `offset`. Polled; nothing is ever pushed (P13). */
 

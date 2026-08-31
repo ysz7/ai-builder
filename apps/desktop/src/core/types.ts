@@ -177,3 +177,41 @@ export type Opened = {
   detail: string;
   editor: string;
 };
+
+/**
+ * What a message was dispatched as, or what has to be answered before anything can be.
+ *
+ * `asking` is the field that matters. A dispatcher that always dispatched would be one that
+ * guessed, and a wrong command writes the wrong files into somebody's project — so when it
+ * cannot tell which command a message is, or which stack a system should be written on, it
+ * asks. The answer comes back as the `command` or `stack` argument of the next send.
+ *
+ * There is no shape here for "sent without a command", and its absence is the contract.
+ */
+export type Dispatch = {
+  api_version: number;
+  ok: boolean;
+  detail: string;
+  command: string;
+  /** `"command"`, `"stack"`, or `""` when nothing needs answering. */
+  asking: string;
+  question: string;
+  choices: string[];
+  sent: boolean;
+};
+
+/** `chat.changes`: what the working tree looks like now, asked of `git`. */
+export type Changes = {
+  api_version: number;
+  ok: boolean;
+  detail: string;
+  diff: string;
+  files: string[];
+};
+
+/** `chat.choices`: the four commands, and the stacks each kind may be generated on. */
+export type ChatChoices = {
+  api_version: number;
+  commands: string[];
+  stacks: Record<string, string[]>;
+};

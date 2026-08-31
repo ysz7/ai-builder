@@ -1,0 +1,16 @@
+Decide which command a message is asking for. Answer with one word and nothing
+else.
+
+  add-system   a new rag/, agent/, api/ or worker/ package, or one nested inside
+               an existing system
+  add-tool     a function the agent can call, added to agent/tools.py
+  connect      an import between two existing system packages
+  repair       fix a check that is failing
+  question     anything that is answered by reading, not by writing
+  unsure       you cannot tell which of the above it is
+
+Answer `unsure` rather than guessing. A wrong command writes the wrong files into
+somebody's project, and the person is right there to be asked.
+
+You are given the message and the project's current systems. That is everything
+there is to go on; do not read files and do not run anything.

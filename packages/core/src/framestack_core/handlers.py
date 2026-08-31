@@ -24,11 +24,13 @@ from framestack_core.api import (
     agent_permission,
     agent_poll,
     agent_rename,
-    agent_say,
     agent_session,
     agent_shut,
     agent_sign_in,
     agent_sign_out,
+    chat_changes,
+    chat_choices,
+    chat_send,
     create_new_project,
     editor_open,
     graph_get,
@@ -124,30 +126,6 @@ def agent_start_method(params: dict[str, Any]) -> dict[str, Any]:
         raise ProtocolError("invalid_params", "'fork' must be true or false")
 
     return agent_open(_project_of(params), _optional_str(params, "resume"), fork)
-
-
-def agent_say_method(params: dict[str, Any]) -> dict[str, Any]:
-    """Send one turn, with any pictures pasted into it.
-
-    A picture arrives as base64 with the type it was copied as -- what is on a clipboard is
-    bytes, and there is no file to point at. Whether the agent will read it is checked in
-    `say`, before the line is written to a pipe nobody can take it back out of.
-    """
-    given = params.get("images", [])
-    if not isinstance(given, list):
-        raise ProtocolError("invalid_params", "'images' must be a list")
-    images: list[dict[str, str]] = []
-    for picture in given:
-        if not isinstance(picture, dict):
-            raise ProtocolError("invalid_params", "each image must be an object")
-        media = picture.get("media_type")
-        data = picture.get("data")
-        if not isinstance(media, str) or not isinstance(data, str):
-            raise ProtocolError(
-                "invalid_params", "each image needs a 'media_type' and base64 'data'"
-            )
-        images.append({"media_type": media, "data": data})
-    return agent_say(_project_of(params), _required_str(params, "text"), tuple(images))
 
 
 def agent_poll_method(params: dict[str, Any]) -> dict[str, Any]:
@@ -293,6 +271,59 @@ def observe_last_method(params: dict[str, Any]) -> dict[str, Any]:
     return observe_last(_project_of(params))
 
 
+def _images_in(params: dict[str, Any]) -> tuple[dict[str, str], ...]:
+    """Any pictures pasted into the turn.
+
+    A picture arrives as base64 with the type it was copied as -- what is on a clipboard is
+    bytes, and there is no file to point at. Whether the agent will read it is checked in
+    `say`, before the line is written to a pipe nobody can take it back out of.
+    """
+    given = params.get("images", [])
+    if not isinstance(given, list):
+        raise ProtocolError("invalid_params", "'images' must be a list")
+    images: list[dict[str, str]] = []
+    for picture in given:
+        if not isinstance(picture, dict):
+            raise ProtocolError("invalid_params", "each image must be an object")
+        media = picture.get("media_type")
+        data = picture.get("data")
+        if not isinstance(media, str) or not isinstance(data, str):
+            raise ProtocolError(
+                "invalid_params", "each image needs a 'media_type' and base64 'data'"
+            )
+        images.append({"media_type": media, "data": data})
+    return tuple(images)
+
+
+def chat_send_method(params: dict[str, Any]) -> dict[str, Any]:
+    """Send one message to the agent, as exactly one command.
+
+    **This replaces `agent.say` as the way a person's words reach the agent**, and the
+    difference is the whole of Phase 4: `agent.say` sends whatever it is given, and this
+    sends nothing that is not one of four commands with its own prompt in front of it.
+
+    `command` and `stack` are answers to questions a previous call asked, never options a
+    caller invents -- an unrecognised value is refused rather than passed along.
+    """
+    return chat_send(
+        _project_of(params),
+        _required_str(params, "text"),
+        params.get("command", "") if isinstance(params.get("command"), str) else "",
+        params.get("stack", "") if isinstance(params.get("stack"), str) else "",
+        _images_in(params),
+    )
+
+
+def chat_changes_method(params: dict[str, Any]) -> dict[str, Any]:
+    """What changed in the working tree. A read: it runs no tests and observes nothing."""
+    return chat_changes(_project_of(params))
+
+
+def chat_choices_method(params: dict[str, Any]) -> dict[str, Any]:
+    """The commands and the stacks. A statement about this build, not about the project."""
+    return chat_choices()
+
+
 def settings_read(params: dict[str, Any]) -> dict[str, Any]:
     """The knobs of one system. A read: it opens the file and imports nothing."""
     return settings_get(_project_of(params), _required_str(params, "node"))
@@ -402,6 +433,9 @@ HANDLERS: dict[str, Handler] = {
     "observe.start": observe_start_method,
     "observe.read": observe_read_method,
     "observe.last": observe_last_method,
+    "chat.send": chat_send_method,
+    "chat.changes": chat_changes_method,
+    "chat.choices": chat_choices_method,
     "settings.read": settings_read,
     "settings.write": settings_write,
     "editor.open": editor_open_method,
@@ -409,7 +443,6 @@ HANDLERS: dict[str, Handler] = {
     "layout.write": layout_write,
     "agent.session": agent_session_method,
     "agent.start": agent_start_method,
-    "agent.say": agent_say_method,
     "agent.poll": agent_poll_method,
     "agent.stop": agent_stop_method,
     "agent.interrupt": agent_interrupt_method,

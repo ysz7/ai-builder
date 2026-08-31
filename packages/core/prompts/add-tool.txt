@@ -1,0 +1,17 @@
+Add a tool function to agent/tools.py.
+
+A tool is a thin wrapper. It takes its identifiers from the agent's context object,
+never from arguments the model produced, and it calls existing project code rather
+than containing logic itself.
+
+If the tool needs behaviour that does not exist yet, say what is missing and stop.
+Do not invent a service.
+
+Produce:
+  the function in agent/tools.py, with a docstring the model will read as its
+  description
+  registration wherever the agent's tools are declared
+  a test that calls the function directly with a fake context
+
+If the tool reaches an external system, the test must use a fake, never the real
+one.

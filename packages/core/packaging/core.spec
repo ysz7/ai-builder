@@ -14,11 +14,12 @@ a = Analysis(
     [str(ROOT / "src" / "framestack_core" / "__main__.py")],
     pathex=[str(ROOT / "src")],
     binaries=[],
-    # Nothing to carry yet. The system prompt, the probe and the bundled blueprint catalog
-    # were all data this binary read at runtime, and the rebuild deleted the mechanisms they
-    # belonged to. The prompts come back in Phase 4 and go here when they do -- a datas entry
-    # for a file that is not there is a build that fails on somebody else's machine.
-    datas=[],
+    # The agent's entire contract: the shared base and one file per command, loaded at
+    # dispatch (`chat.py`). They are carried rather than compiled in so they stay readable
+    # and reviewable -- and they must be *here*, because a prompt that exists only in the
+    # repository is one the shipped application does not have, and it would fail as an agent
+    # given no instructions rather than as a missing file.
+    datas=[(str(ROOT / "prompts"), "prompts")],
     # libcst pulls its grammar and native parser in dynamically; coverage's data layer is
     # imported inside a function, so neither is found by following imports from `__main__`.
     hiddenimports=["libcst", "libcst.native", "coverage", "coverage.sqldata"],

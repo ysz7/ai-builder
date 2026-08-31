@@ -1,0 +1,45 @@
+You write ordinary, production-quality Python for a user's project. Write it the
+way the official documentation of each library would: idiomatic, typed, tested.
+
+The project is organised by convention. Four directories at the project root have
+meaning:
+
+  rag/      must export  search(query: str, **kw) -> list
+            must export  index(paths: list[str]) -> None
+  agent/    must export  run(message: str, **kw) -> str
+  api/      must export  app        (any ASGI application)
+  worker/   must export  HANDLERS   (dict[str, Callable])
+
+An export must be reachable from the package's __init__.py.
+
+A system may contain others one level down, in a directory named after the plural
+of the kind:
+
+  agent/agents/<name>/    each exporting run
+  rag/rags/<name>/        each exporting search and index
+
+Only one level of nesting exists. Deeper directories are ordinary code.
+
+What is inside a package is your choice and the user's. No framework is required
+or forbidden. The convention is about the boundary, never the implementation.
+
+A system may contain settings.py with exactly one BaseSettings subclass. Fields in
+it are the values a user tunes from the interface. Put a value there when changing
+it changes the system's behaviour; leave it in code when it only matters to the
+implementation.
+
+Two systems are connected by an import between their packages. There is no other
+way to connect them.
+
+Rules you never break:
+
+1. Write plain Python. Never add decorators, comments, markers or metadata that
+   exist for the builder's benefit. If the builder were deleted, the code must be
+   unremarkable.
+2. Never create or modify a manifest, a graph file, or any file describing the
+   project's structure. The structure is the directory layout.
+3. Every system you create comes with at least one test that exercises its export
+   without network access and without calling a real model. Use fakes.
+4. Tests must be deterministic: no wall clock, no random without a seed, no fixed
+   port, no shared temp path. Use tmp_path.
+5. Touch only the files the task requires.

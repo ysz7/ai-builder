@@ -373,6 +373,10 @@ export default function App() {
         summon={summon}
         onTouch={() => undefined}
         onSettled={() => void open(project)}
+        // Offered by the chat after a turn that wrote, and pressed by the person. The chat
+        // has no way to run it itself, which is the point: colour is earned by a run
+        // somebody asked for.
+        onObserve={() => void runObserve()}
         handOver={null}
         onHandedOver={() => undefined}
       />

@@ -25,7 +25,8 @@ import {
   agentForget,
   agentPoll,
   agentRename,
-  agentSay,
+  chatChanges,
+  chatSend,
   agentInterrupt,
   agentPermission,
   agentSession,
@@ -45,6 +46,7 @@ import type {
   AgentSessionRef,
   Pasted,
 } from "../core/client";
+import type { Changes } from "../core/types";
 
 const POLL_MS = 700;
 
@@ -147,6 +149,14 @@ type Props = {
   onTouch: (files: string[]) => void;
   onSettled: () => void;
   /**
+   * Run the project's tests. **Offered after a write, never taken automatically.**
+   *
+   * A verdict is earned by a run somebody asked for; a chat that observed after every turn
+   * would produce colours nobody could tie to a commit, and the person would learn to read
+   * them as decoration.
+   */
+  onObserve: () => void;
+  /**
    * Words put into the field from elsewhere -- a repair the toolchain cannot carry out.
    * Placed in the draft and **never sent**: handing a request over is not the same as
    * deciding to make it, and the person still presses send.
@@ -193,6 +203,7 @@ export function Chat({
   project,
   onTouch,
   onSettled,
+  onObserve,
   handOver,
   onHandedOver,
   summon,
@@ -265,6 +276,25 @@ export function Chat({
    * would leave it behind on somebody's machine.
    */
   const [pasted, setPasted] = useState<Pasted[]>([]);
+  /**
+   * The question the dispatcher asked instead of dispatching, and the message it is about.
+   *
+   * Held here rather than on the core, because an unanswered question should cost nothing
+   * and expire by being forgotten. There are exactly two: which command a message is, and
+   * which stack a new system should be written on.
+   */
+  const [asking, setAsking] = useState<{
+    kind: string;
+    question: string;
+    choices: string[];
+    text: string;
+    images: Pasted[];
+    command: string;
+  } | null>(null);
+  /** What the last turn changed, once it has settled. Asked of `git`, never computed here. */
+  const [changed, setChanged] = useState<Changes | null>(null);
+  /** What the last turn was dispatched as. A `question` writes nothing, so it shows no diff. */
+  const dispatched = useRef("");
   const [choices, setChoices] = useState<AgentChoices | null>(null);
   const [settings, setSettings] = useState({
     model: "",
@@ -550,6 +580,13 @@ export function Chat({
       setSpending(0);
       stopPolling();
       onSettled();
+      // What the turn actually changed, and then the offer to prove it. Not for a question:
+      // that command writes nothing, so a diff after one would be about somebody else's edit.
+      if (dispatched.current && dispatched.current !== "question") {
+        void chatChanges(project)
+          .then((answer) => setChanged(answer.ok && answer.files.length > 0 ? answer : null))
+          .catch(() => setChanged(null));
+      }
       // The turn is over, so the next question that was waiting can be asked. One at a
       // time, in the order they were typed.
       const next = queue.current.shift();
@@ -704,8 +741,15 @@ export function Chat({
   );
 
   const deliver = useCallback(
-    async (said: string, images: Pasted[] = []) => {
+    async (
+      said: string,
+      images: Pasted[] = [],
+      answered: { command?: string; stack?: string } = {},
+      redraw = true,
+    ) => {
       setBlocked(null);
+      setAsking(null);
+      setChanged(null);
       setBusy(true);
       setStatus("thinking…");
       // Shown before the core has answered: what the person typed is true the moment they
@@ -733,9 +777,13 @@ export function Chat({
       // Sending is the person choosing the bottom again: their own line is the one they
       // want to see, whatever they were reading a moment ago.
       following.current = true;
-      setTranscript((previous) => [...previous, yours(said)]);
+      // Not on the second pass: the line was drawn when the question was first asked, and
+      // answering "which command did you mean?" is not the person saying it again.
+      if (redraw) setTranscript((previous) => [...previous, yours(said)]);
 
-      const answer = await attempt(() => agentSay(project, said, images));
+      const answer = await attempt(() =>
+        chatSend(project, said, { ...answered, images }),
+      );
       if (answer === null) return;
       if (!answer.ok) {
         setBusy(false);
@@ -743,6 +791,22 @@ export function Chat({
         setBlocked(answer.detail);
         return;
       }
+      // It asked instead of dispatching. Nothing has reached the agent, so there is nothing
+      // to poll for -- the turn resumes when the person answers.
+      if (!answer.sent) {
+        setBusy(false);
+        setStatus("");
+        setAsking({
+          kind: answer.asking,
+          question: answer.question,
+          choices: answer.choices,
+          text: said,
+          images,
+          command: answer.command,
+        });
+        return;
+      }
+      dispatched.current = answer.command;
       void poll();
     },
     [project, poll, attempt, unstarted, running, begin],
@@ -1300,7 +1364,64 @@ export function Chat({
               </div>
             ) : null}
 
-            {transcript.length === 0 && !busy ? (
+            {/* The dispatcher asked instead of guessing. A wrong command writes the wrong
+                files into somebody's project, and the person is right here — so this is a
+                short list of answers and not a warning about an ambiguity. */}
+            {asking ? (
+              <div className="bp-asking">
+                <div className="bp-asking-question">{asking.question}</div>
+                <div className="bp-asking-choices">
+                  {asking.choices.map((choice) => (
+                    <button
+                      key={choice}
+                      className="bp-btn is-quiet"
+                      onClick={() =>
+                        void deliver(
+                          asking.text,
+                          asking.images,
+                          asking.kind === "stack"
+                            ? { command: asking.command, stack: choice }
+                            : { command: choice },
+                          false,
+                        )
+                      }
+                    >
+                      {choice}
+                    </button>
+                  ))}
+                  <button className="bp-btn is-quiet" onClick={() => setAsking(null)}>
+                    never mind
+                  </button>
+                </div>
+              </div>
+            ) : null}
+
+            {/* What the turn changed, and then the offer to prove it. **Offered, never
+                taken**: a verdict is earned by a run somebody asked for, and a chat that
+                observed after every turn would produce colours nobody could tie to a
+                commit. The files are listed rather than the diff pasted — the diff is
+                somebody's editor's job, and `Open` is one click away on the node. */}
+            {changed ? (
+              <div className="bp-changed">
+                <div className="bp-changed-head">{changed.detail}</div>
+                <div className="bp-changed-files">
+                  {changed.files.map((file) => (
+                    <code key={file}>{file}</code>
+                  ))}
+                </div>
+                <button
+                  className="bp-btn is-primary"
+                  onClick={() => {
+                    setChanged(null);
+                    onObserve();
+                  }}
+                >
+                  Observe
+                </button>
+              </div>
+            ) : null}
+
+            {transcript.length === 0 && !busy && !asking ? (
               <div className="bp-empty">
                 Nothing said in this conversation yet. What the agent does shows
                 on the canvas.

@@ -13,6 +13,8 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+from framestack_core.chat import COMMANDS as CHAT_COMMANDS
+from framestack_core.chat import STACKS, changes, send
 from framestack_core.editor import open_in_editor
 from framestack_core.layout import create_project, read_layout, write_layout
 from framestack_core.observe import last_observation, read_observation, start_observation
@@ -29,7 +31,6 @@ from framestack_core.session import (
     interrupt,
     poll_session,
     rename_session,
-    say,
     session_status,
     sign_in,
     sign_out,
@@ -217,6 +218,57 @@ SETTINGS_SCHEMA = {
 EDITOR_SCHEMA = {"api_version": "int", "ok": "bool", "detail": "str", "editor": "str"}
 
 
+#: The `chat.send` payload: what a message was dispatched as, or what has to be answered first.
+#:
+#: **`asking` is the field that matters.** A dispatcher that always dispatched would be one
+#: that guessed, and a wrong command writes the wrong files into somebody's project. The two
+#: things it can be unsure about — which command, and which stack — are both questions with a
+#: short list of answers and a person sitting in front of them, so it asks.
+#:
+#: There is no field here for "sent without a command", and its absence is the contract: every
+#: turn carries exactly one command's prompt, and the free-form write path does not exist.
+CHAT_SCHEMA = {
+    "api_version": "int",
+    "ok": "bool",
+    "detail": "str",
+    # One of `chat.choices`' commands. `""` when it asked instead of dispatching.
+    "command": "str",
+    # "command", "stack", or "" when nothing needs answering. The caller sends the answer back
+    # as the `command` or `stack` parameter of the next `chat.send`.
+    "asking": "str",
+    "question": "str",
+    "choices": ["str"],
+    "sent": "bool",
+}
+
+
+#: The `chat.changes` payload: what the working tree looks like after a turn that wrote.
+#:
+#: Asked of `git` and never computed here. Observe is **offered** on the back of this and
+#: never run (P11): a verdict is earned by a run somebody asked for, and a graph that re-ran
+#: its own tests after every edit would be one whose colours nobody could tie to a commit.
+CHANGES_SCHEMA = {
+    "api_version": "int",
+    "ok": "bool",
+    "detail": "str",
+    "diff": "str",
+    "files": ["str"],
+}
+
+
+#: The `chat.choices` payload: the commands, and the stacks each kind may be written on.
+#:
+#: The stacks are a **generation preference and not a node type** — they decide what goes
+#: inside a package and nothing else, which is why a LangGraph agent rewritten onto Pydantic
+#: AI is still the same node. Sent here rather than hard-coded in the interface so there is
+#: one list of them.
+CHAT_CHOICES_SCHEMA = {
+    "api_version": "int",
+    "commands": ["str"],
+    "stacks": {"<key>": ["str"]},
+}
+
+
 #: The `layout.read` payload: where the person put things (Q13).
 #:
 #: `"<opaque>"` is not a shrug — it is the contract. The core stores this and refuses to
@@ -354,6 +406,40 @@ def observe_last(project: Path | str) -> dict[str, Any]:
     return {"api_version": GRAPH_API_VERSION, **last_observation(project).as_dict()}
 
 
+def chat_send(
+    project: Path | str,
+    text: str,
+    command: str = "",
+    stack: str = "",
+    images: tuple[dict[str, str], ...] = (),
+) -> dict[str, Any]:
+    """Send one message, as exactly one command. **The only way into the agent.**
+
+    `agent.say` used to be the other way, and it is gone rather than discouraged: a verb that
+    sent whatever it was handed is a free-form write path, and this phase's whole claim is
+    that there is not one. A message reaches the agent with a command's prompt in front of it
+    or it does not reach the agent.
+    """
+    return {
+        "api_version": GRAPH_API_VERSION,
+        **send(project, text, command, stack, images).as_dict(),
+    }
+
+
+def chat_changes(project: Path | str) -> dict[str, Any]:
+    """What has changed in the working tree, asked of `git`. Runs no tests."""
+    return {"api_version": GRAPH_API_VERSION, **changes(project).as_dict()}
+
+
+def chat_choices() -> dict[str, Any]:
+    """The commands, and the stacks each kind may be generated on."""
+    return {
+        "api_version": GRAPH_API_VERSION,
+        "commands": list(CHAT_COMMANDS),
+        "stacks": {kind: list(names) for kind, names in STACKS.items()},
+    }
+
+
 def settings_get(project: Path | str, node: str) -> dict[str, Any]:
     """One system's knobs. Reads the file; never imports it and never creates it."""
     return {"api_version": GRAPH_API_VERSION, **read_settings(project, node).as_dict()}
@@ -425,15 +511,6 @@ def agent_open(
 ) -> dict[str, Any]:
     """Open a session: a new one, one continued by id, or one forked from it (Q16)."""
     return {"api_version": GRAPH_API_VERSION, **start_session(project, resume, fork).as_dict()}
-
-
-def agent_say(
-    project: Path | str,
-    text: str,
-    images: tuple[dict[str, str], ...] = (),
-) -> dict[str, Any]:
-    """Send one turn. What comes back arrives through `agent.poll`, never through here."""
-    return {"api_version": GRAPH_API_VERSION, **say(project, text, images).as_dict()}
 
 
 def agent_poll(project: Path | str, offset: int = 0) -> dict[str, Any]:

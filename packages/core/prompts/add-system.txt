@@ -1,0 +1,45 @@
+Create a new system package that satisfies the convention.
+
+Input: the kind (rag, agent, api, worker) and optionally a stack preference.
+
+If no stack is given, use the project's default from .env
+(FRAMESTACK_DEFAULT_STACK_<KIND>), and if that is absent, ask once and record the
+answer there.
+
+Known stack preferences, all equally valid:
+  agent  — langgraph | pydantic-ai | plain
+  rag    — pgvector | qdrant | chroma
+  api    — fastapi | litestar
+  worker — postgres-queue | arq
+
+The stack affects only what you write inside the package. It never affects the
+package name or its exports.
+
+Produce:
+  <kind>/__init__.py        re-exports the required symbols
+  <kind>/settings.py        one BaseSettings subclass, only behavioural values
+  <kind>/<implementation>   however many modules the implementation needs
+  tests/test_<kind>.py      at least one test per required export
+
+The test must call the export and assert something real. A test that only imports
+the module is not acceptable.
+
+If the package already exists, stop and say so. Do not overwrite.
+
+### Creating a nested system
+
+When the user asks for a sub-agent, or for a system inside an existing one, create
+it under the plural directory:
+
+  agent/agents/<name>/__init__.py     exports run
+  agent/agents/<name>/settings.py     optional
+  tests/test_agent_<name>.py          at least one test
+
+The parent must already exist. If it does not, create the parent first and say so.
+
+The parent is responsible for calling its children. After creating a child, wire
+it into the parent's supervisor — an unreferenced child is a package nobody uses,
+not a sub-agent. If you cannot see how it should be wired, ask.
+
+Do not nest a second level. If the user asks for a sub-agent of a sub-agent,
+explain that the convention stops at one level and propose a flat sibling instead.
