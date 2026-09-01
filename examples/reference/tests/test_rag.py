@@ -9,8 +9,14 @@ from rag.store import clear
 
 
 @pytest.fixture(autouse=True)
-def empty_index() -> None:
-    """Each test starts with nothing indexed. The store is a module, so this is the reset."""
+def empty_index(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Each test gets its own index file, and starts with nothing in it.
+
+    The path rather than the process is what isolates these now. `RagSettings` reads it from
+    the environment, so pointing it at a temporary file is all it takes -- and it is what
+    keeps the suite deterministic when the index itself outlives a process.
+    """
+    monkeypatch.setenv("INDEX_PATH", str(tmp_path / "index.json"))
     clear()
 
 

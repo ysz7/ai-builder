@@ -32,6 +32,10 @@ from framestack_core.api import (
     chat_choices,
     chat_send,
     create_new_project,
+    deploy_down,
+    deploy_poll,
+    deploy_status,
+    deploy_up,
     editor_open,
     graph_get,
     layout_get,
@@ -39,6 +43,10 @@ from framestack_core.api import (
     observe_last,
     observe_read,
     observe_start,
+    run_last,
+    run_read,
+    run_start,
+    run_stop,
     settings_get,
     settings_put,
     shell_close,
@@ -324,6 +332,76 @@ def chat_choices_method(params: dict[str, Any]) -> dict[str, Any]:
     return chat_choices()
 
 
+def _offset_of(params: dict[str, Any]) -> int:
+    offset = params.get("offset", 0)
+    if not isinstance(offset, int) or isinstance(offset, bool):
+        raise ProtocolError("invalid_params", "'offset' must be a number")
+    return offset
+
+
+def run_start_method(params: dict[str, Any]) -> dict[str, Any]:
+    """Call one system's export, once. Never implicit (P11), and it colours nothing.
+
+    A method of its own for the reason `observe.start` is one: this runs somebody's code.
+    What it is **not** is an execution of the graph -- one node, one export, no traversal and
+    no order. If a caller ever needs "and then the next node", that is Python's job.
+
+    `input` is whatever the action takes and is checked no further here: what a `search`
+    accepts is the project's business, and the driver is where a wrong shape becomes a
+    traceback the person can read.
+    """
+    given = params.get("input", {})
+    if given is None:
+        given = {}
+    if not isinstance(given, dict):
+        raise ProtocolError("invalid_params", "'input' must be an object")
+    return run_start(
+        _project_of(params),
+        _required_str(params, "node"),
+        _required_str(params, "action"),
+        given,
+    )
+
+
+def run_read_method(params: dict[str, Any]) -> dict[str, Any]:
+    """Poll the call. The caller keeps the offset it was last given (P13)."""
+    return run_read(_project_of(params), _required_str(params, "node"), _offset_of(params))
+
+
+def run_last_method(params: dict[str, Any]) -> dict[str, Any]:
+    """What this node last returned. A read: it starts nothing and proves nothing new."""
+    return run_last(_project_of(params), _required_str(params, "node"))
+
+
+def run_stop_method(params: dict[str, Any]) -> dict[str, Any]:
+    return run_stop(_project_of(params), _required_str(params, "node"))
+
+
+def deploy_status_method(params: dict[str, Any]) -> dict[str, Any]:
+    """Whether this project can be deployed, and whether it already is.
+
+    A read, and it spawns `docker compose config` to answer -- which is not a contradiction
+    of P11. Asking a file what it says brings nothing up, and it is the only way to answer
+    without this codebase learning YAML.
+    """
+    return deploy_status(_project_of(params))
+
+
+def deploy_up_method(params: dict[str, Any]) -> dict[str, Any]:
+    """`docker compose up`. A method of its own: somebody pressed `Deploy` (P11)."""
+    return deploy_up(_project_of(params))
+
+
+def deploy_read_method(params: dict[str, Any]) -> dict[str, Any]:
+    """Poll the stack's log. The caller keeps the offset (P13)."""
+    return deploy_poll(_project_of(params), _offset_of(params))
+
+
+def deploy_down_method(params: dict[str, Any]) -> dict[str, Any]:
+    """Take the stack down -- the client and the containers both, or stopping means detaching."""
+    return deploy_down(_project_of(params))
+
+
 def settings_read(params: dict[str, Any]) -> dict[str, Any]:
     """The knobs of one system. A read: it opens the file and imports nothing."""
     return settings_get(_project_of(params), _required_str(params, "node"))
@@ -433,6 +511,14 @@ HANDLERS: dict[str, Handler] = {
     "observe.start": observe_start_method,
     "observe.read": observe_read_method,
     "observe.last": observe_last_method,
+    "run.start": run_start_method,
+    "run.read": run_read_method,
+    "run.last": run_last_method,
+    "run.stop": run_stop_method,
+    "deploy.status": deploy_status_method,
+    "deploy.start": deploy_up_method,
+    "deploy.read": deploy_read_method,
+    "deploy.stop": deploy_down_method,
     "chat.send": chat_send_method,
     "chat.changes": chat_changes_method,
     "chat.choices": chat_choices_method,

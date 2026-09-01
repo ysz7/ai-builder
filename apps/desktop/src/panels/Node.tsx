@@ -3,9 +3,14 @@
  *
  * Everything that is not the graph itself lives on a node: click it and this opens. Today
  * that is the reading — its name, where it is, what its kind requires and whether it has it,
- * what it contains, **which tests reached it**, and **its knobs**. Its Run controls arrive in
- * Phase 5, beside the capability that can answer for them: a button whose only possible
- * outcome is an error is worse than no button.
+ * what it contains, **which tests reached it**, **its knobs**, and — since Phase 5 — the one
+ * thing it can be asked to do: call its own export, or, on `compose.yaml`, bring the stack
+ * up. Each of those arrived beside the capability that can answer for it, because a button
+ * whose only possible outcome is an error is worse than no button.
+ *
+ * **Running a node colours nothing.** The verdict on this panel is the last run of the
+ * project's tests; the result of pressing `Run` sits below it in its own block and never
+ * touches the card. They are two different claims and they are kept two.
  *
  * The tests are listed rather than counted, and that is the point of the panel. A colour on
  * a canvas is what every flow builder already draws; a colour with the name of the test that
@@ -28,7 +33,9 @@ import type {
 import { Flyout } from "../shell/Flyout";
 import { labelOf } from "../graph/kinds";
 import { known, markOf, wordsFor } from "../graph/verdicts";
+import { Deploy } from "./Deploy";
 import { Knob } from "./Knob";
+import { Run } from "./Run";
 
 function Row({ label, children }: { label: string; children: React.ReactNode }) {
   return (
@@ -47,6 +54,9 @@ export function NodePanel({
   onClose,
   onSelect,
   onEdited,
+  deploying,
+  onDeploy,
+  onUndeploy,
 }: {
   project: string;
   graph: Graph;
@@ -56,6 +66,10 @@ export function NodePanel({
   onSelect: (id: string) => void;
   /** A field was written. The colours on the canvas are now about a file that changed. */
   onEdited: () => void;
+  /** Whether the stack this window brought up is still up. The workspace owns it and polls. */
+  deploying: boolean;
+  onDeploy: () => void;
+  onUndeploy: () => void;
 }) {
   /**
    * The knobs, asked for when the panel opens on a node and never before.
@@ -229,6 +243,21 @@ export function NodePanel({
         ) : null}
 
         {refused ? <div className="bp-node-why">{refused}</div> : null}
+
+        {/* One node, one export, no traversal. The graph is a projection and this is the
+            proof of it: there is nothing here that could mean "and then the next node". */}
+        {node.kind === "file" ? null : <Run project={project} node={node} />}
+
+        {/* The one file node that can be asked to do something, and the only deployment
+            target there is. `.env`, the Dockerfile and `mcp.json` are opened and edited. */}
+        {node.id === "compose.yaml" ? (
+          <Deploy
+            project={project}
+            running={deploying}
+            onUp={onDeploy}
+            onDown={onUndeploy}
+          />
+        ) : null}
 
         {node.files.length > 0 ? (
           <Row label={`Files (${node.files.length})`}>

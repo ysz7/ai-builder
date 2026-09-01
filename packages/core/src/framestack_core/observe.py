@@ -74,7 +74,6 @@ import os
 import shutil
 import signal
 import subprocess
-import sys
 import threading
 import time
 from dataclasses import dataclass
@@ -83,6 +82,7 @@ from pathlib import Path
 from typing import Any
 from xml.etree import ElementTree
 
+from framestack_core.environment import interpreter_for
 from framestack_core.parser import Node, read_graph
 
 __all__ = [
@@ -303,36 +303,6 @@ _RUNS: dict[str, _Run] = {}
 
 
 # -- finding something to run it with ------------------------------------------------------
-
-
-def _interpreter(root: Path) -> Path | None:
-    """The Python this project's tests should run in.
-
-    The project's own environment first, because that is where its dependencies are. Ours is
-    a fallback and not a preference: running somebody's suite against the toolchain's
-    packages would prove something about our environment and call it a fact about their code.
-    """
-    candidates: list[Path] = [
-        root / ".venv" / "bin" / "python",
-        root / ".venv" / "Scripts" / "python.exe",
-        root / "venv" / "bin" / "python",
-    ]
-    active = os.environ.get("VIRTUAL_ENV")
-    if active:
-        candidates += [Path(active) / "bin" / "python", Path(active) / "Scripts" / "python.exe"]
-    # Never when frozen: `sys.executable` is then this sidecar's own binary, and `-m pytest`
-    # against it runs the core rather than the suite.
-    if not getattr(sys, "frozen", False):
-        candidates.append(Path(sys.executable))
-    for name in ("python3", "python"):
-        found = shutil.which(name)
-        if found:
-            candidates.append(Path(found))
-
-    for candidate in candidates:
-        if candidate.is_file():
-            return candidate
-    return None
 
 
 def _can_run(python: Path) -> str:
@@ -751,7 +721,7 @@ def start_observation(project: Path | str) -> ObserveResult:
         _store(root, observation)
         return ObserveResult(True, observation.detail, observation=observation)
 
-    python = _interpreter(root)
+    python = interpreter_for(root)
     if python is None:
         observation = _skipped(root, "no Python interpreter could be found to run the suite")
         _store(root, observation)

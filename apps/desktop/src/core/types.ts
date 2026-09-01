@@ -215,3 +215,66 @@ export type ChatChoices = {
   commands: string[];
   stacks: Record<string, string[]>;
 };
+
+/**
+ * What one call returned, or the traceback it raised. **Never a verdict.**
+ *
+ * A run is a person typing a query and pressing a button; a colour is earned by a passing
+ * test that executed the code (I-3). There is no `verdict` field here and there must never
+ * be one — a node that went green because somebody used it is the flow-document defect
+ * arriving through a side door.
+ *
+ * `value` is `unknown` because the shape is genuinely the user's: it is whatever their
+ * `search` returns, and a type for it here would be this application having an opinion
+ * about their code.
+ */
+export type RunOutcome = {
+  node: string;
+  action: string;
+  at: string;
+  ok: boolean;
+  value: unknown;
+  /** The child's traceback, verbatim. `""` when it returned. */
+  error: string;
+};
+
+/** `run.start`, `run.read`, `run.last`, `run.stop` — one shape, as `observe.*` is. */
+export type RunResult = {
+  api_version: number;
+  ok: boolean;
+  detail: string;
+  node: string;
+  /** `search`, `index`, `run`, `request`, `handle`, `handlers`. Each is a required export. */
+  action: string;
+  running: boolean;
+  /** What the project's own code printed. Polled with an offset we keep (P13). */
+  output: string;
+  offset: number;
+  /** Null where this node has never been run. Not the same as run and found wanting. */
+  outcome: RunOutcome | null;
+  /**
+   * What was handed to `index` from this window. A memory of uploads, never a claim about
+   * what the index holds: the convention gives RAG two exports and neither lists anything.
+   */
+  documents: string[];
+};
+
+/**
+ * `deploy.*`: the compose stack, up or down.
+ *
+ * `services` is asked of `docker compose config` and never read out of the file — the same
+ * rule that keeps the parser out of `Dockerfile`. It is empty from a poll, which does not
+ * ask: the answer costs a process and does not change while the stack runs.
+ */
+export type DeployResult = {
+  api_version: number;
+  ok: boolean;
+  detail: string;
+  running: boolean;
+  output: string;
+  offset: number;
+  /** Whether there is a docker to use. Sent so a button that cannot work can say why. */
+  available: boolean;
+  version: string;
+  services: string[];
+};

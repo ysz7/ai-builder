@@ -34,6 +34,9 @@ import { Rail } from "./shell/Rail";
 import { Sheet } from "./shell/Sheet";
 import { TopBar } from "./shell/TopBar";
 import {
+  deployRead,
+  deployStart,
+  deployStop,
   graphRead,
   layoutRead,
   layoutWrite,
@@ -77,6 +80,16 @@ export default function App() {
   const [observing, setObserving] = useState(false);
   /** What the run is printing. Polled with an offset we keep, never pushed (P13). */
   const [log, setLog] = useState("");
+  /**
+   * The compose stack, if this window brought one up.
+   *
+   * Held here rather than in the node panel because the panel is dismissed and the stack is
+   * not: a person opens `compose.yaml`, presses Deploy and closes the flyout, and the stack
+   * has to still be running with its log still arriving. Nothing here is a fact about the
+   * project — it is a fact about a process, and it goes away when the window does.
+   */
+  const [deploying, setDeploying] = useState(false);
+  const [deployLog, setDeployLog] = useState("");
   const [layout, setLayout] = useState<Layout>({});
   const [selected, setSelected] = useState("");
   const [refused, setRefused] = useState<string | null>(null);
@@ -129,6 +142,7 @@ export default function App() {
     setObservation(null);
     setSelected("");
     setLog("");
+    setDeployLog("");
     void open(project);
   }, [project, open]);
 
@@ -188,6 +202,74 @@ export default function App() {
       live = false;
     };
   }, [observing, project]);
+
+  /**
+   * Bring the compose stack up. Never automatic, like everything else that starts a process.
+   *
+   * The sheet opens on it, because a deploy with no log is a button that appears to do
+   * nothing for the two minutes an image takes to build.
+   */
+  const runDeploy = useCallback(async () => {
+    if (!project) return;
+    setRefused(null);
+    setDeployLog("");
+    setSheet("deploy");
+    try {
+      const started = await deployStart(project);
+      setDeploying(started.running);
+      if (!started.ok) setRefused(started.detail);
+    } catch (error) {
+      setDeploying(false);
+      setRefused(error instanceof Error ? error.message : String(error));
+    }
+  }, [project]);
+
+  /**
+   * Take it down — the containers, not only this window's attachment to them.
+   *
+   * `up` is a client attached to containers the daemon owns, so the core runs `down` as well
+   * as ending the client. Anything less and "stop" would mean "look away".
+   */
+  const endDeploy = useCallback(async () => {
+    if (!project) return;
+    try {
+      const stopped = await deployStop(project);
+      setDeploying(false);
+      if (!stopped.ok) setRefused(stopped.detail);
+    } catch (error) {
+      setRefused(error instanceof Error ? error.message : String(error));
+    }
+  }, [project]);
+
+  // Polled while it is up, with the offset the core last gave us (P13). Compose exiting on
+  // its own — a build that failed, a stack that stopped — ends the loop the same way.
+  useEffect(() => {
+    if (!deploying || !project) return;
+    let offset = 0;
+    let live = true;
+    const tick = async () => {
+      while (live) {
+        try {
+          const answer = await deployRead(project, offset);
+          offset = answer.offset;
+          if (answer.output) setDeployLog((held) => held + answer.output);
+          if (!answer.running) {
+            setDeploying(false);
+            return;
+          }
+        } catch (error) {
+          setRefused(error instanceof Error ? error.message : String(error));
+          setDeploying(false);
+          return;
+        }
+        await new Promise((wake) => setTimeout(wake, 600));
+      }
+    };
+    void tick();
+    return () => {
+      live = false;
+    };
+  }, [deploying, project]);
 
   /**
    * Store the whole layout, as the core's contract requires: it keeps this and refuses to
@@ -333,6 +415,18 @@ export default function App() {
                   </pre>
                 ),
               },
+              // Only once there is something to show. A face that says "nothing has been
+              // deployed" is a tab bought for a sentence.
+              ...(deploying || deployLog
+                ? [
+                    {
+                      id: "deploy",
+                      label: deploying ? "Deploy (up)" : "Deploy",
+                      // Compose's own output, unedited, for the same reason the suite's is.
+                      content: <pre className="bp-observe-log">{deployLog}</pre>,
+                    },
+                  ]
+                : []),
               {
                 id: "terminal",
                 label: "Terminal",
@@ -363,6 +457,9 @@ export default function App() {
           // they are still what the last run proved, and quietly clearing them would say a
           // test failed. What they are now stale about is a commit, which the panel says.
           onEdited={() => void open(project)}
+          deploying={deploying}
+          onDeploy={() => void runDeploy()}
+          onUndeploy={() => void endDeploy()}
         />
       ) : null}
 

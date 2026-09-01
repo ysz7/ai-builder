@@ -1,14 +1,15 @@
 """A terminal the person types into, as a process this toolchain starts and talks to.
 
 **This is not a verb on a node, and that distinction is the whole of why it is allowed.**
-`command.start` refuses anything the project does not declare, because a verb that ran an
+`run.*` calls one export the convention already requires, because a verb that ran an
 arbitrary string would be a shell with a button on it -- a thing the graph makes claims about
 without knowing what it did. Nothing here makes a claim about anything. A shell is somebody's
 own shell, opened deliberately, typed into by hand; it colours no node, proves no check and
-is not read by the parser. What it costs is a process, which is exactly what `run.*`,
-`work.*`, `agent.*`, `talk.*` and `command.*` each cost already.
+is not read by the parser. What it costs is a process, which is exactly what `agent.*`,
+`observe.*`, `run.*` and `deploy.*` each cost already. It is also the way out of a corner the
+buttons cannot reach, which is why it may run what `run.start` refuses.
 
-So this is the sixth instance of the P13 shape and it follows the same four rules:
+So this is one instance of the P13 shape and it follows the same four rules:
 
 * **Nothing is pushed.** Output is polled with an offset the caller keeps.
 * **Nothing starts implicitly.** A shell exists because somebody opened one.

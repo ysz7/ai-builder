@@ -4370,3 +4370,176 @@ textarea {
   font-size: 11px;
   color: var(--muted-2);
 }
+
+/* ---------- calling one node's export ---------- */
+
+/* `Run` on a node: one export, with input a person typed. It is a **block on the panel and
+   never a mark on the card**, and that placement is the argument -- a call that returned is
+   not evidence, and colour is earned by a passing test. If a result ever reached the canvas,
+   a node would be green because somebody used it. */
+.bp-run {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+}
+.bp-run-form {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+/* The form is one line where it can be: a query and the button that sends it. A request
+   builder is out of scope, and the way to keep it out is to leave nowhere to put one. */
+.bp-run-line {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+}
+.bp-run-line .bp-field {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.bp-run-go {
+  flex: 0 0 auto;
+  height: 32px;
+  padding: 0 12px;
+  border: 1px solid var(--accent-line);
+  border-radius: var(--radius-2);
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.bp-run-go:hover:not(:disabled) {
+  border-color: var(--accent);
+}
+.bp-run-go:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+.bp-run-wide {
+  width: 100%;
+  font-family: var(--mono);
+  font-weight: 500;
+}
+.bp-run-second {
+  align-self: flex-start;
+  border: none;
+  background: none;
+  padding: 0;
+  color: var(--accent);
+  font-size: 12px;
+  cursor: pointer;
+}
+.bp-run-second:hover:not(:disabled) {
+  text-decoration: underline;
+}
+.bp-run-second:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+/* Ending a call is beside the word that says one is happening, because that is the only
+   moment it means anything. */
+.bp-run-stop {
+  float: right;
+  border: none;
+  background: none;
+  padding: 0;
+  color: var(--accent);
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+.bp-run-note {
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: var(--muted-3);
+}
+
+/* What was uploaded from this window, and what a stack is made of. Both are lists of short
+   names the person recognises, and neither is a claim the toolchain derived on its own. */
+.bp-run-docs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin-top: 2px;
+}
+.bp-run-docs-cap {
+  flex: 0 0 100%;
+  font-size: 10.5px;
+  color: var(--muted-3);
+}
+.bp-run-docs code {
+  padding: 2px 8px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-pill);
+  background: var(--surface);
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--muted-2);
+}
+
+/* What the call printed while it ran, and what it gave back. Bounded, because a project that
+   prints a megabyte should not push the rest of the panel out of the window. */
+.bp-run-log {
+  margin: 0;
+  max-height: 160px;
+  padding: 8px 10px;
+  border-radius: var(--radius-2);
+  background: var(--bg-2);
+  font-family: var(--mono);
+  font-size: 10.5px;
+  line-height: 1.6;
+  color: var(--muted-2);
+  white-space: pre-wrap;
+  word-break: break-word;
+  overflow: auto;
+}
+.bp-run-answer {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+/* Which export, and when. A result nobody can date is one that will be read as current after
+   the code under it has moved -- the same reason a verdict carries its commit. */
+.bp-run-when {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--muted-3);
+}
+/* A string is prose, because an agent's reply is meant to be read. */
+.bp-run-reply {
+  padding: 9px 11px;
+  border-radius: var(--radius-2);
+  background: var(--bg-2);
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: var(--fg-2);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+/* Everything else is JSON, because the shape belongs to the person's own code. */
+.bp-run-json {
+  margin: 0;
+  max-height: 260px;
+  padding: 9px 11px;
+  border-radius: var(--radius-2);
+  background: var(--bg-2);
+  font-family: var(--mono);
+  font-size: 11px;
+  line-height: 1.55;
+  color: var(--fg-2);
+  white-space: pre-wrap;
+  word-break: break-word;
+  overflow: auto;
+}
+/* The traceback, verbatim. Tinted, never rewritten: it is the way out of the state the code
+   is actually in, and a paraphrase of it would be worth less than the thing itself. */
+.bp-run-json.is-error {
+  background: var(--danger-soft);
+  color: var(--fg-2);
+}

@@ -47,6 +47,10 @@ apps/desktop/src-tauri/gen/schemas/
 # the reconciliation reference: a build artifact, rewritten by any passing gate run
 .framestack/
 
+# the reference project's own index, written by running its `index` export. Its content is
+# whatever a person uploaded on their machine, which is nobody else's business.
+.rag-index.json
+
 # design documents: kept locally, not published. The one file in here that the toolchain
 # actually reads -- the agent's system prompt -- is package data under
 # packages/core/src/framestack_core/prompts/, precisely so `npm run check` does not depend

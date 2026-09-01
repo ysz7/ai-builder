@@ -15,10 +15,17 @@ from typing import Any
 
 from framestack_core.chat import COMMANDS as CHAT_COMMANDS
 from framestack_core.chat import STACKS, changes, send
+from framestack_core.deploy import deploy_status as read_deploy_status
+from framestack_core.deploy import (
+    read_deploy,
+    start_deploy,
+    stop_deploy,
+)
 from framestack_core.editor import open_in_editor
 from framestack_core.layout import create_project, read_layout, write_layout
 from framestack_core.observe import last_observation, read_observation, start_observation
 from framestack_core.parser import read_graph
+from framestack_core.run import last_run, read_run, start_run, stop_run
 from framestack_core.session import (
     COMMANDS,
     EFFORTS,
@@ -381,6 +388,71 @@ AGENT_CHOICES_SCHEMA = {
 }
 
 
+#: The `run.*` payload: one export, called once, and what it gave back.
+#:
+#: **There is no verdict in here and there will not be one.** Green is earned by a passing
+#: test that executed the code (I-3); this is a person typing a query and pressing a button,
+#: which proves the call returned and nothing more. A payload that carried a colour would let
+#: a node go green because somebody used it, which is the flow-document defect wearing a
+#: different hat.
+#:
+#: One schema for all four verbs, as `observe.*` and `shell.*` are: a call was started,
+#: polled, stopped, or the last one was asked for.
+RUN_SCHEMA = {
+    "api_version": "int",
+    "ok": "bool",
+    "detail": "str",
+    "node": "str",
+    # Which export was called, named by the action: `search`, `index`, `run`, `request`,
+    # `handle`, `handlers`. Never a method of an implementation -- every one of these is an
+    # export the convention already requires.
+    "action": "str",
+    "running": "bool",
+    # What the project's own code printed. Polled with an offset the caller keeps (P13).
+    "output": "str",
+    "offset": "int",
+    # Null where this node has never been run -- not the same as run and found wanting.
+    "outcome": {
+        "<nullable>": {
+            "node": "str",
+            "action": "str",
+            "at": "str",
+            "ok": "bool",
+            # The export's own return value. `<opaque>` because the shape is genuinely the
+            # user's: a contract for what somebody's `search` returns would be this toolchain
+            # having an opinion about their code.
+            "value": "<opaque>",
+            # The child's traceback, verbatim. `""` when it returned.
+            "error": "str",
+        }
+    },
+    # What was handed to `index` from this window. A memory of uploads, never a claim about
+    # what the index holds -- the convention gives RAG two exports and neither lists anything.
+    "documents": ["str"],
+}
+
+
+#: The `deploy.*` payload: the compose stack, up or down.
+#:
+#: `services` is **asked of `docker compose config`** and never read out of the file. A YAML
+#: reader here would be a second opinion about a format that already has a first one. It is
+#: empty from a poll, which does not ask -- the answer costs a process and does not change
+#: while the stack runs.
+DEPLOY_SCHEMA = {
+    "api_version": "int",
+    "ok": "bool",
+    "detail": "str",
+    "running": "bool",
+    "output": "str",
+    "offset": "int",
+    # Whether there is a docker to use, and what it says it is. Sent so the panel can explain
+    # a button that will not work before somebody presses it.
+    "available": "bool",
+    "version": "str",
+    "services": ["str"],
+}
+
+
 def create_new_project(parent: Path | str, name: str) -> dict[str, Any]:
     """Make an empty directory for a project. `detail` is the path when it worked."""
     return {"api_version": GRAPH_API_VERSION, **create_project(parent, name).as_dict()}
@@ -404,6 +476,48 @@ def observe_read(project: Path | str, offset: int = 0) -> dict[str, Any]:
 def observe_last(project: Path | str) -> dict[str, Any]:
     """The stored verdict set. A read: it starts nothing and proves nothing new."""
     return {"api_version": GRAPH_API_VERSION, **last_observation(project).as_dict()}
+
+
+def run_start(
+    project: Path | str, node: str, action: str, given: dict[str, Any] | None = None
+) -> dict[str, Any]:
+    """Call one export. Never implicit (P11), and it colours nothing."""
+    return {"api_version": GRAPH_API_VERSION, **start_run(project, node, action, given).as_dict()}
+
+
+def run_read(project: Path | str, node: str, offset: int = 0) -> dict[str, Any]:
+    """Poll the call. The caller keeps the offset it was last given (P13)."""
+    return {"api_version": GRAPH_API_VERSION, **read_run(project, node, offset).as_dict()}
+
+
+def run_last(project: Path | str, node: str) -> dict[str, Any]:
+    """What this node last returned, and what was uploaded to it. A read: it starts nothing."""
+    return {"api_version": GRAPH_API_VERSION, **last_run(project, node).as_dict()}
+
+
+def run_stop(project: Path | str, node: str) -> dict[str, Any]:
+    """End a call somebody started."""
+    return {"api_version": GRAPH_API_VERSION, **stop_run(project, node).as_dict()}
+
+
+def deploy_status(project: Path | str) -> dict[str, Any]:
+    """Whether this project can be deployed, and whether it already is."""
+    return {"api_version": GRAPH_API_VERSION, **read_deploy_status(project).as_dict()}
+
+
+def deploy_up(project: Path | str) -> dict[str, Any]:
+    """Bring the compose stack up. Never implicit (P11)."""
+    return {"api_version": GRAPH_API_VERSION, **start_deploy(project).as_dict()}
+
+
+def deploy_poll(project: Path | str, offset: int = 0) -> dict[str, Any]:
+    """What compose has printed since `offset` (P13)."""
+    return {"api_version": GRAPH_API_VERSION, **read_deploy(project, offset).as_dict()}
+
+
+def deploy_down(project: Path | str) -> dict[str, Any]:
+    """Take the stack down -- the client and the containers both."""
+    return {"api_version": GRAPH_API_VERSION, **stop_deploy(project).as_dict()}
 
 
 def chat_send(

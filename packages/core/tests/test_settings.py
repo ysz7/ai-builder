@@ -62,6 +62,7 @@ def test_the_reference_declares_the_knobs_its_classes_declare(tmp_path: Path) ->
     assert settings.class_name == "RagSettings"
     assert settings.path == "rag/settings.py"
     assert [one.name for one in settings.fields] == [
+        "index_path",
         "chunk_size",
         "overlap",
         "top_k",

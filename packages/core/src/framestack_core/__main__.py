@@ -16,6 +16,7 @@ import contextlib
 import sys
 from typing import TextIO
 
+from framestack_core.deploy import close_everything_deployed_here
 from framestack_core.handlers import dispatch
 from framestack_core.observe import close_everything_observed_here
 from framestack_core.protocol import (
@@ -24,6 +25,7 @@ from framestack_core.protocol import (
     encode_error,
     encode_result,
 )
+from framestack_core.run import close_everything_run_here
 from framestack_core.session import close_everything_started_here
 from framestack_core.shell import close_everything_opened_here
 
@@ -88,6 +90,15 @@ def main() -> int:
         # a test run with nothing left to report to is a process writing into a project for
         # no reader, and it holds whatever the tests themselves started.
         close_everything_observed_here()
+        # And any export somebody pressed `Run` on: the same reasoning again, and one more --
+        # a run is somebody's own code, which may have opened a port or a connection of its
+        # own, and it is holding them for a panel that is no longer there to be shown them.
+        close_everything_run_here()
+        # And the compose stack, which is the only one of these that would otherwise survive
+        # us: `up` is a client attached to containers the daemon owns, so ending the client
+        # is not ending the stack. This runs `down`, because "closing the app stops what it
+        # started" has to be true of the thing a person is most likely to leave running.
+        close_everything_deployed_here()
     log("stdin closed, exiting")
     return 0
 

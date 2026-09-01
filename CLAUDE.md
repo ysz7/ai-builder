@@ -11,8 +11,8 @@ Assembled applications deploy as plain Python projects with no runtime dependenc
 
 **The repository is mid-rebuild, and the plan is `docs/framestack_rebuild_plan.md`.** Read it before
 proposing anything: it is the specification, and *rule zero is that anything not described in it is
-deleted*. Phases 0–4 — demolition, the read-only graph, Observe, the settings panel and the
-chat — are done. Phase 5, Run and Deploy, is what remains.
+deleted*. Phases 0–5 — demolition, the read-only graph, Observe, the settings panel, the chat, and
+Run and Deploy — are done.
 
 ### Why the rebuild exists
 
@@ -126,8 +126,9 @@ call is shown and refused rather than overwritten, a wrong type is refused with 
 untouched, and the answer is always the file **re-read** — never a description of what the
 writer believes it did.
 
-**A control is drawn when the core can answer for it.** `Run` and `Deploy` arrive with Phase 5. A
-button whose only possible outcome is an error is worse than no button. For the same reason the
+**A control is drawn when the core can answer for it**, and never before: a button whose only
+possible outcome is an error is worse than no button. That is why `Run` and `Deploy` arrived last,
+beside `run.*` and `deploy.*`. For the same reason the
 **graph payload carries no verdict field**: a verdict comes from `observe.*` and is held beside the
 graph, never folded into it — they answer different questions and go stale at different moments, and
 a node with no entry has no verdict rather than a default one. A default the UI had to remember to
@@ -221,7 +222,23 @@ payloads it assembles; `parser.py` derives the graph from the convention; `sessi
 agent's process; `shell.py` is the terminal the person types into; `layout.py` is where a person put
 things; `observe.py` runs the project's tests and turns what happened into colour;
 `settings.py` reads and writes the one `BaseSettings` class a system may declare; `editor.py`
-is `Open`; `chat.py` dispatches a message to exactly one command.
+is `Open`; `chat.py` dispatches a message to exactly one command; `run.py` calls one system's
+export in the project's own interpreter and `deploy.py` brings the compose stack up;
+`environment.py` is the one place that answers "which Python does this project's own code run in".
+
+**`Run` calls one export and colours nothing.** It is `Run`, not run-the-graph: one node, one of
+the exports the convention already requires, no traversal and no order — a child process driven by
+a script written as text, because the core imports no user code. A call that returned is not
+evidence, so nothing in `run.py` may ever write an observation; a node green because somebody used
+it is the flow-document defect arriving through a side door. For the same reason the network is
+**not** guarded there while Observe guards it absolutely: Observe must be reproducible, and an
+agent that cannot reach a model is one nobody can try.
+
+**`Deploy` is `docker compose up`, and stopping means `down`.** One target, and no line of
+`compose.yaml` is read here — the services come from `docker compose config --services`, asked of
+the program that owns the format. `up` is a client attached to containers the daemon owns, so
+ending the client is not ending the stack: the sidecar runs `down` on its way out, or "closing the
+app stops what it started" is a sentence that is not true.
 
 **There is no free-form write path, and `agent.say` is gone rather than discouraged.**
 `chat.send` is the only way a person's words reach the agent, and every turn carries the shared
@@ -282,8 +299,8 @@ stranger's code; a project that hangs or crashes must cost a subprocess rather t
 is talking to.
 
 **Five things spawn a process** and they are one shape: the chat agent (`agent.*`, in
-`session.py`), the terminal (`shell.*`), Observe (`observe.*`), and — from Phase 5 — `Run` and
-`Deploy`. All of them follow the same rules:
+`session.py`), the terminal (`shell.*`), Observe (`observe.*`), `Run` (`run.*`) and `Deploy`
+(`deploy.*`). All of them follow the same rules:
 nothing is pushed, output is polled with an offset the caller keeps, a record on disk survives a
 crash, and nothing starts implicitly. For Observe, *running* means the run table still holds it —
 the suite exiting is not the end of the run, because the coverage database and the test report

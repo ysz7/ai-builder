@@ -70,12 +70,14 @@ export function ping(echo?: string): Promise<PingResult> {
 import type {
   Changes,
   ChatChoices,
+  DeployResult,
   Dispatch,
   Graph,
   Layout,
   LayoutRead,
   Opened,
   ObserveResult,
+  RunResult,
   SettingsResult,
   WriteResult,
 } from "./types";
@@ -115,6 +117,74 @@ export function observeRead(
 /** The last verdict set. A read: it starts no suite and changes no colour. */
 export function observeLast(project: string): Promise<ObserveResult> {
   return coreRequest<ObserveResult>("observe.last", { project });
+}
+
+// -- running one system, and deploying the stack ------------------------------
+
+/**
+ * Call one system's export, once.
+ *
+ * **Not an execution of the graph**, and the difference is the whole reason this exists:
+ * one node, one export the convention already requires, no traversal and no order. Execution
+ * order lives in Python. If this ever grew a notion of "and then the next node", the canvas
+ * would have started deciding what runs when.
+ *
+ * It **colours nothing**. A call that returned is not evidence; green is earned by a passing
+ * test that executed the code, and that is Observe's answer and only Observe's.
+ */
+export function runStart(
+  project: string,
+  node: string,
+  action: string,
+  input: Record<string, unknown> = {},
+): Promise<RunResult> {
+  return coreRequest<RunResult>("run.start", { project, node, action, input });
+}
+
+/** Poll the call. The caller keeps the offset it was last given (P13). */
+export function runRead(project: string, node: string, offset = 0): Promise<RunResult> {
+  return coreRequest<RunResult>("run.read", { project, node, offset });
+}
+
+/** What this node last returned, and what was uploaded to it. A read: it starts nothing. */
+export function runLast(project: string, node: string): Promise<RunResult> {
+  return coreRequest<RunResult>("run.last", { project, node });
+}
+
+/** End a call somebody started. */
+export function runStop(project: string, node: string): Promise<RunResult> {
+  return coreRequest<RunResult>("run.stop", { project, node });
+}
+
+/**
+ * Whether this project can be deployed, and whether it already is.
+ *
+ * A read, and the one place the services come from: `docker compose config`, asked of the
+ * program that owns the format. Nothing in this codebase reads a line of YAML.
+ */
+export function deployStatus(project: string): Promise<DeployResult> {
+  return coreRequest<DeployResult>("deploy.status", { project });
+}
+
+/** `docker compose up`. Never implicit — somebody pressed `Deploy`. */
+export function deployStart(project: string): Promise<DeployResult> {
+  return coreRequest<DeployResult>("deploy.start", { project });
+}
+
+/** Poll the stack's log. The caller keeps the offset (P13). */
+export function deployRead(project: string, offset = 0): Promise<DeployResult> {
+  return coreRequest<DeployResult>("deploy.read", { project, offset });
+}
+
+/**
+ * Take the stack down — the client **and** the containers.
+ *
+ * `up` is a client attached to containers the daemon owns, so ending the client is not
+ * ending the stack. Stopping runs `down`, or "closing the app stops what it started" is a
+ * sentence that is not true.
+ */
+export function deployStop(project: string): Promise<DeployResult> {
+  return coreRequest<DeployResult>("deploy.stop", { project });
 }
 
 /**
