@@ -164,6 +164,14 @@ type Props = {
   handOver: HandOver | null;
   onHandedOver: () => void;
   /**
+   * Whether a turn is being answered.
+   *
+   * Reported outward because two things outside this panel need it: the palette, whose
+   * blocks cannot start a second turn, and the canvas, which draws what is being written
+   * only for as long as it is being written.
+   */
+  onTurn: (running: boolean) => void;
+  /**
    * A press of `Agent` in the control cluster, counted.
    *
    * A counter and not a boolean, because the question it answers is "has somebody just
@@ -225,6 +233,7 @@ export function Chat({
   onObserve,
   handOver,
   onHandedOver,
+  onTurn,
   summon,
 }: Props) {
   const [available, setAvailable] = useState<boolean | null>(null);
@@ -459,6 +468,10 @@ export function Chat({
     // scrolling up is supposed to stop. What arrives after this is handled by the effect
     // above, which is still following because this one said so.
   }, [open]);
+
+  useEffect(() => {
+    onTurn(busy);
+  }, [busy, onTurn]);
 
   /**
    * A message handed over from elsewhere: the repair dialog, or the palette.

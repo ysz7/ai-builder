@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Any
 
 from framestack_core.chat import COMMANDS as CHAT_COMMANDS
-from framestack_core.chat import STACKS, changes, send
+from framestack_core.chat import STACKS, blocks, changes, send
 from framestack_core.deploy import deploy_status as read_deploy_status
 from framestack_core.deploy import (
     read_deploy,
@@ -273,6 +273,32 @@ CHAT_CHOICES_SCHEMA = {
     "api_version": "int",
     "commands": ["str"],
     "stacks": {"<key>": ["str"]},
+    # What a palette may offer, declared here rather than in the interface. A palette with
+    # its own list could offer a command the prompts have never heard of, and the first
+    # symptom would be a button that starts a turn the agent does not understand.
+    #
+    # **There is no code in here.** A block carries a command and what a person supplies
+    # before pressing it; what gets written is whatever the agent writes from that command's
+    # prompt. A field holding a scaffold would make this a template gallery, which is the one
+    # thing the palette must never become.
+    "blocks": [
+        {
+            "command": "str",
+            "argument": "str",
+            # The kind whose colour and glyph draws it, so a block looks like the node it
+            # will become. `""` where it becomes no node at all.
+            "kind": "str",
+            "label": "str",
+            "hint": "str",
+            # "", "stack" (one of `choices`), or "name" (free text — the alternative is a
+            # catalogue of databases and servers, and a catalogue is a gallery).
+            "takes": "str",
+            "choices": ["str"],
+            # Whether the convention allows only one at the root, and what must exist first.
+            "once": "bool",
+            "requires": "str",
+        }
+    ],
 }
 
 
@@ -551,6 +577,7 @@ def chat_choices() -> dict[str, Any]:
         "api_version": GRAPH_API_VERSION,
         "commands": list(CHAT_COMMANDS),
         "stacks": {kind: list(names) for kind, names in STACKS.items()},
+        "blocks": [block.as_dict() for block in blocks()],
     }
 
 

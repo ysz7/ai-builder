@@ -4,6 +4,9 @@ else.
   add-system   a new rag/, agent/, api/ or worker/ package, or one nested inside
                an existing system
   add-tool     a function the agent can call, added to agent/tools.py
+  add-service  a container the project needs running around it, added to
+               compose.yaml
+  add-mcp      an MCP server the agent can reach, added to mcp.json
   connect      an import between two existing system packages
   repair       fix a check that is failing
   question     anything that is answered by reading, not by writing

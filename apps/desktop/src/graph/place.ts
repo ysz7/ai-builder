@@ -176,6 +176,23 @@ export function placeAll(graph: Graph, layout: Layout): Record<string, Point> {
  * `null` when the system has none on screen: there is nothing to wrap, and a frame around
  * nothing is a region claiming a membership that does not exist.
  */
+/**
+ * Where a node being written would land: the next free column.
+ *
+ * The same arithmetic `placeAll` uses for a system, so the marker sits where the real node
+ * will sit — and then the real one takes that spot when it arrives, which is what makes the
+ * marker read as the thing appearing rather than as something else happening beside it.
+ *
+ * It is computed and never stored. A pending marker has no entry in `layout.json`, because
+ * an entry is the first step towards it outliving the turn that drew it.
+ */
+export function pendingSpot(graph: Graph | null, layout: Layout): Point {
+  const systems = graph
+    ? visible(graph, layout).filter((node) => node.kind !== "file" && node.parent === "")
+    : [];
+  return { x: ORIGIN + systems.length * COLUMN, y: ORIGIN };
+}
+
 export function frameBox(
   system: GraphNode,
   shown: GraphNode[],

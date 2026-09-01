@@ -209,11 +209,36 @@ export type Changes = {
   files: string[];
 };
 
-/** `chat.choices`: the four commands, and the stacks each kind may be generated on. */
+/**
+ * One thing a person can press to have written.
+ *
+ * Declared by the **core**, from the commands this build ships, so the palette cannot offer
+ * something the prompts have never heard of. There is no code in here and no catalogue: a
+ * block carries a command and what the person supplies before pressing it, and what gets
+ * written is whatever the agent writes from that command's prompt.
+ */
+export type Block = {
+  command: string;
+  /** What is appended to it, where the command takes a fixed argument. `""` otherwise. */
+  argument: string;
+  /** The kind whose colour and glyph draws it. `""` where it becomes no node at all. */
+  kind: string;
+  label: string;
+  hint: string;
+  /** `""`, `"stack"` (one of `choices`), or `"name"` (free text — a list would be a gallery). */
+  takes: string;
+  choices: string[];
+  /** Whether the convention allows only one at the root, and what must exist first. */
+  once: boolean;
+  requires: string;
+};
+
+/** `chat.choices`: the commands, the stacks each kind may be generated on, and the blocks. */
 export type ChatChoices = {
   api_version: number;
   commands: string[];
   stacks: Record<string, string[]>;
+  blocks: Block[];
 };
 
 /**

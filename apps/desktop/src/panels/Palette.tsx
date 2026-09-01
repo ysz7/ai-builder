@@ -12,63 +12,78 @@
  * So this component has **no write path of its own and cannot acquire one**. Its only output
  * is a string handed to the chat.
  *
- * ## Where the blocks come from
+ * ## It is a renderer, and the list is not in here
  *
- * `chat.choices`, and nowhere else. The kinds are the keys of `stacks`; the stacks are its
- * values; a block for a command the core does not return cannot be drawn. There is no list
- * of blocks in this file, which is what stops the palette and the core drifting apart — the
- * failure that would show up as a button writing a system the prompts have never heard of.
+ * The blocks come from `chat.choices`, which derives them from the commands this build
+ * ships. A palette holding its own list could offer something the prompts have never heard
+ * of, and the first symptom would be a button that starts a turn the agent does not
+ * understand. Adding a command with a prompt is what adds a block; this file does not
+ * change when one arrives.
+ *
+ * For the same reason there is **no catalogue** — no list of databases, no directory of MCP
+ * servers. A block that takes a name takes it as free text, because a catalogue of things
+ * somebody could add is a template gallery with the serial numbers filed off.
  *
  * ## Why some are disabled
  *
- * The convention allows one system of each kind per level, so a project that has an `agent/`
- * cannot be given a second. The palette **shows that rule rather than enforcing a new one**:
- * the block is drawn, disabled, with the reason, and deleting the package re-enables it. A
- * hidden block would be a rule nobody could see; a block that pretended to work would be a
- * turn spent discovering it.
+ * The convention allows one system of each kind per level, and a tool has to go inside an
+ * agent. The palette **shows those rules rather than inventing new ones**: the block is
+ * drawn, disabled, with the reason, and deleting the package re-enables it. A hidden block
+ * would be a rule nobody could see; a block that pretended to work would be a turn spent
+ * discovering it.
  */
 
 import { useEffect, useState } from "react";
 
 import { chatChoices } from "../core/client";
-import type { ChatChoices, Graph } from "../core/types";
+import type { Block as BlockSpec, ChatChoices, Graph } from "../core/types";
 import { glyphOf, labelOf, tintBgOf, tintOf } from "../graph/kinds";
 import { Flyout } from "../shell/Flyout";
 
-/** What the select says for "whatever this project already prefers". */
+/** The select's entry for "whatever this project already prefers". Sends no `--stack`. */
 const DEFAULT = "";
 
 function Block({
-  kind,
-  label,
-  hint,
-  stacks,
+  spec,
   taken,
   onAdd,
 }: {
-  kind: string;
-  label: string;
-  hint: string;
-  /** The stacks this kind may be written on. Empty where the command takes none. */
-  stacks: string[];
+  spec: BlockSpec;
   /** Why it cannot be added, or `""` when it can. */
   taken: string;
-  onAdd: (stack: string) => void;
+  onAdd: (command: string, kind: string) => void;
 }) {
   const [stack, setStack] = useState(DEFAULT);
+  const [name, setName] = useState("");
+
+  // A block with a kind is named by the kind, so there is one table of those words and it is
+  // the one the canvas draws from. Everything else carries its own label from the core.
+  const label = spec.kind ? labelOf(spec.kind) : spec.label;
+  const ready = taken === "" && (spec.takes !== "name" || name.trim() !== "");
+
+  const press = () => {
+    const parts = [`/${spec.command}`];
+    if (spec.argument) parts.push(spec.argument);
+    if (spec.takes === "name" && name.trim()) parts.push(name.trim());
+    if (spec.takes === "stack" && stack) parts.push(`--stack ${stack}`);
+    // The kind travels with the command so the canvas can stand something in its place while
+    // it is written. `""` for a block that becomes no node, and then nothing is drawn.
+    onAdd(parts.join(" "), spec.kind);
+    setName("");
+  };
 
   return (
     <div className={`bp-block-card${taken ? " is-taken" : ""}`}>
       <div
         className="bp-block-mark"
         style={{
-          ["--tint" as string]: tintOf(kind),
-          ["--tint-bg" as string]: tintBgOf(kind),
+          ["--tint" as string]: tintOf(spec.kind || "file"),
+          ["--tint-bg" as string]: tintBgOf(spec.kind || "file"),
         }}
       >
         <svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true">
           <path
-            d={glyphOf(kind)}
+            d={glyphOf(spec.kind || "file")}
             fill="none"
             stroke="currentColor"
             strokeWidth="1.8"
@@ -82,32 +97,45 @@ function Block({
         <span className="bp-block-name">{label}</span>
         {/* The reason, in the convention's own words. It is the way out of the state the
             project is in — delete the package and this block comes back. */}
-        <span className="bp-block-hint">{taken || hint}</span>
+        <span className="bp-block-hint">{taken || spec.hint}</span>
 
-        {/* No stack is a real answer and it is the default: the project records a preference
-            in `.env`, and sending no `--stack` is what lets that preference win. Choosing one
-            here overrides it for this system only. */}
-        {stacks.length > 0 && !taken ? (
+        {taken ? null : spec.takes === "stack" ? (
+          /* No stack is a real answer and it is the default: the project records a
+             preference in `.env`, and sending no `--stack` is what lets that preference
+             win. Choosing one here overrides it for this system only. */
           <select
             className="bp-field bp-block-stack"
             value={stack}
             onChange={(event) => setStack(event.target.value)}
           >
             <option value={DEFAULT}>this project's default</option>
-            {stacks.map((one) => (
+            {spec.choices.map((one) => (
               <option key={one} value={one}>
                 {one}
               </option>
             ))}
           </select>
+        ) : spec.takes === "name" ? (
+          /* Free text, never a list. A menu of databases or of MCP servers would be a
+             catalogue this application maintained, which is a template gallery by another
+             name — and it would be wrong about the world within a month. */
+          <input
+            className="bp-field bp-block-stack"
+            placeholder={spec.command === "add-mcp" ? "gmail" : "postgres"}
+            value={name}
+            onChange={(event) => setName(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter" && ready) press();
+            }}
+          />
         ) : null}
       </div>
 
       <button
         className="bp-block-add"
-        disabled={taken !== ""}
-        title={taken || `Ask the chat to write ${label.toLowerCase()}`}
-        onClick={() => onAdd(stack)}
+        disabled={!ready}
+        title={taken || `Ask the chat for ${label.toLowerCase()}`}
+        onClick={press}
       >
         +
       </button>
@@ -117,12 +145,15 @@ function Block({
 
 export function Palette({
   graph,
+  busy,
   onAdd,
   onClose,
 }: {
   graph: Graph | null;
+  /** A turn is already being answered. Every block says so rather than starting a second. */
+  busy: boolean;
   /** One command, handed to the chat. The only thing this component emits. */
-  onAdd: (command: string) => void;
+  onAdd: (command: string, kind: string) => void;
   onClose: () => void;
 }) {
   const [choices, setChoices] = useState<ChatChoices | null>(null);
@@ -145,6 +176,19 @@ export function Palette({
     (graph?.nodes ?? []).filter((node) => node.parent === "").map((node) => node.kind),
   );
 
+  /** Why this block cannot be pressed, in the convention's words, or `""`. */
+  const why = (spec: BlockSpec): string => {
+    // The core's own sentence for the same situation, so the two agree.
+    if (busy) return "a turn is already running — wait for it rather than starting a second";
+    if (spec.once && spec.argument && rooted.has(spec.argument)) {
+      return `there is already a ${spec.argument}/ here — one of each kind per level`;
+    }
+    if (spec.requires && !rooted.has(spec.requires)) {
+      return `it goes inside ${spec.requires}/, and there is not one here yet`;
+    }
+    return "";
+  };
+
   return (
     <Flyout title="Blocks" onClose={onClose}>
       <div className="bp-palette">
@@ -155,39 +199,14 @@ export function Palette({
 
         {refused ? <div className="bp-node-why">{refused}</div> : null}
 
-        {choices
-          ? Object.entries(choices.stacks).map(([kind, stacks]) => (
-              <Block
-                key={kind}
-                kind={kind}
-                label={labelOf(kind)}
-                hint={`a ${kind}/ package`}
-                stacks={stacks}
-                taken={
-                  rooted.has(kind)
-                    ? `there is already a ${kind}/ here — one of each kind per level`
-                    : ""
-                }
-                onAdd={(stack) =>
-                  onAdd(`/add-system ${kind}${stack ? ` --stack ${stack}` : ""}`)
-                }
-              />
-            ))
-          : null}
-
-        {/* A tool is not a kind and never becomes a node of its own: it is a function inside
-            a system. It is here because it is the other thing the chat can be asked to add,
-            and because `chat.choices` says the command exists. */}
-        {choices?.commands.includes("add-tool") ? (
+        {choices?.blocks.map((spec) => (
           <Block
-            kind="file"
-            label="Tool"
-            hint="a function a system can call"
-            stacks={[]}
-            taken={rooted.has("agent") ? "" : "a tool goes inside a system — add one first"}
-            onAdd={() => onAdd("/add-tool")}
+            key={`${spec.command}:${spec.argument || spec.label}`}
+            spec={spec}
+            taken={why(spec)}
+            onAdd={onAdd}
           />
-        ) : null}
+        ))}
       </div>
     </Flyout>
   );

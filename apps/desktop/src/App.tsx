@@ -122,6 +122,17 @@ export default function App() {
    * was read again — never because a button drew one.
    */
   const [handOver, setHandOver] = useState<HandOver | null>(null);
+  /**
+   * Which kind is being written right now, or `""`.
+   *
+   * **A fact about a running turn, never about the project.** It is not in the layout, it is
+   * not in the graph, and it is cleared the moment the turn ends — at which point the graph
+   * is read again and either a node is there or it is not. Held here rather than on the
+   * canvas because the thing it is about is the chat, and the canvas only draws it.
+   */
+  const [pending, setPending] = useState("");
+  /** Whether the chat is answering. A block cannot start a second turn on top of one. */
+  const [turning, setTurning] = useState(false);
   /** Presses of `Agent`. A counter, because the second press of an open panel is not a close. */
   const [summon, setSummon] = useState(0);
 
@@ -305,10 +316,30 @@ export default function App() {
    * The palette closes: what happens next happens in the chat and on the canvas, and a panel
    * left open over both would be in the way of the thing it just started.
    */
-  const addBlock = useCallback((command: string) => {
-    setRail("");
-    setHandOver({ text: command, send: true, fresh: true });
-    setSummon((n) => n + 1);
+  const addBlock = useCallback(
+    (command: string, kind: string) => {
+      setRail("");
+      // Only where a node is actually coming. A tool, a compose service and an MCP entry are
+      // written into files rather than into a package, so there is nothing on the canvas for
+      // a marker to be standing in for — and a marker that vanished having stood for nothing
+      // is worse than none.
+      setPending(kind);
+      setHandOver({ text: command, send: true, fresh: true });
+      setSummon((n) => n + 1);
+    },
+    [],
+  );
+
+  /**
+   * The turn ended, however it ended.
+   *
+   * The marker goes on a failed turn exactly as on a successful one: what it stood for is
+   * "something is being written", and once nothing is, it has nothing to say. The reason a
+   * failed turn failed is the chat's to give, and it is already there.
+   */
+  const onTurn = useCallback((running: boolean) => {
+    setTurning(running);
+    if (!running) setPending("");
   }, []);
 
   /**
@@ -424,6 +455,7 @@ export default function App() {
             onMove={move}
             onToggle={toggle}
             onTalk={talkTo}
+            pending={pending}
           />
 
           {/* Said as a fact about the convention rather than as a verdict on the code: an
@@ -492,7 +524,12 @@ export default function App() {
       {/* What can be added. It draws nothing on the canvas and writes nothing to the
           project: pressing a block hands one command to the chat, and that is all. */}
       {rail === "blocks" ? (
-        <Palette graph={graph} onAdd={addBlock} onClose={() => setRail("")} />
+        <Palette
+          graph={graph}
+          busy={turning}
+          onAdd={addBlock}
+          onClose={() => setRail("")}
+        />
       ) : null}
 
       {/* Talking to an agent, which is not the same panel as reading one. Two views of one
@@ -549,6 +586,7 @@ export default function App() {
         onObserve={() => void runObserve()}
         handOver={handOver}
         onHandedOver={() => setHandOver(null)}
+        onTurn={onTurn}
       />
 
       <Menu at={menu} onClose={() => setMenu(null)} />

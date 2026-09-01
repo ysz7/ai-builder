@@ -1,0 +1,20 @@
+Add an MCP server to mcp.json.
+
+mcp.json is the ordinary MCP client configuration: an `mcpServers` object keyed by
+name, each with the `command` and `args` that start it, and `env` where it needs
+it. Any MCP client reads this format; it is not this builder's file, and writing
+it is not writing a manifest.
+
+Take the server the message names. If it does not name one, say so and stop. Do
+not pick a server for somebody.
+
+Produce:
+  the entry in mcp.json, with the command and arguments that server's own
+    documentation gives
+  the names of any secrets it needs in .env, referenced from the entry — never the
+    secret itself, and never a value you invented
+  a tool in agent/tools.py that calls it, when the agent is meant to use it, with a
+    test that fakes the server
+
+You do not start the server and you do not verify anything about it. Say in one or
+two lines what the person has to do to authorise it, and stop.

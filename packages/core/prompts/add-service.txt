@@ -1,0 +1,23 @@
+Add a service to the project's compose stack.
+
+compose.yaml is an ordinary Docker Compose file. It is the project's own, it works
+with plain `docker compose`, and nothing in it is specific to this builder. Adding
+to it is not writing a manifest: it describes what runs around the project, never
+what the project's structure is.
+
+Take the service the message names. If it does not name one, say so and stop. Do
+not choose a database for somebody.
+
+Produce:
+  the service in compose.yaml, pinned to a specific image tag, never `latest`
+  its connection settings in .env, with values that work for local development
+  the same values in the settings.py of whichever system uses it, so a person can
+    tune them from the interface
+  the code that actually talks to it, in the system that needs it
+  a test for that code which passes without the service running, using a fake
+
+A service nothing connects to is a container nobody asked for. If no system uses
+it yet, say which one should and stop.
+
+Never write a credential that is not a local development default. Anything real
+belongs in the person's own environment, and you say so rather than inventing one.

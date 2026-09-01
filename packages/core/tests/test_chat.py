@@ -35,6 +35,7 @@ from framestack_core.chat import (
     STACKS,
     TYPED,
     _kind_in,
+    blocks,
     prompt_for,
     remember_stack,
     send,
@@ -454,8 +455,50 @@ def test_every_block_the_palette_can_draw_parses_as_the_command_it_names() -> No
                 assert wanted is None, text
 
 
-def test_the_tool_block_names_a_command_that_exists() -> None:
-    typed = TYPED.match("/add-tool")
-    assert typed is not None
-    assert typed.group(1) == "add-tool"
-    assert typed.group(1) in COMMANDS
+def test_every_declared_block_names_a_command_that_ships_with_a_prompt() -> None:
+    """A block is a promise that a press starts a turn the agent understands.
+
+    Two ways for that to be false, and both are checked here: a block naming a command the
+    dispatcher does not have, and a command whose prompt is missing from the build. The
+    second is the one that would survive review — the prompts are data files, and a data
+    file is exactly the kind of thing that gets added to the repository and not to the
+    package.
+    """
+    declared = blocks()
+    assert declared, "a build with no blocks has an empty palette"
+
+    for block in declared:
+        assert block.command in COMMANDS, block.command
+        assert prompt_for(block.command).strip(), block.command
+        # A kind block is drawn as the node it will become, so its argument has to be a kind.
+        if block.kind:
+            assert block.kind in STACKS, block.kind
+            assert block.argument == block.kind
+        else:
+            assert block.label, block.command
+        # `requires` names a kind that must exist first. A typo here disables a block forever.
+        assert block.requires == "" or block.requires in STACKS, block.command
+        assert block.takes in ("", "stack", "name"), block.command
+        assert (block.choices != ()) == (block.takes == "stack"), block.command
+
+
+def test_a_block_press_parses_as_the_command_the_block_named() -> None:
+    """The palette builds `/<command> <argument> <name>`; this is that string, read back.
+
+    Written against `blocks()` rather than against a list of strings, so a block added later
+    is covered the day it is added rather than the day somebody remembers this test.
+    """
+    for block in blocks():
+        parts = [f"/{block.command}"]
+        if block.argument:
+            parts.append(block.argument)
+        if block.takes == "name":
+            parts.append("something")
+        if block.takes == "stack":
+            parts.append(f"--stack {block.choices[0]}")
+
+        typed = TYPED.match(" ".join(parts))
+        assert typed is not None, block.command
+        assert typed.group(1) == block.command, block.command
+        if block.kind:
+            assert _kind_in(" ".join(parts)) == block.kind

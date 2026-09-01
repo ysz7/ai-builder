@@ -4793,3 +4793,48 @@ textarea {
   color: var(--muted-3);
   cursor: default;
 }
+
+/* ---------- something being written ---------- */
+
+/* A progress indicator, not a node. It is drawn as unmistakably provisional — dashed, tinted,
+   pulsing — because the failure this guards against is subtle: a marker that read as a node
+   would be a node the code does not have, and nothing about it would look wrong until
+   somebody asked why it was grey. It has no position in the layout, cannot be dragged, and
+   goes when its turn goes. */
+.bp-card-wrap.is-pending {
+  pointer-events: none;
+}
+.bp-card-pending {
+  border-style: dashed;
+  border-color: var(--accent-line);
+  background: var(--accent-soft);
+  box-shadow: none;
+}
+.bp-pending-pulse {
+  flex: 0 0 auto;
+  width: 9px;
+  height: 9px;
+  margin-right: 2px;
+  border-radius: 50%;
+  background: var(--accent);
+  animation: bp-pending 1.4s ease-in-out infinite;
+}
+@keyframes bp-pending {
+  0%,
+  100% {
+    opacity: 0.25;
+    transform: scale(0.8);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.15);
+  }
+}
+/* Motion is the whole of what this element says, so a person who has asked for less of it
+   gets the tint and the dashes and no pulse. */
+@media (prefers-reduced-motion: reduce) {
+  .bp-pending-pulse {
+    animation: none;
+    opacity: 0.9;
+  }
+}

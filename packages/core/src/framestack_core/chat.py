@@ -95,7 +95,15 @@ PROMPTS = _prompts_dir()
 #: `question` is here because the classifier has to be able to say it: most of what a person
 #: types at a chat panel is a question, and a dispatcher whose only outputs wrote files would
 #: answer "what does this do?" by editing something.
-COMMANDS = ("add-system", "add-tool", "connect", "repair", "question")
+COMMANDS = (
+    "add-system",
+    "add-tool",
+    "add-service",
+    "add-mcp",
+    "connect",
+    "repair",
+    "question",
+)
 
 #: What the classifier says when it cannot tell. Not a command, and never dispatched.
 UNSURE = "unsure"
@@ -113,6 +121,125 @@ STACKS: dict[str, tuple[str, ...]] = {
     "api": ("fastapi", "litestar"),
     "worker": ("postgres-queue", "arq"),
 }
+
+# -- what the palette may offer -------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class Block:
+    """One thing a person can press to have written.
+
+    **Declared here rather than in the interface, and that is the point.** A palette with its
+    own list of blocks is a palette that can offer something the prompts have never heard of;
+    the first symptom is a button that starts a turn the agent does not understand. So the
+    blocks are a fact about which commands this build ships, and the interface renders them.
+
+    It is emphatically **not** a template gallery. There is no code here, no scaffold and no
+    catalogue of databases or servers: a block carries a command, and what gets written is
+    whatever the agent writes from that command's prompt.
+    """
+
+    #: Which command a press sends. Always one of `COMMANDS`.
+    command: str
+    #: What is appended to it, where the command takes a fixed argument. `""` when it does not.
+    argument: str
+    #: Which kind's colour and glyph to draw it with, so a block looks like the node it will
+    #: become. `""` where it becomes no node at all.
+    kind: str
+    #: What to call it, for a block with no kind to be named by. `""` otherwise.
+    label: str
+    hint: str
+    #: What the person supplies before pressing: `""`, `"stack"` (one of `choices`), or
+    #: `"name"` (free text, because the alternative is a catalogue and a catalogue is a
+    #: gallery).
+    takes: str
+    choices: tuple[str, ...]
+    #: Whether the convention allows only one of these at the root.
+    once: bool
+    #: A kind that must already exist for this to be addable. `""` when there is none.
+    requires: str
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "command": self.command,
+            "argument": self.argument,
+            "kind": self.kind,
+            "label": self.label,
+            "hint": self.hint,
+            "takes": self.takes,
+            "choices": list(self.choices),
+            "once": self.once,
+            "requires": self.requires,
+        }
+
+
+def blocks() -> tuple[Block, ...]:
+    """Every block this build can offer, derived from the commands it ships.
+
+    The four systems come from `STACKS`, so a kind cannot appear here without appearing in
+    the convention. The rest are the other commands that *add* something -- `connect`,
+    `repair` and `question` are not blocks, because none of them brings anything into
+    existence.
+    """
+    made: list[Block] = [
+        Block(
+            command="add-system",
+            argument=kind,
+            kind=kind,
+            label="",
+            hint=f"a {kind}/ package",
+            takes="stack",
+            choices=stacks,
+            # One system of each kind per level. Shown disabled rather than hidden: a rule
+            # nobody can see is one they keep running into.
+            once=True,
+            requires="",
+        )
+        for kind, stacks in STACKS.items()
+    ]
+
+    made.append(
+        Block(
+            command="add-tool",
+            argument="",
+            kind="",
+            label="Tool",
+            hint="a function the agent can call",
+            takes="name",
+            choices=(),
+            once=False,
+            # A tool is written into `agent/tools.py`, so there has to be an agent.
+            requires="agent",
+        )
+    )
+    made.append(
+        Block(
+            command="add-service",
+            argument="",
+            kind="",
+            label="Compose service",
+            hint="a container the project runs beside it",
+            takes="name",
+            choices=(),
+            once=False,
+            requires="",
+        )
+    )
+    made.append(
+        Block(
+            command="add-mcp",
+            argument="",
+            kind="",
+            label="MCP server",
+            hint="a server the agent can reach",
+            takes="name",
+            choices=(),
+            once=False,
+            requires="",
+        )
+    )
+    return tuple(made)
+
 
 #: Where a project's stack preference is recorded. A file node, and an ordinary `.env`.
 ENV_FILE = ".env"

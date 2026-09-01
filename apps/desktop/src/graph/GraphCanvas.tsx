@@ -44,18 +44,26 @@ import "@xyflow/react/dist/style.css";
 import type { Graph, Layout, Observation } from "../core/types";
 import { FileCard } from "./FileCard";
 import { Frame } from "./Frame";
+import { PendingCard } from "./PendingCard";
 import { SystemCard } from "./SystemCard";
 import {
+  NODE_WIDTH,
   cardHeight,
   cardWidth,
   foldEdges,
   frameBox,
   isExpanded,
+  pendingSpot,
   placeAll,
   visible,
 } from "./place";
 
-const NODE_TYPES = { system: SystemCard, file: FileCard, frame: Frame };
+const NODE_TYPES = {
+  system: SystemCard,
+  file: FileCard,
+  frame: Frame,
+  pending: PendingCard,
+};
 
 /**
  * How big a node is, said three times because React Flow reads it in three places.
@@ -80,6 +88,7 @@ export function GraphCanvas({
   onMove,
   onToggle,
   onTalk,
+  pending,
 }: {
   graph: Graph | null;
   layout: Layout;
@@ -106,6 +115,14 @@ export function GraphCanvas({
   onToggle: (id: string) => void;
   /** Open an agent's own chat. Passed through to the card; the canvas has no opinion on it. */
   onTalk: (id: string) => void;
+  /**
+   * Which kind is being written right now, or `""`.
+   *
+   * A **progress indicator, not a node**: it is placed rather than laid out, it is never
+   * written to `layout.json`, and it carries none of a node's affordances. See
+   * `PendingCard` — every one of those absences is what stops it outliving its turn.
+   */
+  pending: string;
 }) {
   const { nodes, edges } = useMemo(() => {
     if (!graph || !graph.ok) return { nodes: [] as Node[], edges: [] as Edge[] };
@@ -182,6 +199,23 @@ export function GraphCanvas({
       });
     }
 
+    // Last, so it draws over nothing and nothing draws over it. Not selectable and not
+    // draggable: a marker a person could move would be a marker with a position, and a
+    // position is the first step towards an entry in the layout.
+    if (pending) {
+      flow.push({
+        id: "pending:",
+        type: "pending",
+        position: pendingSpot(graph, layout),
+        // Its own size, not `cardHeight`'s: this card draws a different thing (a pulse and
+        // a sentence) and borrowing a node's arithmetic would tie the two together.
+        ...sized(NODE_WIDTH, 148),
+        draggable: false,
+        selectable: false,
+        data: { kind: pending },
+      });
+    }
+
     const wires: Edge[] = drawn.map((edge) => ({
       id: edge.id,
       source: edge.source,
@@ -203,17 +237,34 @@ export function GraphCanvas({
     }));
 
     return { nodes: flow, edges: wires };
-  }, [graph, layout, observation, selected, onSelect, onToggle, onTalk]);
+  }, [graph, layout, observation, selected, onSelect, onToggle, onTalk, pending]);
+
+  /**
+   * Which ids are real nodes.
+   *
+   * Membership, not a naming rule. A guard that skipped ids containing `:` would also skip a
+   * package somebody legitimately called that — the ids are paths, and a colon in a
+   * directory name is nobody's mistake but ours if we assume it away.
+   */
+  const real = useMemo(
+    () => new Set((graph?.nodes ?? []).map((node) => node.id)),
+    [graph],
+  );
 
   const onNodesChange = useCallback(
     (changes: NodeChange[]) => {
       for (const change of changes) {
-        if (change.type === "position" && change.position) {
-          onMove(change.id, change.position, change.dragging === false);
-        }
+        if (change.type !== "position" || !change.position) continue;
+        // **Only a real node's position is ever reported.** Frames and the pending marker are
+        // already undraggable, so this should be unreachable — and it is here anyway, because
+        // what it prevents is a coordinate for something that is not in the code reaching
+        // `layout.json`. A marker with an entry is a marker that can outlive its turn, which
+        // is the one way this phase could quietly break invariant 1.
+        if (!real.has(change.id)) continue;
+        onMove(change.id, change.position, change.dragging === false);
       }
     },
-    [onMove],
+    [onMove, real],
   );
 
   return (
