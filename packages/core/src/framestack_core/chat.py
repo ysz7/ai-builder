@@ -217,7 +217,9 @@ def blocks() -> tuple[Block, ...]:
             command="add-service",
             argument="",
             kind="",
-            label="Compose service",
+            # "Container", not "Service": `api` is already Service on the canvas, and two
+            # different things under one word is how a person stops trusting either.
+            label="Container",
             hint="a container the project runs beside it",
             takes="name",
             choices=(),

@@ -38,6 +38,7 @@ import { TopBar } from "./shell/TopBar";
 import {
   deployRead,
   deployStart,
+  deployStatus,
   deployStop,
   graphRead,
   layoutRead,
@@ -92,6 +93,20 @@ export default function App() {
    */
   const [deploying, setDeploying] = useState(false);
   const [deployLog, setDeployLog] = useState("");
+  /**
+   * What the project's compose file declares, and why there is nothing where there is nothing.
+   *
+   * **Beside the graph, never in it.** `graph.read` is a static read of the code; this costs a
+   * subprocess (`docker compose config`), answers a different question and goes stale at a
+   * different moment. Folding the two together would make a re-parse look like a re-ask —
+   * which is the same confusion that keeps a verdict out of the graph payload.
+   *
+   * `dockerless` is why the list is empty when it is empty. An absence with no reason beside
+   * it reads as "this project has no services", which is a different claim from "this machine
+   * cannot tell me".
+   */
+  const [services, setServices] = useState<string[]>([]);
+  const [dockerless, setDockerless] = useState("");
   const [layout, setLayout] = useState<Layout>({});
   const [selected, setSelected] = useState("");
   /**
@@ -153,15 +168,29 @@ export default function App() {
       // from one another: the graph says what exists, the cache says where it was put, and
       // the observation says what a run proved. **None of these runs anything** — opening a
       // window must never execute a stranger's code.
-      const [read, stored, proof] = await Promise.all([
+      const [read, stored, proof, stack] = await Promise.all([
         graphRead(path),
         layoutRead(path),
         observeLast(path),
+        // Asked, never read. The services come from `docker compose config`, which brings
+        // nothing up — asking a file what it says is not starting anything, and it is the
+        // only way to answer without this codebase learning YAML.
+        deployStatus(path),
       ]);
       setGraph(read);
       setLayout(stored.layout);
       setObservation(proof.observation);
       setObserving(proof.running);
+      setServices(stack.services);
+      setDeploying(stack.running);
+      // Only where there is a compose file to have services from: "no docker on this machine"
+      // is worth saying, "this project has no compose file" is not a problem to report.
+      //
+      // Decided by asking the graph whether the file node is there, never by reading the
+      // refusal's wording. A check that matched on the text of a sentence would pass today
+      // and fail silently the first time somebody improved the sentence.
+      const hasCompose = read.nodes.some((node) => node.id === "compose.yaml");
+      setDockerless(hasCompose && !stack.available ? stack.detail : "");
       if (!read.ok) setRefused(read.detail);
     } catch (error) {
       setRefused(error instanceof Error ? error.message : String(error));
@@ -175,6 +204,7 @@ export default function App() {
     setTalking("");
     setLog("");
     setDeployLog("");
+    setServices([]);
     void open(project);
   }, [project, open]);
 
@@ -268,6 +298,8 @@ export default function App() {
       const stopped = await deployStop(project);
       setDeploying(false);
       if (!stopped.ok) setRefused(stopped.detail);
+      // The stack is down, but what it *declares* has not changed — so nothing is re-asked
+      // here. A container node says the project wants this running, never that it is.
     } catch (error) {
       setRefused(error instanceof Error ? error.message : String(error));
     }
@@ -456,6 +488,8 @@ export default function App() {
             onToggle={toggle}
             onTalk={talkTo}
             pending={pending}
+            services={services}
+            dockerless={dockerless}
           />
 
           {/* Said as a fact about the convention rather than as a verdict on the code: an

@@ -100,6 +100,11 @@
   --k-worker-bg: #fbeecd;
   --k-file: #52606d;
   --k-file-bg: #e3e6e9;
+  /* A container the project declares. Deliberately near the file family rather than near the
+     four kinds: like a file node it can never be coloured by a verdict, because nothing in a
+     test run proves a service. */
+  --k-container: #3f6b57;
+  --k-container-bg: #d8e8e0;
   --k-none: #52525b;
   --k-none-bg: #ececE6;
 
@@ -185,6 +190,8 @@
   --k-worker-bg: rgba(220, 174, 90, 0.15);
   --k-file: #9aa9b6;
   --k-file-bg: rgba(154, 169, 182, 0.15);
+  --k-container: #6fc39c;
+  --k-container-bg: rgba(111, 195, 156, 0.15);
   --k-none: #a1a1aa;
   --k-none-bg: rgba(255, 255, 255, 0.07);
 

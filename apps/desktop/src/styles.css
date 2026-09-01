@@ -4838,3 +4838,21 @@ textarea {
     opacity: 0.9;
   }
 }
+
+/* ---------- what the project asks to have running around it ---------- */
+
+/* A service `compose.yaml` declares, asked of `docker compose config` and never read out of
+   the file. **It can never carry a verdict** — nothing in a test run executes a Postgres, so
+   nothing proves one — which is why it is its own component and its own colour, kept nearer
+   the file family than the four kinds. */
+.bp-card-container {
+  border-style: dashed;
+}
+/* One quiet line on a file node: what it declares, or why that could not be asked. Never a
+   verdict, and never a count that implies one. */
+.bp-card-note {
+  margin-top: 5px;
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--muted-3);
+}

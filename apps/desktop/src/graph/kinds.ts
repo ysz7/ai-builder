@@ -6,11 +6,16 @@
  * carries the kind in that tab, in that geometry. A verdict — when there is one to have —
  * gets a mark of its own rather than a hue that fights the tab for the same pixels.
  *
- * There are exactly five entries and there is no registry behind them. A kind here is what
- * the core returned, which is one of the four conventions or `file`; anything else falls
- * through to the neutral tint rather than being guessed at. The old version of this file
- * mapped twenty-seven registry kinds onto framework families, and mapping a node to a
- * framework is precisely the claim the convention removed.
+ * There are six entries and there is no registry behind them. Five are what the core returns
+ * for a node — one of the four conventions, or `file` — and the sixth is `container`, which
+ * is not a kind at all: it is a service the project's compose file declares, held beside the
+ * graph and drawn in the same visual language. Anything else falls through to the neutral
+ * tint rather than being guessed at. The old version of this file mapped twenty-seven
+ * registry kinds onto framework families, and mapping a node to a framework is precisely the
+ * claim the convention removed.
+ *
+ * `container` is called that and not "service", because `api` is already called Service on
+ * this canvas and two different things under one word is how a person stops trusting either.
  */
 
 /** What the category tab says. The kind as a person names it, not as the payload spells it. */
@@ -20,6 +25,7 @@ const LABELS: Record<string, string> = {
   rag: "RAG",
   worker: "Worker",
   file: "File",
+  container: "Container",
 };
 
 /**
@@ -37,6 +43,8 @@ const GLYPHS: Record<string, string> = {
   worker: "M5 4h14v4H5zM5 10h14v4H5zM5 16h14v4H5z",
   // A page with a folded corner.
   file: "M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8zM14 3v5h5",
+  // A box, stacked and shipped. What compose brings up.
+  container: "M12 3l8 4.5-8 4.5-8-4.5zM4 7.5v9l8 4.5 8-4.5v-9M12 12v9",
 };
 
 /** A kind the core actually names. Anything else lands on the neutral tint. */

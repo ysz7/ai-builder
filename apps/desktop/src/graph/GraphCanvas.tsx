@@ -42,11 +42,14 @@ import {
 import "@xyflow/react/dist/style.css";
 
 import type { Graph, Layout, Observation } from "../core/types";
+import { ContainerCard } from "./ContainerCard";
 import { FileCard } from "./FileCard";
 import { Frame } from "./Frame";
 import { PendingCard } from "./PendingCard";
 import { SystemCard } from "./SystemCard";
 import {
+  CONTAINER_HEIGHT,
+  CONTAINER_WIDTH,
   NODE_WIDTH,
   cardHeight,
   cardWidth,
@@ -55,6 +58,7 @@ import {
   isExpanded,
   pendingSpot,
   placeAll,
+  serviceId,
   visible,
 } from "./place";
 
@@ -63,6 +67,7 @@ const NODE_TYPES = {
   file: FileCard,
   frame: Frame,
   pending: PendingCard,
+  container: ContainerCard,
 };
 
 /**
@@ -89,6 +94,8 @@ export function GraphCanvas({
   onToggle,
   onTalk,
   pending,
+  services,
+  dockerless,
 }: {
   graph: Graph | null;
   layout: Layout;
@@ -123,6 +130,17 @@ export function GraphCanvas({
    * `PendingCard` — every one of those absences is what stops it outliving its turn.
    */
   pending: string;
+  /**
+   * The services this project's compose file declares.
+   *
+   * **Held beside the graph, never folded into it** — the same decision the verdict set has,
+   * and for the same reasons: they answer a different question, they go stale at a different
+   * moment, and one of them costs a subprocess. They are never coloured, because nothing in
+   * a test run proves a container.
+   */
+  services: string[];
+  /** Why the container list is empty, when it is empty for a reason. `""` otherwise. */
+  dockerless: string;
 }) {
   const { nodes, edges } = useMemo(() => {
     if (!graph || !graph.ok) return { nodes: [] as Node[], edges: [] as Edge[] };
@@ -131,7 +149,7 @@ export function GraphCanvas({
       (observation?.verdicts ?? []).map((verdict) => [verdict.node, verdict]),
     );
     const shown = visible(graph, layout);
-    const placed = placeAll(graph, layout);
+    const placed = placeAll(graph, layout, services);
     const drawn = foldEdges(graph, shown);
 
     // A pin is drawn only where an edge lands on it. Four pins on every card would be a
@@ -178,7 +196,21 @@ export function GraphCanvas({
         selected: node.id === selected,
         data:
           node.kind === "file"
-            ? { node, pinned: pinned.up.has(node.id), onOpen: onSelect }
+            ? {
+                node,
+                pinned: pinned.up.has(node.id),
+                // Said on the file that declares them, which is where a person would go
+                // looking. Nowhere else on the canvas mentions containers at all when there
+                // are none, and a banner for it would be noise on every project without one.
+                note:
+                  node.id !== "compose.yaml"
+                    ? ""
+                    : dockerless ||
+                      (services.length > 0
+                        ? `${services.length} container${services.length === 1 ? "" : "s"}`
+                        : ""),
+                onOpen: onSelect,
+              }
             : {
                 node,
                 // File nodes are never coloured, and they never reach here: nothing runs
@@ -196,6 +228,17 @@ export function GraphCanvas({
                 onToggle,
                 onTalk,
               },
+      });
+    }
+
+    for (const name of services) {
+      const id = serviceId(name);
+      flow.push({
+        id,
+        type: "container",
+        position: placed[id] ?? { x: 0, y: 0 },
+        ...sized(CONTAINER_WIDTH, CONTAINER_HEIGHT),
+        data: { name },
       });
     }
 
@@ -237,7 +280,7 @@ export function GraphCanvas({
     }));
 
     return { nodes: flow, edges: wires };
-  }, [graph, layout, observation, selected, onSelect, onToggle, onTalk, pending]);
+  }, [graph, layout, observation, selected, onSelect, onToggle, onTalk, pending, services, dockerless]);
 
   /**
    * Which ids are real nodes.
@@ -247,8 +290,14 @@ export function GraphCanvas({
    * directory name is nobody's mistake but ours if we assume it away.
    */
   const real = useMemo(
-    () => new Set((graph?.nodes ?? []).map((node) => node.id)),
-    [graph],
+    () =>
+      new Set([
+        ...(graph?.nodes ?? []).map((node) => node.id),
+        // A container is not in the graph, but it *is* in the project — `compose.yaml`
+        // declares it — so where a person put it is theirs to keep, like any other card.
+        ...services.map(serviceId),
+      ]),
+    [graph, services],
   );
 
   const onNodesChange = useCallback(

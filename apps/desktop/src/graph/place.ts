@@ -26,6 +26,10 @@ export type Box = Point & { width: number; height: number };
 export const NODE_WIDTH = 268;
 /** A file node says a name and nothing else, so it is given no more room than that. */
 export const FILE_WIDTH = 176;
+/** A container says a name and where it was declared. Between the two. */
+export const CONTAINER_WIDTH = 200;
+/** The tab, the header and the one line under it. Declared, as every size here now is. */
+export const CONTAINER_HEIGHT = 22 + 44 + 20 + 12;
 
 const COLUMN = 372;
 const GUTTER = 30;
@@ -120,7 +124,11 @@ export function foldEdges(graph: Graph, shown: GraphNode[]): GraphEdge[] {
  * arbitrary and says nothing — what matters is that it is the same every time and that a
  * person can move any of it.
  */
-export function placeAll(graph: Graph, layout: Layout): Record<string, Point> {
+export function placeAll(
+  graph: Graph,
+  layout: Layout,
+  services: string[] = [],
+): Record<string, Point> {
   const shown = visible(graph, layout);
   const placed: Record<string, Point> = {};
   const saved = (id: string): Point | null => {
@@ -159,6 +167,15 @@ export function placeAll(graph: Graph, layout: Layout): Record<string, Point> {
       saved(file.id) ?? { x: ORIGIN + index * (FILE_WIDTH + 26), y: row };
   });
 
+  // The containers sit on their own row under the files. Below rather than beside, because
+  // they are a different kind of fact: the files are the project's, and these are what
+  // `docker compose` says the project asks to have running around it.
+  services.forEach((name, index) => {
+    const id = serviceId(name);
+    placed[id] =
+      saved(id) ?? { x: ORIGIN + index * (CONTAINER_WIDTH + 26), y: row + 120 };
+  });
+
   // Anything the walk above missed — a child whose parent the core did not return, say. It
   // is in the graph, so it is drawn; being unplaceable is not a reason to hide a node.
   let stray = 0;
@@ -176,6 +193,18 @@ export function placeAll(graph: Graph, layout: Layout): Record<string, Point> {
  * `null` when the system has none on screen: there is nothing to wrap, and a frame around
  * nothing is a region claiming a membership that does not exist.
  */
+/**
+ * A container's id on the canvas.
+ *
+ * Prefixed, because these are **not graph nodes** and must never be mistaken for one: they
+ * are held beside the graph, exactly as the verdict set is, and a bare name could collide
+ * with a package called the same thing. What the prefix buys is that the collision is
+ * impossible rather than unlikely.
+ */
+export function serviceId(name: string): string {
+  return `container:${name}`;
+}
+
 /**
  * Where a node being written would land: the next free column.
  *
