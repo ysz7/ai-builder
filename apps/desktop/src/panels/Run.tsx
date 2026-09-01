@@ -15,9 +15,13 @@
  * | Kind | What you can ask for | Which export answers |
  * | --- | --- | --- |
  * | RAG | upload documents, or run a query | `index`, `search` |
- * | Agent | a message | `run` |
  * | Service | a request on a route | `app` |
  * | Worker | a handler and a payload | `HANDLERS` |
+ *
+ * **An agent is missing from that table on purpose.** Calling `run(message)` once and
+ * showing one reply is a form; talking to something is a transcript, and the two want
+ * different shapes. So an agent's calls live in `AgentChat`, which drives exactly these
+ * verbs against exactly this node — settings on one side, conversation on the other.
  *
  * There is no request builder, no history and no saved runs. What a call returned is kept
  * until the next one replaces it, because a panel that forgot the moment you looked away
@@ -60,7 +64,6 @@ export function Run({ project, node }: { project: string; node: GraphNode }) {
   // What is in the form. Held per node id, so moving between nodes does not carry a query
   // from one system into another.
   const [query, setQuery] = useState("");
-  const [message, setMessage] = useState("");
   const [method, setMethod] = useState("GET");
   const [path, setPath] = useState("/");
   const [body, setBody] = useState("");
@@ -75,7 +78,6 @@ export function Run({ project, node }: { project: string; node: GraphNode }) {
     setLog("");
     setRefused("");
     setQuery("");
-    setMessage("");
     setMethod("GET");
     setPath("/");
     setBody("");
@@ -199,26 +201,6 @@ export function Run({ project, node }: { project: string; node: GraphNode }) {
           </div>
         ) : null}
       </>
-    );
-  } else if (kind === "agent") {
-    form = (
-      <div className="bp-run-line">
-        <textarea
-          className="bp-field"
-          rows={2}
-          placeholder="Say something to it"
-          value={message}
-          disabled={running}
-          onChange={(event) => setMessage(event.target.value)}
-        />
-        <button
-          className="bp-run-go"
-          disabled={running || !message}
-          onClick={() => void start("run", { message })}
-        >
-          Send
-        </button>
-      </div>
     );
   } else if (kind === "api") {
     form = (

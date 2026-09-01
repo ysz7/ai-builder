@@ -4543,3 +4543,159 @@ textarea {
   background: var(--danger-soft);
   color: var(--fg-2);
 }
+
+/* ---------- talking to the agent you built ---------- */
+
+/* Not the builder chat, and it must not be mistaken for it. The builder writes Python into
+   the project; this calls `run(message)` and shows what came back. They are two different
+   conversations about the same node, and the whole reason this is a panel of its own rather
+   than a block in the node panel is that the difference should be visible, not merely true. */
+.bp-talk {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  height: 100%;
+  min-height: 0;
+}
+/* The one thing a person has to know to read this panel correctly. Every turn is its own
+   interpreter, so an agent remembers nothing unless its own code stores it -- and an
+   interface that let somebody discover that by being confused would be the wrong interface. */
+.bp-talk-notice {
+  flex: 0 0 auto;
+  padding: 9px 11px;
+  border-radius: var(--radius-2);
+  background: var(--bg-2);
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: var(--muted-2);
+}
+.bp-talk-settings {
+  display: block;
+  margin-top: 6px;
+  border: none;
+  background: none;
+  padding: 0;
+  color: var(--accent);
+  font-size: 11.5px;
+  cursor: pointer;
+}
+.bp-talk-settings:hover {
+  text-decoration: underline;
+}
+.bp-talk-roll {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.bp-talk-empty {
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--muted-3);
+}
+.bp-talk-empty code {
+  font-family: var(--mono);
+  font-size: 11px;
+}
+.bp-talk-turn {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+/* What was asked, aligned right the way a sent message is everywhere else. */
+.bp-talk-said {
+  align-self: flex-end;
+  max-width: 88%;
+  padding: 7px 11px;
+  border-radius: 12px 12px 3px 12px;
+  background: var(--accent-soft);
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--fg-2);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.bp-talk-heard {
+  align-self: flex-start;
+  max-width: 92%;
+  padding: 8px 11px;
+  border-radius: 12px 12px 12px 3px;
+  background: var(--bg-2);
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: var(--fg-2);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+/* What the agent printed on its way to an answer. Quieter than the reply and kept apart from
+   it: a `print` is not what the function returned, and merging them would put words in the
+   agent's mouth that its own contract never promised. */
+.bp-talk-printed {
+  margin: 0;
+  max-height: 120px;
+  padding: 6px 9px;
+  border-radius: var(--radius-2);
+  background: var(--bg-2);
+  font-family: var(--mono);
+  font-size: 10px;
+  line-height: 1.55;
+  color: var(--muted-3);
+  white-space: pre-wrap;
+  word-break: break-word;
+  overflow: auto;
+}
+.bp-talk-broke {
+  margin: 0;
+  max-height: 200px;
+  padding: 8px 10px;
+  border-radius: var(--radius-2);
+  background: var(--danger-soft);
+  font-family: var(--mono);
+  font-size: 10.5px;
+  line-height: 1.55;
+  color: var(--fg-2);
+  white-space: pre-wrap;
+  word-break: break-word;
+  overflow: auto;
+}
+.bp-talk-waiting {
+  align-self: flex-start;
+  font-size: 11.5px;
+  color: var(--muted-3);
+}
+.bp-talk-ask {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+}
+.bp-talk-ask .bp-field {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+/* The way in, on the card. Talking to the thing is what a person came to the canvas to do,
+   and making them open a panel first put a click in front of the only verb that matters. */
+.bp-card-talk {
+  /* Block with a fitted width, and an explicit line box. The card is ordinary block flow, and
+     the canvas now *declares* card heights rather than measuring them -- so this element's
+     height is arithmetic that `cardHeight` in place.ts has to agree with. 6 + 2 + 15 + 2 + 2
+     = 27, and that number appears in both files on purpose. */
+  display: block;
+  width: fit-content;
+  margin-top: 6px;
+  padding: 2px 9px;
+  border: 1px solid var(--accent-line);
+  border-radius: var(--radius-pill);
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: 10.5px;
+  line-height: 15px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.bp-card-talk:hover {
+  border-color: var(--accent);
+}

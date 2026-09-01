@@ -79,6 +79,7 @@ export function GraphCanvas({
   onSelect,
   onMove,
   onToggle,
+  onTalk,
 }: {
   graph: Graph | null;
   layout: Layout;
@@ -103,6 +104,8 @@ export function GraphCanvas({
    */
   onMove: (id: string, at: { x: number; y: number }, settled: boolean) => void;
   onToggle: (id: string) => void;
+  /** Open an agent's own chat. Passed through to the card; the canvas has no opinion on it. */
+  onTalk: (id: string) => void;
 }) {
   const { nodes, edges } = useMemo(() => {
     if (!graph || !graph.ok) return { nodes: [] as Node[], edges: [] as Edge[] };
@@ -174,6 +177,7 @@ export function GraphCanvas({
                 expanded: isExpanded(layout, node.id),
                 onOpen: onSelect,
                 onToggle,
+                onTalk,
               },
       });
     }
@@ -199,7 +203,7 @@ export function GraphCanvas({
     }));
 
     return { nodes: flow, edges: wires };
-  }, [graph, layout, observation, selected, onSelect, onToggle]);
+  }, [graph, layout, observation, selected, onSelect, onToggle, onTalk]);
 
   const onNodesChange = useCallback(
     (changes: NodeChange[]) => {

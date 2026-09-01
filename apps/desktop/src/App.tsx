@@ -23,6 +23,7 @@
 import { useCallback, useEffect, useState } from "react";
 
 import { GraphCanvas } from "./graph/GraphCanvas";
+import { AgentChat } from "./panels/AgentChat";
 import { Chat } from "./panels/Chat";
 import { Menu, type Placed } from "./panels/Menu";
 import { NodePanel } from "./panels/Node";
@@ -92,6 +93,15 @@ export default function App() {
   const [deployLog, setDeployLog] = useState("");
   const [layout, setLayout] = useState<Layout>({});
   const [selected, setSelected] = useState("");
+  /**
+   * Which agent is being talked to, or "".
+   *
+   * Its own piece of state rather than a mode of `selected`, because it is a different
+   * question: `selected` is "which node am I reading", this is "which agent am I speaking
+   * to". They share the left slot, so opening one puts the other away — which is the
+   * separation the panel exists for, made literal.
+   */
+  const [talking, setTalking] = useState("");
   const [refused, setRefused] = useState<string | null>(null);
   const [theme, setTheme] = useState<"dark" | "light">(() =>
     localStorage.getItem(THEME) === "dark" ? "dark" : "light",
@@ -141,6 +151,7 @@ export default function App() {
     setGraph(null);
     setObservation(null);
     setSelected("");
+    setTalking("");
     setLog("");
     setDeployLog("");
     void open(project);
@@ -271,6 +282,11 @@ export default function App() {
     };
   }, [deploying, project]);
 
+  const talkTo = useCallback((id: string) => {
+    setSelected("");
+    setTalking(id);
+  }, []);
+
   /**
    * Store the whole layout, as the core's contract requires: it keeps this and refuses to
    * look inside, so there is nothing on the far side that could merge two halves of it.
@@ -378,6 +394,7 @@ export default function App() {
             onSelect={setSelected}
             onMove={move}
             onToggle={toggle}
+            onTalk={talkTo}
           />
 
           {/* Said as a fact about the convention rather than as a verdict on the code: an
@@ -443,6 +460,26 @@ export default function App() {
         )}
       </div>
 
+      {/* Talking to an agent, which is not the same panel as reading one. Two views of one
+          node, deliberately not one panel with a tab: the builder chat and the agent's own
+          chat are already easy enough to confuse. */}
+      {graph && talking ? (
+        (() => {
+          const node = graph.nodes.find((item) => item.id === talking);
+          return node ? (
+            <AgentChat
+              project={project}
+              node={node}
+              onClose={() => setTalking("")}
+              onSettings={() => {
+                setTalking("");
+                setSelected(node.id);
+              }}
+            />
+          ) : null;
+        })()
+      ) : null}
+
       {/* Everything that is not the graph lives on a node. */}
       {graph && selected ? (
         <NodePanel
@@ -460,6 +497,7 @@ export default function App() {
           deploying={deploying}
           onDeploy={() => void runDeploy()}
           onUndeploy={() => void endDeploy()}
+          onTalk={talkTo}
         />
       ) : null}
 

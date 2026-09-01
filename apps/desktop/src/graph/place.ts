@@ -45,6 +45,14 @@ const ORIGIN = 60;
  * one, the contract pill — so nothing that Observe will later add can move a person's
  * canvas as a side effect of running their tests.
  */
+/**
+ * How tall a card is, in the arithmetic the canvas draws with.
+ *
+ * **This is the size, not a guess at it.** `GraphCanvas` declares it on the node rather than
+ * letting React Flow measure the rendered element, so a number here that disagrees with the
+ * stylesheet is a layout that overlaps rather than a layout that self-corrects. Every term
+ * matches a rule in `styles.css`; change one there and change it here.
+ */
 export function cardHeight(node: GraphNode): number {
   if (node.kind === "file") return 44;
   return (
@@ -52,6 +60,8 @@ export function cardHeight(node: GraphNode): number {
     44 + // the header row and the card's own padding
     20 + // the path line
     (node.reason ? 34 : 0) +
+    // The `Chat` action, drawn only on an agent that has the export to call.
+    (node.kind === "agent" && node.missing.length === 0 ? 27 : 0) +
     38 // the contract pill
   );
 }

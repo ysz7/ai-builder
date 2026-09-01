@@ -38,10 +38,12 @@ export type CardData = {
   expanded: boolean;
   onOpen: (id: string) => void;
   onToggle: (id: string) => void;
+  /** Open this agent's own chat. Only an agent has one; nothing else is talked to. */
+  onTalk: (id: string) => void;
 };
 
 export function SystemCard({ data, selected }: NodeProps) {
-  const { node, verdict, reason, pins, expanded, onOpen, onToggle } =
+  const { node, verdict, reason, pins, expanded, onOpen, onToggle, onTalk } =
     data as unknown as CardData;
 
   return (
@@ -136,6 +138,22 @@ export function SystemCard({ data, selected }: NodeProps) {
         </div>
 
         <div className="bp-card-desc">{node.path}/</div>
+
+        {/* On the card rather than only in the panel, because talking to the thing is what a
+            person came to the canvas to do. Drawn only where the export exists: a button
+            whose only possible outcome is an error is worse than no button. */}
+        {node.kind === "agent" && node.missing.length === 0 ? (
+          <button
+            className="bp-card-talk nodrag"
+            title="Chat with this agent"
+            onClick={(event) => {
+              event.stopPropagation();
+              onTalk(node.id);
+            }}
+          >
+            Chat
+          </button>
+        ) : null}
 
         {/* Stated, never repaired. A directory that looks like a system and is not one is
             the state a half-written package is in, and naming the missing export is the

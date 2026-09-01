@@ -57,6 +57,7 @@ export function NodePanel({
   deploying,
   onDeploy,
   onUndeploy,
+  onTalk,
 }: {
   project: string;
   graph: Graph;
@@ -70,6 +71,8 @@ export function NodePanel({
   deploying: boolean;
   onDeploy: () => void;
   onUndeploy: () => void;
+  /** Open the agent's own chat. The other half of the split this panel is one side of. */
+  onTalk: (id: string) => void;
 }) {
   /**
    * The knobs, asked for when the panel opens on a node and never before.
@@ -244,9 +247,23 @@ export function NodePanel({
 
         {refused ? <div className="bp-node-why">{refused}</div> : null}
 
-        {/* One node, one export, no traversal. The graph is a projection and this is the
-            proof of it: there is nothing here that could mean "and then the next node". */}
-        {node.kind === "file" ? null : <Run project={project} node={node} />}
+        {/* An agent is talked to rather than filled in, so it gets a door to its own panel
+            instead of a form here. Settings on this side, conversation on that one. */}
+        {node.kind === "agent" ? (
+          <div className="bp-run">
+            <span className="bp-node-label">Run</span>
+            <button className="bp-run-go bp-run-wide" onClick={() => onTalk(node.id)}>
+              Chat with it
+            </button>
+            <div className="bp-run-note">
+              Calls <code>run(message)</code>. Each turn is a separate process.
+            </div>
+          </div>
+        ) : node.kind === "file" ? null : (
+          /* One node, one export, no traversal. The graph is a projection and this is the
+             proof of it: there is nothing here that could mean "and then the next node". */
+          <Run project={project} node={node} />
+        )}
 
         {/* The one file node that can be asked to do something, and the only deployment
             target there is. `.env`, the Dockerfile and `mcp.json` are opened and edited. */}
