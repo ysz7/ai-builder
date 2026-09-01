@@ -24,10 +24,11 @@ import { useCallback, useEffect, useState } from "react";
 
 import { GraphCanvas } from "./graph/GraphCanvas";
 import { AgentChat } from "./panels/AgentChat";
-import { Chat } from "./panels/Chat";
+import { Chat, type HandOver } from "./panels/Chat";
 import { Menu, type Placed } from "./panels/Menu";
 import { NodePanel } from "./panels/Node";
 import { Notice } from "./panels/Notice";
+import { Palette } from "./panels/Palette";
 import { Settings } from "./panels/Settings";
 import { Terminal } from "./panels/Terminal";
 import { Welcome } from "./panels/Welcome";
@@ -112,6 +113,15 @@ export default function App() {
   /** Which face of the bottom sheet is showing, or "" for no sheet at all. */
   const [sheet, setSheet] = useState("");
   const [menu, setMenu] = useState<Placed>(null);
+  /**
+   * A message on its way to the chat, from the palette.
+   *
+   * The palette has no write path of its own and this is why: what it produces is a string,
+   * handed over here, and the only thing that reaches the project is the chat's own
+   * `chat.send`. A node appears afterwards because the agent wrote a package and the graph
+   * was read again — never because a button drew one.
+   */
+  const [handOver, setHandOver] = useState<HandOver | null>(null);
   /** Presses of `Agent`. A counter, because the second press of an open panel is not a close. */
   const [summon, setSummon] = useState(0);
 
@@ -285,6 +295,20 @@ export default function App() {
   const talkTo = useCallback((id: string) => {
     setSelected("");
     setTalking(id);
+    setRail("");
+  }, []);
+
+  /**
+   * A block was pressed. One command, in a conversation of its own.
+   *
+   * `fresh` because writing a new system should not inherit the thread of an unrelated one.
+   * The palette closes: what happens next happens in the chat and on the canvas, and a panel
+   * left open over both would be in the way of the thing it just started.
+   */
+  const addBlock = useCallback((command: string) => {
+    setRail("");
+    setHandOver({ text: command, send: true, fresh: true });
+    setSummon((n) => n + 1);
   }, []);
 
   /**
@@ -322,7 +346,9 @@ export default function App() {
   );
 
   // A rail entry opens the chat or the terminal; neither is a flyout, so opening one is a
-  // request to the surface that owns it rather than a panel this component draws.
+  // request to the surface that owns it rather than a panel this component draws. `blocks`
+  // *is* a flyout, and it shares the left slot with the node panel — so opening it puts
+  // whichever of those was there away.
   useEffect(() => {
     if (rail === "chat") {
       setSummon((n) => n + 1);
@@ -330,6 +356,9 @@ export default function App() {
     } else if (rail === "terminal") {
       setSheet("terminal");
       setRail("");
+    } else if (rail === "blocks") {
+      setSelected("");
+      setTalking("");
     }
   }, [rail]);
 
@@ -460,6 +489,12 @@ export default function App() {
         )}
       </div>
 
+      {/* What can be added. It draws nothing on the canvas and writes nothing to the
+          project: pressing a block hands one command to the chat, and that is all. */}
+      {rail === "blocks" ? (
+        <Palette graph={graph} onAdd={addBlock} onClose={() => setRail("")} />
+      ) : null}
+
       {/* Talking to an agent, which is not the same panel as reading one. Two views of one
           node, deliberately not one panel with a tab: the builder chat and the agent's own
           chat are already easy enough to confuse. */}
@@ -512,8 +547,8 @@ export default function App() {
         // has no way to run it itself, which is the point: colour is earned by a run
         // somebody asked for.
         onObserve={() => void runObserve()}
-        handOver={null}
-        onHandedOver={() => undefined}
+        handOver={handOver}
+        onHandedOver={() => setHandOver(null)}
       />
 
       <Menu at={menu} onClose={() => setMenu(null)} />

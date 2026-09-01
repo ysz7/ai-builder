@@ -161,7 +161,7 @@ type Props = {
    * Placed in the draft and **never sent**: handing a request over is not the same as
    * deciding to make it, and the person still presses send.
    */
-  handOver: string | null;
+  handOver: HandOver | null;
   onHandedOver: () => void;
   /**
    * A press of `Agent` in the control cluster, counted.
@@ -198,6 +198,25 @@ function Spark() {
     </svg>
   );
 }
+
+/**
+ * A message handed to the chat from elsewhere in the window.
+ *
+ * Two callers want two different things and the difference is worth a field rather than a
+ * convention. The repair dialog **fills the field** and lets the person read it before
+ * pressing send — it is proposing an edit to their code. The palette **sends**, because the
+ * person already pressed `+` and a second confirmation for the same intention is a click
+ * bought for nothing.
+ *
+ * `fresh` starts a new conversation first. Writing a new system should not inherit the
+ * thread of an unrelated one: the agent would carry context that has nothing to do with what
+ * was just asked for, and the first thing it would do with it is get creative.
+ */
+export type HandOver = {
+  text: string;
+  send?: boolean;
+  fresh?: boolean;
+};
 
 export function Chat({
   project,
@@ -315,7 +334,14 @@ export function Chat({
   // The poll loop is defined before the sender and has to reach it when a turn ends. A ref
   // rather than a dependency, so the two do not have to be rebuilt around each other.
   const deliverRef = useRef<
-    ((text: string, images: Pasted[]) => Promise<void>) | null
+    | ((
+        text: string,
+        images?: Pasted[],
+        answered?: { command?: string; stack?: string },
+        redraw?: boolean,
+        fresh?: boolean,
+      ) => Promise<void>)
+    | null
   >(null);
   /**
    * The answer as it is being written.
@@ -434,14 +460,32 @@ export function Chat({
     // above, which is still following because this one said so.
   }, [open]);
 
-  // A request handed over from the repair dialog lands in the field, focused and unsent.
+  /**
+   * A message handed over from elsewhere: the repair dialog, or the palette.
+   *
+   * A turn is one at a time, and a handover that arrives mid-turn is **refused rather than
+   * queued**: the palette's press asks for a conversation of its own, and starting one while
+   * an answer is being written would throw away the turn in progress. The refusal is the
+   * core's own sentence for the same situation.
+   */
   useEffect(() => {
     if (!handOver) return;
-    setDraft((previous) => (previous ? `${previous}\n${handOver}` : handOver));
-    setOpen(true);
-    field.current?.focus();
+    const given = handOver;
     onHandedOver();
-  }, [handOver, onHandedOver]);
+    setOpen(true);
+
+    if (!given.send) {
+      setDraft((previous) => (previous ? `${previous}\n${given.text}` : given.text));
+      field.current?.focus();
+      return;
+    }
+
+    if (busy) {
+      setBlocked("a turn is already running — wait for it rather than starting a second");
+      return;
+    }
+    void deliverRef.current?.(given.text, [], {}, true, given.fresh);
+  }, [handOver, onHandedOver, busy]);
 
   /**
    * Every call to the core, with its failure made visible.
@@ -746,6 +790,7 @@ export function Chat({
       images: Pasted[] = [],
       answered: { command?: string; stack?: string } = {},
       redraw = true,
+      fresh = false,
     ) => {
       setBlocked(null);
       setAsking(null);
@@ -762,7 +807,9 @@ export function Chat({
       // Opened *before* the line is drawn, not after. Opening clears the transcript, and
       // doing it second wiped the question for the two seconds a session takes to start --
       // leaving "thinking…" above an empty panel that said nothing had been said.
-      if (unstarted || !running) {
+      // `fresh` first: a palette press asked for a conversation of its own, and `begin()`
+      // with nothing to resume is what one is.
+      if (fresh || unstarted || !running) {
         const opened = await begin();
         if (!opened) {
           setBusy(false);

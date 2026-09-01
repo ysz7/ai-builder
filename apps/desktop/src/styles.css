@@ -4699,3 +4699,97 @@ textarea {
 .bp-card-talk:hover {
   border-color: var(--accent);
 }
+
+/* ---------- the blocks a project can be started from ---------- */
+
+/* Not the blueprint library that was deleted. That one shipped code the toolchain owned;
+   this holds nothing at all — it draws what `chat.choices` returns, and its only output is
+   one message to the chat. A block that could put a node on the canvas would be this
+   application becoming the thing it was built to replace. */
+.bp-palette {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.bp-palette-lead {
+  padding: 9px 11px;
+  border-radius: var(--radius-2);
+  background: var(--bg-2);
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: var(--muted-2);
+}
+.bp-block-card {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 11px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-2);
+  background: var(--surface);
+}
+.bp-block-card:hover:not(.is-taken) {
+  border-color: var(--line-strong);
+}
+/* Drawn, disabled, with the reason — never hidden. The convention allows one system of each
+   kind per level, and a rule a person cannot see is one they will keep running into. */
+.bp-block-card.is-taken {
+  background: var(--bg-2);
+  opacity: 0.7;
+}
+/* The kind's own colour, so a block looks like the node it will become. Same tint the card
+   and the category tab use: one visual language for one idea. */
+.bp-block-mark {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 7px;
+  background: var(--tint-bg);
+  color: var(--tint);
+}
+.bp-block-body {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.bp-block-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--fg);
+}
+.bp-block-hint {
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--muted-3);
+}
+.bp-block-stack {
+  margin-top: 4px;
+  height: 24px;
+  font-size: 11.5px;
+}
+.bp-block-add {
+  flex: 0 0 auto;
+  width: 26px;
+  height: 26px;
+  border: 1px solid var(--accent-line);
+  border-radius: 7px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: 15px;
+  line-height: 1;
+  cursor: pointer;
+}
+.bp-block-add:hover:not(:disabled) {
+  border-color: var(--accent);
+}
+.bp-block-add:disabled {
+  border-color: var(--line);
+  background: none;
+  color: var(--muted-3);
+  cursor: default;
+}

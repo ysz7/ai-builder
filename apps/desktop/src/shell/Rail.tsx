@@ -7,9 +7,13 @@
  * mechanism the rebuild deleted, and a rail entry that opens onto nothing is worse than no
  * entry at all.
  *
- * What is left is the project's mark, the chat, the terminal drawer and settings. The
- * commands a person presses are on the top bar and on the node, never here: this is where
+ * What is left is the project's mark, the blocks, the chat, the terminal drawer and settings.
+ * The commands a person presses are on the top bar and on the node, never here: this is where
  * you go, not what you do.
+ *
+ * The blocks entry is **not** the blueprint library that was deleted. That one held code the
+ * toolchain owned and shipped; this one holds nothing at all — it draws what `chat.choices`
+ * returns and its only output is a message to the chat.
  */
 
 export type RailEntry = {
@@ -20,6 +24,12 @@ export type RailEntry = {
 };
 
 export const RAIL: RailEntry[] = [
+  {
+    id: "blocks",
+    label: "Blocks",
+    // Four squares. What can be added, not what exists -- the canvas already draws that.
+    glyph: "M4 4h6v6H4zM14 4h6v6h-6zM4 14h6v6H4zM14 14h6v6h-6z",
+  },
   {
     id: "chat",
     label: "Chat",

@@ -12,6 +12,7 @@ the kind of check the observer refuses to trust.
 
 from __future__ import annotations
 
+import re
 import shutil
 import subprocess
 from pathlib import Path
@@ -29,7 +30,16 @@ from framestack_core.api import (
     chat_choices,
     chat_send,
 )
-from framestack_core.chat import COMMANDS, STACKS, prompt_for, remember_stack, send, stack_of
+from framestack_core.chat import (
+    COMMANDS,
+    STACKS,
+    TYPED,
+    _kind_in,
+    prompt_for,
+    remember_stack,
+    send,
+    stack_of,
+)
 from framestack_core.handlers import HANDLERS
 
 EXAMPLE = Path(__file__).resolve().parents[3] / "examples" / "reference"
@@ -411,3 +421,41 @@ def test_every_verb_matches_the_declared_contract(
     validate(wire_form(chat_send(root, "what is this?")), CHAT_SCHEMA)
     validate(wire_form(chat_send(root, "/add-system rag")), CHAT_SCHEMA)
     validate(wire_form(chat_changes(root)), CHANGES_SCHEMA)
+
+
+# -- what the palette sends (Phase 7) --------------------------------------------------------
+
+
+def test_every_block_the_palette_can_draw_parses_as_the_command_it_names() -> None:
+    """The one seam where the palette and the core could drift apart.
+
+    The palette draws its blocks from `chat.choices` and turns each press into a typed
+    message. Nothing checks that string on the way through — a typed command that failed to
+    parse would fall through to the classifier and be *guessed at*, which is the one thing
+    the dispatcher exists to avoid. So the strings it can produce are asserted here, against
+    the same parser that will read them.
+    """
+    for kind, stacks in STACKS.items():
+        chosen = [f"/add-system {kind} --stack {one}" for one in stacks]
+        for text in (f"/add-system {kind}", *chosen):
+            typed = TYPED.match(text)
+            assert typed is not None, text
+            assert typed.group(1) == "add-system", text
+            assert typed.group(1) in COMMANDS, text
+            # The kind has to survive the trip, or the agent is told to write "a system".
+            assert _kind_in(text) == kind, text
+
+            wanted = re.search(r"--stack\s+([a-z0-9-]+)", typed.group(2))
+            if "--stack" in text:
+                assert wanted is not None and wanted.group(1) in stacks, text
+            else:
+                # No `--stack` is a real answer: it lets the project's own `.env` preference
+                # win, which is why the palette offers "this project's default" at all.
+                assert wanted is None, text
+
+
+def test_the_tool_block_names_a_command_that_exists() -> None:
+    typed = TYPED.match("/add-tool")
+    assert typed is not None
+    assert typed.group(1) == "add-tool"
+    assert typed.group(1) in COMMANDS
