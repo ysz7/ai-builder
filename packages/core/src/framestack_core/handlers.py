@@ -40,6 +40,8 @@ from framestack_core.api import (
     graph_get,
     layout_get,
     layout_put,
+    mcp_connect,
+    mcp_read,
     observe_last,
     observe_read,
     observe_start,
@@ -426,6 +428,24 @@ def settings_write(params: dict[str, Any]) -> dict[str, Any]:
     )
 
 
+def mcp_read_method(params: dict[str, Any]) -> dict[str, Any]:
+    """What the file declares about one server. A read: it starts nothing and asks nobody."""
+    return mcp_read(_project_of(params), _required_str(params, "node"))
+
+
+def mcp_connect_method(params: dict[str, Any]) -> dict[str, Any]:
+    """Run one server's own command in a terminal, so it can authorise itself.
+
+    A method of its own for the reason `shell.open` is one: this starts somebody else's
+    program (P11). It goes to the terminal rather than to a hidden process deliberately --
+    the person's own account is on the other end of it, and the honest place for that is
+    where they can read every line and stop it themselves.
+
+    **Nothing here stores a credential**, and there is nowhere in this codebase one would go.
+    """
+    return mcp_connect(_project_of(params), _required_str(params, "node"))
+
+
 def editor_open_method(params: dict[str, Any]) -> dict[str, Any]:
     """Open one of the project's files in the person's own editor.
 
@@ -524,6 +544,8 @@ HANDLERS: dict[str, Handler] = {
     "chat.choices": chat_choices_method,
     "settings.read": settings_read,
     "settings.write": settings_write,
+    "mcp.read": mcp_read_method,
+    "mcp.connect": mcp_connect_method,
     "editor.open": editor_open_method,
     "layout.read": layout_read,
     "layout.write": layout_write,

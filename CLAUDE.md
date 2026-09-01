@@ -11,8 +11,9 @@ Assembled applications deploy as plain Python projects with no runtime dependenc
 
 **The repository is mid-rebuild, and the plan is `docs/framestack_rebuild_plan.md`.** Read it before
 proposing anything: it is the specification, and *rule zero is that anything not described in it is
-deleted*. Phases 0–5 — demolition, the read-only graph, Observe, the settings panel, the chat, and
-Run and Deploy — are done.
+deleted*. All twelve phases are done: demolition, the read-only graph, Observe, the settings
+panel, the chat, Run and Deploy, then part two — the agent's own chat, the palette, the pending
+marker, compose services, MCP nodes, `Connect`, and the two commands the palette needed.
 
 ### Why the rebuild exists
 
@@ -81,6 +82,19 @@ that, it is two projects.
 **Edges.** An edge exists when one system package imports from another, and the direction follows the
 import. An edge to an MCP server is read from `mcp.json`. **No edge is ever created by hand in the
 UI** — connecting two nodes means writing an import, which is a code edit made by the chat.
+
+**Declared nodes.** Two things are nodes without being packages, alongside the four files: a
+**server** in `mcp.json`, and a **container** in `compose.yaml`. Neither has a required export,
+so neither can be incomplete and **neither can ever carry a verdict** — nothing in a test run
+executes a Postgres. They are not a fifth kind; ask `is_system(node)` (`isSystem(kind)` in the
+UI) to tell a package from one of these, and **never `kind != "file"`**: that meant "is it a
+package" only while `file` was the sole exception, and it would have handed `mcp.json` to
+coverage as a source directory the day servers became nodes.
+
+The two differ in where they come from, and the difference is the rule. A server is in the
+graph, because `mcp.json` is a file the parser already reads. A container is **beside** the
+graph, because the only honest way to learn a service's name is `docker compose config
+--services` — a subprocess, a different question, and a different moment to go stale.
 
 ### The graph is a projection, not an executor
 
@@ -161,12 +175,30 @@ What follows, day to day:
 - **Local execution is the pitch.** Everything runs on the user's machine or their server. The graph
   is a view of their own Python, so nothing leaves the network unless their code sends it there.
 
+**The palette writes code; it does not draw nodes.** Pressing a block sends one command to the
+chat and nothing else — the node appears because the agent wrote a package and the graph was read
+again. The blocks are declared by `chat.py`, so a palette cannot offer a command the prompts have
+never heard of, and **no code ships with them**: a block carries a command, never a scaffold. A
+marker is drawn while a turn runs, and it is a progress indicator rather than a node — no layout
+entry, no verdict, no settings, no Run, gone when the turn ends. Each of those absences is a way
+it could otherwise outlive its turn, and a marker that outlives its turn is a node the code does
+not have.
+
+**`Connect` stores nothing.** An MCP server in `mcp.json` is a stdio server; the MCP
+authorization spec covers the HTTP transports, so there is no flow here to drive. The ones that
+need an account open a browser themselves, so `Connect` runs the entry's own command in the
+terminal and the token stays wherever that server keeps it. Only the **names** of an entry's
+`env` ever leave the file — a value in a payload is one console log from being permanent — and
+nothing ever claims a server is connected, because only the server knows and asking means
+becoming an MCP client.
+
 ## Out of scope
 
 Named so they do not creep in: any granularity below a package (nodes for functions, verdicts on a
 function, an annotation layer of any kind); more than one level of nesting; any kind beyond the four;
-a blueprint library or template gallery; multi-project workspaces; cloud sync; layout persistence
-beyond node positions; anything requiring a manifest; executing the graph itself.
+a gallery of code templates the toolchain owns and ships; multi-project workspaces; cloud sync;
+layout persistence beyond node positions; anything requiring a manifest; executing the graph itself;
+a catalogue of databases or MCP servers; a reader for anybody else's file format.
 
 If one of these is genuinely needed later, it is a new plan, not an addition to this one.
 
@@ -222,7 +254,8 @@ payloads it assembles; `parser.py` derives the graph from the convention; `sessi
 agent's process; `shell.py` is the terminal the person types into; `layout.py` is where a person put
 things; `observe.py` runs the project's tests and turns what happened into colour;
 `settings.py` reads and writes the one `BaseSettings` class a system may declare; `editor.py`
-is `Open`; `chat.py` dispatches a message to exactly one command; `run.py` calls one system's
+is `Open`; `chat.py` dispatches a message to exactly one command and declares the **blocks** a
+palette may offer; `mcp.py` reads one server's entry and runs it; `run.py` calls one system's
 export in the project's own interpreter and `deploy.py` brings the compose stack up;
 `environment.py` is the one place that answers "which Python does this project's own code run in".
 
@@ -298,9 +331,10 @@ collection has been proven by nobody.
 stranger's code; a project that hangs or crashes must cost a subprocess rather than the core the UI
 is talking to.
 
-**Five things spawn a process** and they are one shape: the chat agent (`agent.*`, in
-`session.py`), the terminal (`shell.*`), Observe (`observe.*`), `Run` (`run.*`) and `Deploy`
-(`deploy.*`). All of them follow the same rules:
+**Six things spawn a process** and they are one shape: the chat agent (`agent.*`, in
+`session.py`), the terminal (`shell.*`), Observe (`observe.*`), `Run` (`run.*`), `Deploy`
+(`deploy.*`) and `Connect` (`mcp.connect`, which opens a terminal and runs the server's own
+command). All of them follow the same rules:
 nothing is pushed, output is polled with an offset the caller keeps, a record on disk survives a
 crash, and nothing starts implicitly. For Observe, *running* means the run table still holds it —
 the suite exiting is not the end of the run, because the coverage database and the test report

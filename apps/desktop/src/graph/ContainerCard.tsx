@@ -1,5 +1,9 @@
 /**
- * A service the project's compose file declares, drawn as a node.
+ * Something the project **declares** and can never prove, drawn as a node.
+ *
+ * Two of them share this card because they are the same sort of thing: a container in
+ * `compose.yaml`, and an MCP server in `mcp.json`. Neither has an export, neither is a
+ * package, and neither is ever executed by a test — so neither can carry a verdict.
  *
  * **Never coloured, and this is a different component so that it cannot become so.** Nothing
  * in a test run executes a Postgres, so nothing can prove one; a card that merely omitted the
@@ -20,23 +24,29 @@ import { type NodeProps } from "@xyflow/react";
 
 import { glyphOf, labelOf, tintBgOf, tintOf } from "./kinds";
 
-export type ContainerData = { name: string };
+export type ContainerData = {
+  name: string;
+  /** `container` or `mcp`. Two things the project declares and can never prove. */
+  kind: string;
+  /** The file that declares it. What a person opens to change it. */
+  where: string;
+};
 
 export function ContainerCard({ data, selected }: NodeProps) {
-  const { name } = data as unknown as ContainerData;
+  const { name, kind, where } = data as unknown as ContainerData;
 
   return (
     <div
       className={`bp-card-wrap${selected ? " is-selected" : ""}`}
       style={{
-        ["--tint" as string]: tintOf("container"),
-        ["--tint-bg" as string]: tintBgOf("container"),
+        ["--tint" as string]: tintOf(kind),
+        ["--tint-bg" as string]: tintBgOf(kind),
       }}
     >
       <div className="bp-card-tab">
         <svg viewBox="0 0 24 24" width="12" height="12" aria-hidden="true">
           <path
-            d={glyphOf("container")}
+            d={glyphOf(kind)}
             fill="none"
             stroke="currentColor"
             strokeWidth="2"
@@ -44,7 +54,7 @@ export function ContainerCard({ data, selected }: NodeProps) {
             strokeLinejoin="round"
           />
         </svg>
-        {labelOf("container")}
+        {labelOf(kind)}
       </div>
 
       <div className="bp-card bp-card-container">
@@ -57,7 +67,7 @@ export function ContainerCard({ data, selected }: NodeProps) {
             aria-hidden="true"
           >
             <path
-              d={glyphOf("container")}
+              d={glyphOf(kind)}
               fill="none"
               stroke="currentColor"
               strokeWidth="1.8"
@@ -67,7 +77,7 @@ export function ContainerCard({ data, selected }: NodeProps) {
           </svg>
           <span className="bp-card-title">{name}</span>
         </div>
-        <div className="bp-card-desc">compose.yaml</div>
+        <div className="bp-card-desc">{where}</div>
       </div>
     </div>
   );

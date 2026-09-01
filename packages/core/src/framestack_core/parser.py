@@ -68,6 +68,28 @@ REQUIRED: dict[str, tuple[str, ...]] = {
 #: opened and edited, and never coloured. Nothing runs them, so nothing can prove them.
 FILE_NODES: tuple[str, ...] = (".env", "compose.yaml", "Dockerfile", "mcp.json")
 
+#: A server `mcp.json` configures, as a node. **Not a fifth kind**: it has no required
+#: export, nothing to satisfy and nothing that could ever prove it, which makes it the same
+#: sort of thing a file node is rather than the same sort of thing an agent is.
+#:
+#: Phase 1 said the servers were not nodes and this reverses that, deliberately. The reason
+#: it is allowed: `mcp.json` is a file in the project and this parser already read it to draw
+#: the edges. The node is derived from the code, not invented beside it -- which is the only
+#: test that matters here.
+MCP_KIND = "mcp"
+
+
+def is_system(node: Node) -> bool:
+    """Whether this node is a package the convention recognises.
+
+    **Ask this, never `kind != "file"`.** That test meant "is it a package" only for as long
+    as `file` was the sole thing that was not one, and it silently stopped meaning that the
+    moment MCP servers became nodes: the first symptom would have been Observe trying to
+    measure coverage of `mcp.json` and every server turning grey for not being reached by a
+    test. A question asked by name cannot rot that way.
+    """
+    return node.kind in REQUIRED
+
 
 # What a directory of children is called: the plural of the kind, and nothing else is
 # recognised. Derived rather than tabulated because the rule *is* "the plural of the kind" --
@@ -465,18 +487,17 @@ def _file_nodes(root: Path) -> list[Node]:
     ]
 
 
-def _mcp_edges(root: Path, nodes: dict[str, Node]) -> list[Edge]:
-    """One edge per configured MCP server, from the agent to the `mcp.json` node.
+def _servers_in(root: Path) -> list[str]:
+    """The names `mcp.json` configures, in order.
 
-    The servers are not nodes. They are somebody else's process, reached over a protocol,
-    and the project's fact about them is the file that configures them -- so the file node
-    is where the edges land, one per server, each carrying its name.
-
-    An unreadable or surprising `mcp.json` produces no edges rather than an error. It is a
-    file a person edits by hand; a graph that refused to draw because of a trailing comma
+    An unreadable or surprising `mcp.json` produces **nothing rather than an error**. It is a
+    file a person edits by hand, and a graph that refused to draw because of a trailing comma
     would be a graph that stops working while somebody is typing.
+
+    Sorted, because I-4 asks the same question three times and expects the same answer. The
+    file's own key order is a JSON implementation detail, not a fact about the project.
     """
-    if "agent" not in nodes or "mcp.json" not in nodes:
+    if not (root / "mcp.json").is_file():
         return []
     try:
         loaded = json.loads((root / "mcp.json").read_text(encoding="utf-8"))
@@ -485,16 +506,58 @@ def _mcp_edges(root: Path, nodes: dict[str, Node]) -> list[Edge]:
     servers = loaded.get("mcpServers") if isinstance(loaded, dict) else None
     if not isinstance(servers, dict):
         return []
+    return sorted(name for name in servers if isinstance(name, str) and name)
+
+
+def _mcp_nodes(root: Path) -> list[Node]:
+    """One node per configured server. Never coloured, and never incomplete.
+
+    It promises nothing, so there is nothing for it to fail to promise: no required export,
+    no contract, no verdict. `path` is the file that declares it, which is the only thing
+    about it that is in the project at all -- the server itself is somebody else's program,
+    and nothing here starts it to find out what it offers.
+
+    The id cannot collide with a system's: `mcp` is not one of `REQUIRED`, so no package is
+    ever addressed as `mcp.something`.
+    """
+    return [
+        Node(
+            id=f"{MCP_KIND}.{name}",
+            name=name,
+            kind=MCP_KIND,
+            path="mcp.json",
+            complete=True,
+            exports=(),
+            missing=(),
+            reason="",
+            parent="",
+            children=(),
+            files=(),
+        )
+        for name in _servers_in(root)
+    ]
+
+
+def _mcp_edges(nodes: dict[str, Node]) -> list[Edge]:
+    """One edge per configured server, from the agent to the server it can reach.
+
+    It used to land on the `mcp.json` file node, because the servers were not nodes. They are
+    now, so the edge lands where the relation actually points: the agent reaches *that
+    server*, and the file is where that fact is written down rather than the thing being
+    reached.
+    """
+    if "agent" not in nodes:
+        return []
     return [
         Edge(
-            id=f"agent->mcp.json:{name}",
+            id=f"agent->{node.id}",
             source="agent",
-            target="mcp.json",
-            kind="mcp",
-            label=name,
+            target=node.id,
+            kind=MCP_KIND,
+            label=node.name,
         )
-        for name in sorted(servers)
-        if isinstance(name, str)
+        for node in nodes.values()
+        if node.kind == MCP_KIND
     ]
 
 
@@ -565,13 +628,15 @@ def read_graph(project: Path | str) -> Graph:
             systems.append(child)
             packages[child.id] = root / child.path
 
-    nodes = [*systems, *_file_nodes(root)]
+    servers = _mcp_nodes(root)
+    files = _file_nodes(root)
+    nodes = [*systems, *files, *servers]
     by_id = {node.id: node for node in nodes}
-    edges = [*_import_edges(root, systems, packages), *_mcp_edges(root, by_id)]
+    edges = [*_import_edges(root, systems, packages), *_mcp_edges(by_id)]
 
     return Graph(
         ok=True,
-        detail=f"{len(systems)} system(s), {len(nodes) - len(systems)} file(s)",
+        detail=f"{len(systems)} system(s), {len(files)} file(s), {len(servers)} server(s)",
         root=str(root),
         nodes=tuple(nodes),
         edges=tuple(edges),

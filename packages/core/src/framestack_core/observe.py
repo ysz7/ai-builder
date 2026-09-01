@@ -83,7 +83,7 @@ from typing import Any
 from xml.etree import ElementTree
 
 from framestack_core.environment import interpreter_for
-from framestack_core.parser import Node, read_graph
+from framestack_core.parser import Node, is_system, read_graph
 
 __all__ = [
     "OBSERVATION_PATH",
@@ -489,7 +489,7 @@ def _verdicts(
         return None, "the run left no coverage database behind, so nothing was measured"
 
     graph = read_graph(root)
-    systems = [node for node in graph.nodes if node.kind != "file"]
+    systems = [node for node in graph.nodes if is_system(node)]
 
     own: dict[str, tuple[str, str, tuple[str, ...]]] = {
         node.id: _leaf_verdict(node, root, outcomes, reached) for node in systems
@@ -536,7 +536,7 @@ def _skipped(root: Path, detail: str) -> Observation:
         ok=False,
         detail=detail,
         verdicts=tuple(
-            Verdict(node.id, SKIPPED, detail, ()) for node in graph.nodes if node.kind != "file"
+            Verdict(node.id, SKIPPED, detail, ()) for node in graph.nodes if is_system(node)
         ),
     )
 
@@ -707,7 +707,7 @@ def start_observation(project: Path | str) -> ObserveResult:
         )
 
     graph = read_graph(root)
-    packages = [node.path for node in graph.nodes if node.kind != "file"]
+    packages = [node.path for node in graph.nodes if is_system(node)]
     if not packages:
         # Nothing to measure, so nothing is started. A project with no system has no node to
         # colour, and spawning a suite to discover that would be a process nobody asked for.

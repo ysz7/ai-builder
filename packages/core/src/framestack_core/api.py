@@ -23,6 +23,7 @@ from framestack_core.deploy import (
 )
 from framestack_core.editor import open_in_editor
 from framestack_core.layout import create_project, read_layout, write_layout
+from framestack_core.mcp import connect_server, read_server
 from framestack_core.observe import last_observation, read_observation, start_observation
 from framestack_core.parser import read_graph
 from framestack_core.run import last_run, read_run, start_run, stop_run
@@ -120,8 +121,13 @@ GRAPH_SCHEMA = {
         {
             "id": "str",
             "name": "str",
-            # One of the four kinds, or "file". Never a framework: the stack is not part of
-            # the contract, and a payload that named one would put it back in.
+            # One of the four kinds, `"file"`, or `"mcp"`. Never a framework: the stack is
+            # not part of the contract, and a payload that named one would put it back in.
+            #
+            # `file` and `mcp` are **not kinds** — they have no required export and nothing
+            # that could ever prove them. A caller deciding whether a node is a package must
+            # ask whether its kind is one of the four, never whether it is "not a file": that
+            # test meant the right thing only while `file` was the sole exception to it.
             "kind": "str",
             "path": "str",
             "complete": "bool",
@@ -134,6 +140,8 @@ GRAPH_SCHEMA = {
         }
     ],
     # Read from imports and from `mcp.json`, never declared. Nothing in the UI creates one.
+    # An `mcp` edge lands on the **server**, not on the file that configures it: the agent
+    # reaches that server, and the file is where the fact is written down.
     "edges": [{"id": "str", "source": "str", "target": "str", "kind": "str", "label": "str"}],
 }
 
@@ -218,6 +226,34 @@ SETTINGS_SCHEMA = {
             "reason": "str",
         }
     ],
+}
+
+
+#: The `mcp.*` payload: what `mcp.json` declares about one server, and what `Connect` did.
+#:
+#: **`env` is names and never values**, and that is the contract rather than an oversight. An
+#: entry may legitimately hold a secret inline, and this payload crosses into a webview — one
+#: console log away from somewhere permanent. The names are what a person needs to see; the
+#: values stay in the file they are already in.
+#:
+#: There is **no `connected` field, and its absence is deliberate**. Only the server knows
+#: whether it is authorised, and finding out means speaking the protocol to it. What is
+#: reported here is what this application *did* — a command was run, in a terminal — never a
+#: claim about the far side. A tick nobody verified is the same defect as a green node
+#: nobody ran a test for.
+MCP_SCHEMA = {
+    "api_version": "int",
+    "ok": "bool",
+    "detail": "str",
+    "node": "str",
+    "name": "str",
+    # Exactly as the file gives them. `""` where the entry declares no command, which is an
+    # entry somebody has yet to finish rather than a fault.
+    "command": "str",
+    "args": ["str"],
+    "env": ["str"],
+    # Which terminal `Connect` started it in, so the caller can show what it is printing.
+    "shell": "str",
 }
 
 
@@ -592,6 +628,17 @@ def settings_put(project: Path | str, node: str, field: str, value: Any) -> dict
         "api_version": GRAPH_API_VERSION,
         **write_setting(project, node, field, value).as_dict(),
     }
+
+
+def mcp_read(project: Path | str, node: str) -> dict[str, Any]:
+    """What `mcp.json` declares about one server. A read: it starts nothing and asks nobody."""
+    return {"api_version": GRAPH_API_VERSION, **read_server(project, node).as_dict()}
+
+
+def mcp_connect(project: Path | str, node: str) -> dict[str, Any]:
+    """Run the server's own command in a terminal, so it can authorise itself. Never
+    implicit (P11), and it stores no credential -- there is nowhere here that one would go."""
+    return {"api_version": GRAPH_API_VERSION, **connect_server(project, node).as_dict()}
 
 
 def editor_open(project: Path | str, path: str, line: int = 0) -> dict[str, Any]:

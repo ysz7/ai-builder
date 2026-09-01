@@ -75,6 +75,7 @@ import type {
   Graph,
   Layout,
   LayoutRead,
+  McpServer,
   Opened,
   ObserveResult,
   RunResult,
@@ -154,6 +155,27 @@ export function runLast(project: string, node: string): Promise<RunResult> {
 /** End a call somebody started. */
 export function runStop(project: string, node: string): Promise<RunResult> {
   return coreRequest<RunResult>("run.stop", { project, node });
+}
+
+/**
+ * What `mcp.json` declares about one server. A read: it starts nothing and asks nobody.
+ *
+ * It cannot tell you whether the server is connected, and does not pretend to — that is the
+ * server's own business, and finding out would mean speaking the protocol to it.
+ */
+export function mcpRead(project: string, node: string): Promise<McpServer> {
+  return coreRequest<McpServer>("mcp.read", { project, node });
+}
+
+/**
+ * Run one server's own command in a terminal, so it can authorise itself.
+ *
+ * **Framestack stores no credential**, and there is nowhere in it one would go. The server
+ * opens its own browser, the person logs in, and the token ends up wherever that server
+ * keeps it. What comes back is which terminal it is running in.
+ */
+export function mcpConnect(project: string, node: string): Promise<McpServer> {
+  return coreRequest<McpServer>("mcp.connect", { project, node });
 }
 
 /**

@@ -190,12 +190,16 @@ export function GraphCanvas({
     for (const node of shown) {
       flow.push({
         id: node.id,
-        type: node.kind === "file" ? "file" : "system",
+        // A server is not a package: it is drawn as the declared thing it is, beside the
+        // containers, rather than as a card with its contract and its verdict left blank.
+        type: node.kind === "file" ? "file" : node.kind === "mcp" ? "container" : "system",
         position: placed[node.id] ?? { x: 0, y: 0 },
         ...sized(cardWidth(node), cardHeight(node)),
         selected: node.id === selected,
         data:
-          node.kind === "file"
+          node.kind === "mcp"
+            ? { name: node.name, kind: "mcp", where: node.path }
+            : node.kind === "file"
             ? {
                 node,
                 pinned: pinned.up.has(node.id),
@@ -238,7 +242,7 @@ export function GraphCanvas({
         type: "container",
         position: placed[id] ?? { x: 0, y: 0 },
         ...sized(CONTAINER_WIDTH, CONTAINER_HEIGHT),
-        data: { name },
+        data: { name, kind: "container", where: "compose.yaml" },
       });
     }
 
@@ -270,7 +274,9 @@ export function GraphCanvas({
       // imported, so its line is dashed: the same relation drawn in the same weight would
       // claim the project contains it.
       animated: false,
-      label: edge.label || undefined,
+      // Not on an `mcp` edge any more: the node it lands on is *named* for the server, and
+      // the same word twice on one line reads as two facts.
+      label: edge.kind === "mcp" ? undefined : edge.label || undefined,
       className: edge.kind === "mcp" ? "bp-edge-contract" : undefined,
       style: {
         stroke: edge.kind === "mcp" ? "var(--k-mcp)" : "var(--line-strong)",

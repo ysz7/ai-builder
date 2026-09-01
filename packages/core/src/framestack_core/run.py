@@ -60,7 +60,7 @@ from pathlib import Path
 from typing import Any
 
 from framestack_core.environment import interpreter_for
-from framestack_core.parser import Node, read_graph
+from framestack_core.parser import Node, is_system, read_graph
 
 __all__ = [
     "DOCUMENTS_PATH",
@@ -479,8 +479,16 @@ def _node_of(root: Path, node: str) -> tuple[Node | None, str]:
     """
     for found in read_graph(root).nodes:
         if found.id == node:
-            if found.kind == "file":
-                return None, f"{node} is a file, and a file has no export to call"
+            if not is_system(found):
+                # A file and an MCP server are both "not a package", and each is told so in
+                # its own words: a shared sentence would have to be vague enough to fit both,
+                # and a vague refusal is one a person cannot act on.
+                if found.kind == "file":
+                    return None, f"{node} is a file, and a file has no export to call"
+                return None, (
+                    f"{node} is an MCP server, which is somebody else's program — "
+                    "nothing here starts it"
+                )
             return found, ""
     return None, f"there is no system called {node!r} here"
 

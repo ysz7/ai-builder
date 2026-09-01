@@ -26,6 +26,7 @@ const LABELS: Record<string, string> = {
   worker: "Worker",
   file: "File",
   container: "Container",
+  mcp: "MCP",
 };
 
 /**
@@ -45,11 +46,28 @@ const GLYPHS: Record<string, string> = {
   file: "M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8zM14 3v5h5",
   // A box, stacked and shipped. What compose brings up.
   container: "M12 3l8 4.5-8 4.5-8-4.5zM4 7.5v9l8 4.5 8-4.5v-9M12 12v9",
+  // A plug reaching out to something this project does not contain.
+  mcp: "M9 3v6M15 3v6M6 9h12v3a6 6 0 0 1-12 0zM12 18v3",
 };
 
 /** A kind the core actually names. Anything else lands on the neutral tint. */
 function known(kind: string): boolean {
   return kind in LABELS;
+}
+
+/** The four the convention defines. Everything else is drawn, and proves nothing. */
+const SYSTEMS = new Set(["agent", "api", "rag", "worker"]);
+
+/**
+ * Is this node a package the convention recognises?
+ *
+ * **Ask this, never `kind !== "file"`.** That test meant "is it a package" only while `file`
+ * was the sole thing that was not one, and it stopped meaning that when MCP servers became
+ * nodes — a settings panel would have gone looking for `mcp.json/settings.py`, and a Run
+ * block would have offered to call an export that does not exist.
+ */
+export function isSystem(kind: string): boolean {
+  return SYSTEMS.has(kind);
 }
 
 export function labelOf(kind: string): string {

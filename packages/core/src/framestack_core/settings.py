@@ -42,7 +42,7 @@ from typing import Any
 import libcst as cst
 from libcst.metadata import MetadataWrapper, PositionProvider
 
-from framestack_core.parser import read_graph
+from framestack_core.parser import is_system, read_graph
 
 __all__ = [
     "Field",
@@ -307,7 +307,7 @@ def _locate(project: Path, node: str) -> tuple[Path | None, str, bool]:
     something that is not there, and answering "no knobs" would agree with them.
     """
     graph = read_graph(project)
-    found = [item for item in graph.nodes if item.id == node and item.kind != "file"]
+    found = [item for item in graph.nodes if item.id == node and is_system(item)]
     if not found:
         return None, f"there is no system called {node!r} here", True
     path = project / found[0].path / SETTINGS_FILE

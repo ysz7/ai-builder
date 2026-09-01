@@ -28,6 +28,7 @@ from framestack_core.observe import (
     read_observation,
     start_observation,
 )
+from framestack_core.parser import is_system, read_graph
 
 EXAMPLE = Path(__file__).resolve().parents[3] / "examples" / "reference"
 
@@ -115,11 +116,25 @@ def test_the_reference_comes_back_green_with_the_tests_that_earned_it(tmp_path: 
     )
 
 
-def test_file_nodes_are_never_given_a_verdict(tmp_path: Path) -> None:
-    """They are shown, opened and edited. Nothing runs them, so nothing can prove them."""
-    observation = observe(project(tmp_path))
+def test_only_packages_are_ever_given_a_verdict(tmp_path: Path) -> None:
+    """Files and MCP servers are shown, opened and edited. Nothing runs them, so nothing
+    can prove them.
 
-    assert not {".env", "Dockerfile", "compose.yaml", "mcp.json"} & set(colours(observation))
+    The server half is the one that would have broken quietly. Observe used to select what to
+    measure with `kind != "file"`, which meant "is it a package" only while `file` was the
+    sole exception — the moment servers became nodes (Phase 10) that test would have handed
+    `mcp.json` to coverage as a source directory and turned every server grey for not being
+    reached by a test. Grey is a claim about somebody's code, and this one would have been
+    a claim about a file that has no code in it.
+    """
+    root = project(tmp_path)
+    observation = observe(root)
+    coloured = set(colours(observation))
+
+    assert not {".env", "Dockerfile", "compose.yaml", "mcp.json"} & coloured
+    assert not {node.id for node in read_graph(root).nodes if node.kind == "mcp"} & coloured
+    # And what *is* coloured is exactly the packages, so nothing was quietly dropped either.
+    assert coloured == {node.id for node in read_graph(root).nodes if is_system(node)}
 
 
 def test_three_runs_produce_an_identical_verdict_set(tmp_path: Path) -> None:

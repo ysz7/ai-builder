@@ -44,7 +44,13 @@ export type GraphNode = {
   id: string;
   /** The directory's or file's own name. What the card is titled. */
   name: string;
-  /** One of the four kinds, or `"file"`. Never a framework. */
+  /**
+   * One of the four kinds, `"file"`, or `"mcp"`. Never a framework.
+   *
+   * `file` and `mcp` are **not kinds**: they have no required export and nothing that could
+   * prove them. To ask whether a node is a package, ask `isSystem(kind)` — never `kind !==
+   * "file"`, which meant the right thing only while `file` was the sole exception.
+   */
   kind: string;
   /** Project-relative, POSIX separators. */
   path: string;
@@ -73,7 +79,7 @@ export type GraphEdge = {
   target: string;
   /** `"import"` or `"mcp"`. */
   kind: string;
-  /** An MCP server's name. `""` on an import edge. */
+  /** An MCP server's name. `""` on an import edge. The node it lands on carries it too. */
   label: string;
 };
 
@@ -168,6 +174,33 @@ export type SettingsResult = {
   path: string;
   class_name: string;
   fields: SettingField[];
+};
+
+/**
+ * `mcp.read` and `mcp.connect`: what `mcp.json` declares about one server.
+ *
+ * **`env` is names and never values.** An entry may hold a secret inline, and this payload
+ * crosses into the webview — one console log away from somewhere permanent. The names are
+ * what a person needs to see; the values stay in the file they are already in.
+ *
+ * **There is no `connected` field, and its absence is the contract.** Only the server knows
+ * whether it is authorised, and finding out means speaking the protocol to it. What comes
+ * back says what the application *did* — a command was run, in a terminal — never a claim
+ * about the far side. A tick nobody verified is the same defect as a green node nobody ran
+ * a test for.
+ */
+export type McpServer = {
+  api_version: number;
+  ok: boolean;
+  detail: string;
+  node: string;
+  name: string;
+  /** Exactly as the file gives them. `""` where the entry declares no command to run. */
+  command: string;
+  args: string[];
+  env: string[];
+  /** Which terminal `Connect` started it in. `""` from a read. */
+  shell: string;
 };
 
 /** `editor.open`: which program was started, so the answer says what happened. */

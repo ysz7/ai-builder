@@ -31,10 +31,11 @@ import type {
   SettingsResult,
 } from "../core/types";
 import { Flyout } from "../shell/Flyout";
-import { labelOf } from "../graph/kinds";
+import { isSystem, labelOf } from "../graph/kinds";
 import { known, markOf, wordsFor } from "../graph/verdicts";
 import { Deploy } from "./Deploy";
 import { Knob } from "./Knob";
+import { McpPanel } from "./McpPanel";
 import { Run } from "./Run";
 
 function Row({ label, children }: { label: string; children: React.ReactNode }) {
@@ -58,6 +59,7 @@ export function NodePanel({
   onDeploy,
   onUndeploy,
   onTalk,
+  onConnected,
 }: {
   project: string;
   graph: Graph;
@@ -73,6 +75,8 @@ export function NodePanel({
   onUndeploy: () => void;
   /** Open the agent's own chat. The other half of the split this panel is one side of. */
   onTalk: (id: string) => void;
+  /** A server is authorising itself in this terminal. The workspace shows the drawer. */
+  onConnected: (shell: string) => void;
 }) {
   /**
    * The knobs, asked for when the panel opens on a node and never before.
@@ -90,6 +94,11 @@ export function NodePanel({
     let live = true;
     setSettings(null);
     setRefused("");
+    // Only a package can have a `settings.py`. Asking about a file or a server would be
+    // asking the core a question with no sensible answer, and it would say so — which would
+    // put a refusal in front of a person who asked for nothing.
+    const node = graph.nodes.find((item) => item.id === id);
+    if (!node || !isSystem(node.kind)) return;
     void settingsRead(project, id)
       .then((answer) => live && setSettings(answer))
       .catch((error: unknown) =>
@@ -98,7 +107,7 @@ export function NodePanel({
     return () => {
       live = false;
     };
-  }, [project, id]);
+  }, [project, id, graph]);
 
   const change = useCallback(
     async (field: string, value: number | string | boolean) => {
@@ -138,9 +147,9 @@ export function NodePanel({
           <code>{node.path}</code>
         </Row>
 
-        {/* A file node promises nothing, so it is asked for nothing. The absence is the
-            same one that keeps it uncoloured: there is no contract here to satisfy. */}
-        {node.kind === "file" ? null : (
+        {/* A file node and an MCP server promise nothing, so they are asked for nothing. The
+            absence is the same one that keeps them uncoloured: no contract to satisfy. */}
+        {!isSystem(node.kind) ? null : (
           <Row label="Required export">
             <div className="bp-node-exports">
               {node.exports.map((name) => (
@@ -219,7 +228,7 @@ export function NodePanel({
             in the system's own `settings.py`. A system with none shows none and says so —
             nothing here creates the file, because a `settings.py` written because a panel was
             opened would be the toolchain deciding a system has knobs. */}
-        {settings && node.kind !== "file" ? (
+        {settings && isSystem(node.kind) ? (
           settings.path ? (
             <Row label={`Settings · ${settings.class_name}`}>
               {settings.fields.map((one) => (
@@ -259,11 +268,19 @@ export function NodePanel({
               Calls <code>run(message)</code>. Each turn is a separate process.
             </div>
           </div>
-        ) : node.kind === "file" ? null : (
+        ) : !isSystem(node.kind) ? null : (
           /* One node, one export, no traversal. The graph is a projection and this is the
              proof of it: there is nothing here that could mean "and then the next node". */
           <Run project={project} node={node} />
         )}
+
+        {/* A server is somebody else's program. What the project knows about it is one entry
+            in one file — shown here — and the one thing worth pressing is `Connect`, which
+            runs that entry's own command where a person can watch it. Adding or changing a
+            server is a code edit, which is the chat's job. */}
+        {node.kind === "mcp" ? (
+          <McpPanel project={project} node={node} onConnected={onConnected} />
+        ) : null}
 
         {/* The one file node that can be asked to do something, and the only deployment
             target there is. `.env`, the Dockerfile and `mcp.json` are opened and edited. */}

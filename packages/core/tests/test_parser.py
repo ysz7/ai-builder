@@ -20,7 +20,7 @@ from pathlib import Path
 from contract import validate, wire_form
 
 from framestack_core.api import GRAPH_SCHEMA, graph_get
-from framestack_core.parser import Graph, Node, read_graph
+from framestack_core.parser import REQUIRED, Graph, Node, is_system, read_graph
 
 EXAMPLE = Path(__file__).resolve().parents[3] / "examples" / "reference"
 
@@ -33,9 +33,16 @@ def project(tmp_path: Path) -> Path:
 
 
 def ids(graph: Graph, family: str) -> list[str]:
-    """The node ids of one family: `"file"` for the four root files, `"system"` for the rest."""
-    wanted = family == "file"
-    return sorted(item.id for item in graph.nodes if (item.kind == "file") is wanted)
+    """The node ids of one family: `"file"`, `"system"`, or `"mcp"`.
+
+    It used to be two families and `"system"` meant "everything that is not a file" — which
+    was true only while `file` was the sole thing that was not a package, and stopped being
+    true the moment servers became nodes. Named families rather than a negation, so the next
+    node class that arrives fails loudly here instead of quietly joining `system`.
+    """
+    if family == "system":
+        return sorted(item.id for item in graph.nodes if is_system(item))
+    return sorted(item.id for item in graph.nodes if item.kind == family)
 
 
 def edges(graph: Graph) -> set[tuple[str, str, str]]:
@@ -51,17 +58,19 @@ def node(graph: Graph, node_id: str) -> Node:
 # -- what the reference is -------------------------------------------------------------
 
 
-def test_the_reference_is_four_systems_and_four_files() -> None:
+def test_the_reference_is_four_systems_four_files_and_one_server() -> None:
     """The acceptance criterion, stated as one assertion.
 
-    `exactly` is the load-bearing word. A parser that found five would be one that guessed
-    about a directory, and every guess this file exists to prevent starts as one extra node.
+    `exactly` is the load-bearing word. A parser that found five systems would be one that
+    guessed about a directory, and every guess this file exists to prevent starts as one
+    extra node.
     """
     graph = read_graph(EXAMPLE)
 
     assert graph.ok is True
     assert ids(graph, "system") == ["agent", "api", "rag", "worker"]
     assert ids(graph, "file") == [".env", "Dockerfile", "compose.yaml", "mcp.json"]
+    assert [node.id for node in graph.nodes if node.kind == "mcp"] == ["mcp.filesystem"]
 
 
 def test_every_system_in_the_reference_is_complete() -> None:
@@ -81,7 +90,16 @@ def test_a_kind_is_never_a_framework() -> None:
     """
     graph = read_graph(EXAMPLE)
 
-    assert {item.kind for item in graph.nodes} == {"agent", "api", "rag", "worker", "file"}
+    assert {item.kind for item in graph.nodes} == {
+        "agent",
+        "api",
+        "rag",
+        "worker",
+        "file",
+        # Not a framework and not a fifth kind: a server has no required export and nothing
+        # that could prove it, which makes it the same sort of thing a file node is.
+        "mcp",
+    }
 
 
 def test_file_nodes_carry_no_contract() -> None:
@@ -147,18 +165,67 @@ def test_a_package_importing_itself_is_not_an_edge() -> None:
         assert edge.source != edge.target
 
 
-def test_mcp_servers_are_edges_from_the_agent_to_the_file_that_configures_them() -> None:
-    """One edge per configured server. The servers themselves are not nodes.
+def test_mcp_servers_are_nodes_the_agent_has_an_edge_to() -> None:
+    """One node and one edge per configured server (Phase 10).
 
-    They are somebody else's process reached over a protocol; the project's fact about them
-    is the file, so that is where the edges land -- each carrying the server's name.
+    This reverses Phase 1, which said the servers were not nodes and landed the edges on the
+    file instead. What makes the reversal allowed is that nothing new is read: `mcp.json` is
+    a file in the project and this parser already opened it to draw those edges. The node is
+    derived from the code rather than invented beside it.
+
+    The edge now lands where the relation actually points. The agent reaches *that server*;
+    the file is where the fact is written down, not the thing being reached.
     """
     graph = read_graph(EXAMPLE)
     mcp = [edge for edge in graph.edges if edge.kind == "mcp"]
 
     assert [(edge.source, edge.target, edge.label) for edge in mcp] == [
-        ("agent", "mcp.json", "filesystem")
+        ("agent", "mcp.filesystem", "filesystem")
     ]
+    server = next(node for node in graph.nodes if node.id == "mcp.filesystem")
+    # It promises nothing, so there is nothing for it to fail to promise.
+    assert server.exports == () and server.missing == () and server.complete is True
+    # And it says where it is declared, which is the only part of it inside the project.
+    assert server.path == "mcp.json"
+
+
+def test_a_server_is_never_a_package_the_toolchain_would_measure() -> None:
+    """The rot this phase could have caused, asserted so it cannot come back.
+
+    `kind != "file"` used to mean "is it a package", and it stopped meaning that the moment
+    servers became nodes. Had it survived anywhere, Observe would have handed `mcp.json` to
+    coverage as a source directory and every server would have turned grey for not being
+    reached by a test — a wrong colour, which is the one thing this product cannot ship.
+    """
+    graph = read_graph(EXAMPLE)
+
+    for node in graph.nodes:
+        assert is_system(node) == (node.kind in REQUIRED)
+        if node.kind in ("file", "mcp"):
+            assert not is_system(node)
+
+
+def test_removing_a_server_removes_its_node_on_the_next_read(tmp_path: Path) -> None:
+    root = tmp_path / "project"
+    shutil.copytree(EXAMPLE, root, ignore=shutil.ignore_patterns("__pycache__", ".framestack"))
+
+    assert [node.id for node in read_graph(root).nodes if node.kind == "mcp"]
+
+    (root / "mcp.json").write_text('{"mcpServers": {}}', encoding="utf-8")
+
+    graph = read_graph(root)
+    assert [node.id for node in graph.nodes if node.kind == "mcp"] == []
+    assert [edge for edge in graph.edges if edge.kind == "mcp"] == []
+    # And the Python graph is untouched, which is the half of this that would be easy to lose.
+    assert ids(graph, "system") == ["agent", "api", "rag", "worker"]
+
+
+def test_three_reads_produce_an_identical_server_set() -> None:
+    """I-4 for this phase. The file's own key order is a JSON detail, not a fact."""
+    seen = [
+        tuple(node.id for node in read_graph(EXAMPLE).nodes if node.kind == "mcp") for _ in range(3)
+    ]
+    assert len(set(seen)) == 1
 
 
 def test_an_unreadable_mcp_file_costs_the_edges_and_nothing_else(tmp_path: Path) -> None:

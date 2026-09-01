@@ -604,6 +604,10 @@ export default function App() {
           onDeploy={() => void runDeploy()}
           onUndeploy={() => void endDeploy()}
           onTalk={talkTo}
+          // It is running where the person can read every line of it and stop it themselves,
+          // which is the only honest place to start somebody else's program with their own
+          // account on the other end.
+          onConnected={() => setSheet("terminal")}
         />
       ) : null}
 

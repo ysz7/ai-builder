@@ -51,7 +51,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from framestack_core.parser import read_graph
+from framestack_core.parser import is_system, read_graph
 from framestack_core.session import (
     STRICT_MCP,
     agent_binary,
@@ -420,7 +420,7 @@ def _summary(project: Path) -> str:
     graph and not the code: what exists, what it exports, and what is missing.
     """
     graph = read_graph(project)
-    systems = [node for node in graph.nodes if node.kind != "file"]
+    systems = [node for node in graph.nodes if is_system(node)]
     if not systems:
         return "This project has no systems yet."
     lines = [

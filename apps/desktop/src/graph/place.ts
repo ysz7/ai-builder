@@ -18,6 +18,7 @@
  */
 
 import type { Graph, GraphEdge, GraphNode, Layout } from "../core/types";
+import { isSystem } from "./kinds";
 
 export type Point = { x: number; y: number };
 export type Box = Point & { width: number; height: number };
@@ -59,6 +60,7 @@ const ORIGIN = 60;
  */
 export function cardHeight(node: GraphNode): number {
   if (node.kind === "file") return 44;
+  if (node.kind === "mcp") return CONTAINER_HEIGHT;
   return (
     22 + // the category tab, above the card and overlapping it
     44 + // the header row and the card's own padding
@@ -71,7 +73,9 @@ export function cardHeight(node: GraphNode): number {
 }
 
 export function cardWidth(node: GraphNode): number {
-  return node.kind === "file" ? FILE_WIDTH : NODE_WIDTH;
+  if (node.kind === "file") return FILE_WIDTH;
+  if (node.kind === "mcp") return CONTAINER_WIDTH;
+  return NODE_WIDTH;
 }
 
 /** Is this system showing its children, or a count? View state, and only ever that. */
@@ -138,8 +142,12 @@ export function placeAll(
       : null;
   };
 
-  const systems = shown.filter((node) => node.kind !== "file" && node.parent === "");
+  // Named families, never "everything that is not a file": that negation meant "a package"
+  // only while `file` was the sole exception to it, and an MCP server would have silently
+  // joined the systems and taken a column of its own.
+  const systems = shown.filter((node) => isSystem(node.kind) && node.parent === "");
   const files = shown.filter((node) => node.kind === "file");
+  const servers = shown.filter((node) => node.kind === "mcp");
 
   let column = 0;
   let deepest = 0;
@@ -167,13 +175,21 @@ export function placeAll(
       saved(file.id) ?? { x: ORIGIN + index * (FILE_WIDTH + 26), y: row };
   });
 
+  // The servers share the containers' row: both are things the project declares and nothing
+  // proves, and giving each its own row would claim a distinction that is not there.
+  servers.forEach((server, index) => {
+    placed[server.id] =
+      saved(server.id) ?? { x: ORIGIN + index * (CONTAINER_WIDTH + 26), y: row + 120 };
+  });
+
   // The containers sit on their own row under the files. Below rather than beside, because
   // they are a different kind of fact: the files are the project's, and these are what
   // `docker compose` says the project asks to have running around it.
   services.forEach((name, index) => {
     const id = serviceId(name);
     placed[id] =
-      saved(id) ?? { x: ORIGIN + index * (CONTAINER_WIDTH + 26), y: row + 120 };
+      saved(id) ??
+      { x: ORIGIN + (servers.length + index) * (CONTAINER_WIDTH + 26), y: row + 120 };
   });
 
   // Anything the walk above missed — a child whose parent the core did not return, say. It
@@ -217,7 +233,7 @@ export function serviceId(name: string): string {
  */
 export function pendingSpot(graph: Graph | null, layout: Layout): Point {
   const systems = graph
-    ? visible(graph, layout).filter((node) => node.kind !== "file" && node.parent === "")
+    ? visible(graph, layout).filter((node) => isSystem(node.kind) && node.parent === "")
     : [];
   return { x: ORIGIN + systems.length * COLUMN, y: ORIGIN };
 }
