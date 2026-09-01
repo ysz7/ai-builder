@@ -22,7 +22,10 @@ fi
 
 echo "[build-sidecar] target triple: $TRIPLE"
 
-uv run --project "$ROOT" --extra package pyinstaller \
+# `--package framestack-core`, because the `package` extra is declared on the core rather
+# than on the workspace root: pyinstaller is a build tool for the sidecar, not a dependency
+# of anything that ships. Naming the root alone asks uv for an extra it has never heard of.
+uv run --project "$ROOT" --package framestack-core --extra package pyinstaller \
     --clean --noconfirm \
     --distpath "$ROOT/packages/core/dist" \
     --workpath "$ROOT/packages/core/build" \

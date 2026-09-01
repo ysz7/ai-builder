@@ -17,6 +17,15 @@
  *     identical; only the arrangement is lost.
  *   - **Nothing here runs.** There is no run-the-graph button and no traversal of the
  *     canvas. Execution order lives in Python.
+ *
+ * One consequence of keeping no state: the node array is **re-derived on every render**,
+ * including every frame of a drag, because a position is a prop here. React Flow keeps a
+ * node's measured size only while the object it was handed stays reference-identical, so a
+ * re-derived array arrives with that measurement gone and the drag maths has nothing to work
+ * with. The fix is to stop making it measure: `cardWidth` and `cardHeight` are already the
+ * sizes `place.ts` lays the graph out with and the sizes the DOM is given, so they are
+ * declared on the node rather than rediscovered from the rendered element. What React Flow
+ * was measuring was our own arithmetic coming back around.
  */
 
 import { useCallback, useMemo } from "react";
@@ -47,6 +56,20 @@ import {
 } from "./place";
 
 const NODE_TYPES = { system: SystemCard, file: FileCard, frame: Frame };
+
+/**
+ * How big a node is, said three times because React Flow reads it in three places.
+ *
+ * `style` is what the browser draws, `width`/`height` are what layout and `fitView` use, and
+ * `measured` is what dragging reads. The last one is normally filled in by React Flow from
+ * the rendered element — but only for as long as the node object it was handed keeps its
+ * identity, and this canvas derives a fresh one on every frame of a gesture. Declaring it
+ * is not a workaround for that: these numbers are where the size comes from in the first
+ * place, and measuring the DOM only asks the browser to hand our own arithmetic back.
+ */
+function sized(width: number, height: number) {
+  return { width, height, measured: { width, height }, style: { width, height } };
+}
 
 export function GraphCanvas({
   graph,
@@ -112,7 +135,7 @@ export function GraphCanvas({
         id: `frame:${system.id}`,
         type: "frame",
         position: { x: box.x, y: box.y },
-        style: { width: box.width, height: box.height },
+        ...sized(box.width, box.height),
         draggable: false,
         selectable: false,
         data: {
@@ -131,7 +154,7 @@ export function GraphCanvas({
         id: node.id,
         type: node.kind === "file" ? "file" : "system",
         position: placed[node.id] ?? { x: 0, y: 0 },
-        style: { width: cardWidth(node), height: cardHeight(node) },
+        ...sized(cardWidth(node), cardHeight(node)),
         selected: node.id === selected,
         data:
           node.kind === "file"
