@@ -49,10 +49,23 @@ export type ContainerData = {
   pinned: boolean;
   /** Whether an import edge lands on the left. A database has these; the other two do not. */
   inbound: boolean;
+  /**
+   * What a connection last answered, `"checking"` while one is in flight, or `""`.
+   *
+   * **Never a verdict, and drawn in its own palette so it cannot be read as one.** A
+   * reachable Postgres is not a proven one. `""` means nothing has been asked — an absent
+   * status reads as absent, never as a hopeful default.
+   */
+  status: string;
+  /** Why, in the check's own words. On hover: a card is not a log. */
+  statusDetail: string;
+  /** Ask again, now. Every dependency carries one; the plan asks for it by name. */
+  onRefresh?: () => void;
 };
 
 export function ContainerCard({ data, selected }: NodeProps) {
-  const { name, kind, where, pinned, inbound } = data as unknown as ContainerData;
+  const { name, kind, where, pinned, inbound, status, statusDetail, onRefresh } =
+    data as unknown as ContainerData;
 
   return (
     <div
@@ -76,7 +89,7 @@ export function ContainerCard({ data, selected }: NodeProps) {
         {labelOf(kind)}
       </div>
 
-      <div className="bp-card bp-card-container">
+      <div className={`bp-card bp-card-container${status ? ` is-${status}` : ""}`}>
         {pinned ? (
           <Handle type="target" position={Position.Top} className="pin pin-data" id="up" />
         ) : null}
@@ -105,7 +118,28 @@ export function ContainerCard({ data, selected }: NodeProps) {
           </svg>
           <span className="bp-card-title">{name}</span>
         </div>
-        <div className="bp-card-desc">{where}</div>
+        {where ? <div className="bp-card-desc">{where}</div> : null}
+
+        {/* Drawn only once something has been asked. A row that always existed would invite
+            a default to be put in it, and a dependency nobody checked has no status. */}
+        {status ? (
+          <div className={`bp-status is-${status}`} title={statusDetail}>
+            <span className="bp-status-dot" />
+            {status === "checking" ? "checking…" : status}
+            {onRefresh ? (
+              <button
+                className="bp-status-refresh nodrag"
+                title="Check again"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  onRefresh();
+                }}
+              >
+                ↻
+              </button>
+            ) : null}
+          </div>
+        ) : null}
       </div>
     </div>
   );

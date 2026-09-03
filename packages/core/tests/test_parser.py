@@ -104,6 +104,9 @@ def test_a_kind_is_never_a_framework() -> None:
         # A module in `agent/tools/`. Not a framework and not a fifth convention: it has no
         # required export, and being in that one directory is the whole of what makes it one.
         "tool",
+        # What the project's code talks to. The reference has a `compose.yaml`, so it has a
+        # `docker`. Not a framework either: the node is `docker`, never `docker-compose-v2`.
+        "dependency",
         # Not a framework and not a fifth kind: a server has no required export and nothing
         # that could prove it, which makes it the same sort of thing a file node is.
         "mcp",

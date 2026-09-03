@@ -59,6 +59,7 @@ from framestack_core.api import (
     shell_read,
     shell_resize,
     shell_write,
+    status_read,
 )
 from framestack_core.protocol import PROTOCOL_VERSION, ProtocolError
 
@@ -430,6 +431,16 @@ def settings_write(params: dict[str, Any]) -> dict[str, Any]:
     )
 
 
+def status_read_method(params: dict[str, Any]) -> dict[str, Any]:
+    """Whether one dependency can be reached.
+
+    One node per request, because the polling policy is per node: a local check is cheap and
+    asked often, a network one is not. A verb that checked everything at once would make the
+    caller pick one interval for both.
+    """
+    return status_read(_project_of(params), _required_str(params, "node"))
+
+
 def database_read_method(params: dict[str, Any]) -> dict[str, Any]:
     """What the project's storage is. A read: it opens no connection and asks no server."""
     return database_read(_project_of(params))
@@ -556,6 +567,7 @@ HANDLERS: dict[str, Handler] = {
     "chat.choices": chat_choices_method,
     "settings.read": settings_read,
     "settings.write": settings_write,
+    "status.read": status_read_method,
     "database.read": database_read_method,
     "routes.read": routes_read_method,
     "mcp.read": mcp_read_method,

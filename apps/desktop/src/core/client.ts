@@ -81,6 +81,7 @@ import type {
   ObserveResult,
   RoutesResult,
   RunResult,
+  StatusResult,
   SettingsResult,
   WriteResult,
 } from "./types";
@@ -244,6 +245,17 @@ export function chatChanges(project: string): Promise<Changes> {
 /** The commands, and the stacks each kind may be generated on. */
 export function chatChoices(): Promise<ChatChoices> {
   return coreRequest<ChatChoices>("chat.choices", {});
+}
+
+/**
+ * Whether one dependency can be reached. Connects; starts nothing; costs nothing.
+ *
+ * One node per request, because the polling policy is per node: a local check is cheap and
+ * asked often, a credential is a file read and changes only when somebody edits it. A verb
+ * that checked everything at once would make the caller pick one interval for both.
+ */
+export function statusRead(project: string, node: string): Promise<StatusResult> {
+  return coreRequest<StatusResult>("status.read", { project, node });
 }
 
 /**

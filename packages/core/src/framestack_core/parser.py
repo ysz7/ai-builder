@@ -43,6 +43,7 @@ from typing import Any
 import libcst as cst
 
 from framestack_core.database import DATABASE_NODE, STORAGE_PACKAGE, Database, read_database
+from framestack_core.dependencies import Dependency, read_dependencies
 
 __all__ = [
     "FILE_NODES",
@@ -777,30 +778,28 @@ def _servers_in(root: Path) -> list[str]:
     return sorted(name for name in servers if isinstance(name, str) and name)
 
 
-def _database_node(database: Database) -> list[Node]:
-    """The project's storage, as one node. **One per backend, never one per table.**
+def _dependency_nodes(found: list[Dependency]) -> list[Node]:
+    """What the project's code talks to, one node each. **Never one per table or per key.**
 
     Twelve tables are twelve rows in a panel; twelve boxes would be a hairball, and every
     edge into them would have to choose a table to land on. What the graph answers is "what
-    does this project talk to", and for a database that answer is one thing.
+    does this project talk to", and for each of these that answer is one thing.
 
-    It is in the graph rather than beside it because the facts come from the project's own
-    Python, which the parser already reads -- the same test that puts an MCP server in the
-    graph and leaves a compose service outside it. What it does *not* carry is the reading:
-    the tables and the connection string are asked for separately, because they go stale at
-    a different moment and cost a walk of the project to produce.
+    They are in the graph rather than beside it because the facts come from the project's own
+    files, which the parser already reads -- the same test that puts an MCP server in the
+    graph and leaves a compose service outside it. What they do *not* carry is a status: that
+    comes from a connection check, which is a different mechanism at a different moment, and
+    a field reading "unknown" on every parse would be a claim nobody made.
     """
-    if not database.present:
-        return []
     return [
         Node(
-            id=DATABASE_NODE,
-            # `postgres + pgvector` where a model declares a vector column. The label is a
-            # reading of the schema, not a second node and not a kind.
-            name=database.label,
+            id=item.id,
+            # `postgres + pgvector` where a model declares a vector column. A reading of the
+            # schema, not a second node and not a kind.
+            name=item.name,
             kind=DEPENDENCY_KIND,
-            # No file declares it. It is what the project's code talks to, stated in several
-            # places at once, and naming one of them would make that one look authoritative.
+            # No file declares it. It is what the project's code talks to, named in several
+            # places at once, and picking one of them would make that one look authoritative.
             path="",
             complete=True,
             exports=(),
@@ -812,6 +811,27 @@ def _database_node(database: Database) -> list[Node]:
             # Nothing to land on. An edge to a table would be an edge to a row in a panel.
             ports=(),
         )
+        for item in found
+    ]
+
+
+def _dependency_edges(found: list[Dependency]) -> list[Edge]:
+    """One edge per node that names a dependency, read from that node's own imports.
+
+    `postgres` is absent here and drawn by the import walk instead: a module that declares a
+    table is already resolved there, and two answers to "who touches storage" would disagree.
+    """
+    return [
+        Edge(
+            id=f"{source}->{item.id}",
+            source=source,
+            target=item.id,
+            kind="import",
+            label="",
+            port="",
+        )
+        for item in found
+        for source in item.used_by
     ]
 
 
@@ -1157,12 +1177,17 @@ def read_graph(project: Path | str) -> Graph:
     servers = _mcp_nodes(root)
     files = _file_nodes(root)
     database = read_database(root)
-    stores = _database_node(database)
     coded = [*systems, *tools]
+    # The same mapping the edge builder uses, so a dependency says which node named it by
+    # exactly the rule an import edge is drawn by. Built once and handed to both.
+    by_module = {_module_path(packages[node.id], root): node.id for node in coded}
+    outside = read_dependencies(root, by_module, database)
+    stores = _dependency_nodes(outside)
     nodes = [*coded, *files, *servers, *stores]
     by_id = {node.id: node for node in nodes}
     edges = [
         *_import_edges(root, coded, packages, walk, _storage_modules(database)),
+        *_dependency_edges(outside),
         *_mcp_edges(by_id),
         *_tool_server_edges(root, tools, servers),
     ]

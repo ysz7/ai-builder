@@ -52,9 +52,13 @@ def names(root: Path) -> list[str]:
 
 
 def test_the_reference_has_no_database_and_no_node_for_one() -> None:
-    """Most projects have none. A node drawn anyway would be a box with nothing behind it."""
+    """Most projects have none. A node drawn anyway would be a box with nothing behind it.
+
+    The reference does have a `docker` dependency -- it has a `compose.yaml` -- so this asks
+    about the storage node by name rather than about the family it belongs to.
+    """
     assert read_database(EXAMPLE).present is False
-    assert not [node for node in read_graph(EXAMPLE).nodes if node.kind == "dependency"]
+    assert not [node for node in read_graph(EXAMPLE).nodes if node.id == "postgres"]
 
 
 def test_a_project_that_is_not_there_is_a_result_and_not_a_crash(tmp_path: Path) -> None:

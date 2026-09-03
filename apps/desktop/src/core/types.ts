@@ -136,6 +136,28 @@ export type RoutesResult = {
   routes: Route[];
 };
 
+/**
+ * `status.read`: whether one dependency can be reached, and when it was asked.
+ *
+ * **A status is not a verdict, and they never share a colour scale.** A verdict comes from a
+ * test and belongs to code you own; this comes from a connection and belongs to something
+ * outside the project. `reachable` is not `green`: reached is not proven.
+ *
+ * Five states and each is a different claim. `unknown` is not `unreachable` — "never checked,
+ * or not checkable from here" is a different sentence from "it refused" — and `configured` /
+ * `unconfigured` belong to the nodes where a check would cost money and so is never made.
+ */
+export type StatusResult = {
+  api_version: number;
+  ok: boolean;
+  node: string;
+  /** `reachable`, `unreachable`, `unknown`, `configured`, `unconfigured`. */
+  status: string;
+  /** Why. A colour nobody can act on is decoration, so a refusal carries its reason. */
+  detail: string;
+  at: string;
+};
+
 /** One table the project declares, and the file that declares it. */
 export type Table = {
   name: string;

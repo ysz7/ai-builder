@@ -23,6 +23,7 @@
 import { useCallback, useEffect, useState } from "react";
 
 import { GraphCanvas } from "./graph/GraphCanvas";
+import { useStatuses } from "./graph/statuses";
 import { AgentChat } from "./panels/AgentChat";
 import { Chat, type HandOver } from "./panels/Chat";
 import { Menu, type Placed } from "./panels/Menu";
@@ -116,6 +117,19 @@ export default function App() {
    * project, so it is asked for once beside the parse rather than on every render.
    */
   const [database, setDatabase] = useState<DatabaseResult | null>(null);
+
+  /**
+   * Whether the things this project talks to can be reached.
+   *
+   * The nodes come from the graph, so nothing is polled that the code does not reference —
+   * and when the window loses focus every timer stops. An idle laptop should be doing
+   * nothing at all on this project's behalf.
+   */
+  const outside = graph?.nodes.filter((node) => node.kind === "dependency") ?? [];
+  const { known, checking, refresh } = useStatuses(
+    project,
+    outside.map((node) => node.id),
+  );
   const [layout, setLayout] = useState<Layout>({});
   const [selected, setSelected] = useState("");
   /**
@@ -504,6 +518,9 @@ export default function App() {
             services={services}
             dockerless={dockerless}
             database={database}
+            statuses={known}
+            checking={checking}
+            onRecheck={refresh}
           />
 
           {/* Said as a fact about the convention rather than as a verdict on the code: an

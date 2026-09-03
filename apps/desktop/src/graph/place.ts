@@ -88,8 +88,10 @@ const ORIGIN = 60;
  */
 export function cardHeight(node: GraphNode): number {
   if (node.kind === "file") return 44;
-  // A server and a database are the same card: a name and one quiet line under it.
-  if (node.kind === "mcp" || node.kind === "dependency") return CONTAINER_HEIGHT;
+  if (node.kind === "mcp") return CONTAINER_HEIGHT;
+  // A dependency is the server's card plus its status row: the dot, the word and the
+  // refresh. 6 above and 18 for the line, and those numbers are in `styles.css` too.
+  if (node.kind === "dependency") return CONTAINER_HEIGHT + 24;
   return (
     22 + // the category tab, above the card and overlapping it
     44 + // the header row and the card's own padding

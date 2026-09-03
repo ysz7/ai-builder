@@ -41,7 +41,7 @@ import {
 
 import "@xyflow/react/dist/style.css";
 
-import type { DatabaseResult, Graph, Layout, Observation } from "../core/types";
+import type { DatabaseResult, Graph, Layout, Observation, StatusResult } from "../core/types";
 import { ContainerCard } from "./ContainerCard";
 import { FileCard } from "./FileCard";
 import { Frame } from "./Frame";
@@ -97,6 +97,9 @@ export function GraphCanvas({
   services,
   dockerless,
   database,
+  statuses,
+  checking,
+  onRecheck,
 }: {
   graph: Graph | null;
   layout: Layout;
@@ -151,6 +154,16 @@ export function GraphCanvas({
    * moment and costs a walk of the project to produce.
    */
   database: DatabaseResult | null;
+  /**
+   * What a connection last answered for each dependency, and which are in flight.
+   *
+   * Held beside the graph like the verdict set, and for the same reasons: it answers a
+   * different question and goes stale at a different moment. A node with no entry has **no
+   * status** rather than a default one.
+   */
+  statuses: Record<string, StatusResult>;
+  checking: string[];
+  onRecheck: (node: string) => void;
 }) {
   const { nodes, edges } = useMemo(() => {
     if (!graph || !graph.ok) return { nodes: [] as Node[], edges: [] as Edge[] };
@@ -233,6 +246,11 @@ export function GraphCanvas({
             ? {
                 name: node.name,
                 kind: "dependency",
+                status: checking.includes(node.id)
+                  ? "checking"
+                  : statuses[node.id]?.status ?? "",
+                statusDetail: statuses[node.id]?.detail ?? "",
+                onRefresh: () => onRecheck(node.id),
                 // No file declares it, so the line under the name is the reading instead.
                 // The count first: it is what a person came to the node to know, and the
                 // connection string is what there is to say when there are no tables.
@@ -252,6 +270,10 @@ export function GraphCanvas({
                 where: node.path,
                 pinned: pinned.up.has(node.id),
                 inbound: false,
+                // Only the server knows whether it is connected, and asking means speaking
+                // the protocol to it. Nothing here claims one way or the other.
+                status: "",
+                statusDetail: "",
               }
             : node.kind === "file"
             ? {
@@ -298,7 +320,17 @@ export function GraphCanvas({
         ...sized(CONTAINER_WIDTH, CONTAINER_HEIGHT),
         // A container is declared and nothing points at it: no import can, and compose's own
         // `depends_on` is a fact inside a file this codebase does not read.
-        data: { name, kind: "container", where: "compose.yaml", pinned: false, inbound: false },
+        data: {
+          name,
+          kind: "container",
+          where: "compose.yaml",
+          pinned: false,
+          inbound: false,
+          // A container's state belongs to the `docker` node, which is the one thing that
+          // can be asked. A dot on each service would be the same claim drawn many times.
+          status: "",
+          statusDetail: "",
+        },
       });
     }
 
@@ -357,6 +389,9 @@ export function GraphCanvas({
     services,
     dockerless,
     database,
+    statuses,
+    checking,
+    onRecheck,
   ]);
 
   /**

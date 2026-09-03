@@ -111,9 +111,22 @@ config --services` — a subprocess, a different question, and a different momen
 
 **A verdict and a status are different things**, and they never share a colour scale. A verdict
 comes from a test and belongs to code you own; a status comes from a connection check and belongs
-to something external. The database is the first node of the second sort — a **dependency** — and
-until something exists that can make a connection check it carries neither, which is the honest
-state rather than a placeholder for one. What a database *is* the project states, and that is all
+to something external — a reachable Postgres is not a proven one. Things of the second sort are
+**dependencies**: `postgres`, `redis`, `ollama`, `anthropic`, `openai`, `docker`. Each exists
+because the code references it — an import root, a string literal in a settings default, a file at
+the root — and **there is no manual add**: pressing `+` on one sends a task to the agent to write
+the code that uses it, and the node appears because the code now names it.
+
+`status.py` answers `status.read` for one node at a time, because the polling policy is per node.
+**No check is ever billable**: a provider reports whether a key is present, by *name*, never by
+calling anything. `SELECT 1` and `PING` need drivers this codebase does not have and will not
+acquire — a connector written is a connector maintained — so they are scripts run in the
+**project's own interpreter**, and a project without the driver gets `unknown` rather than red.
+`unknown` and `unreachable` are different claims and are never merged. A check is a short
+synchronous ask like `deploy.status`, not one of the six long-lived processes below. Polling stops
+entirely when the window loses focus — an idle machine does nothing on a project's behalf.
+
+What a database *is* the project states, and that is all
 `database.py` reads: `__tablename__`, `alembic/versions/`, and a connection string out of a
 `BaseSettings` default with its credentials removed. **One node per backend, never one per table**
 — twelve tables are twelve rows in a panel, and table-level edges are a hairball whose every line
@@ -278,7 +291,8 @@ payloads it assembles; `parser.py` derives the graph from the convention; `sessi
 agent's process; `shell.py` is the terminal the person types into; `layout.py` is where a person put
 things; `observe.py` runs the project's tests and turns what happened into colour;
 `settings.py` reads and writes the one `BaseSettings` class a system may declare;
-`database.py` reads what the project stores things in and `routes.py` what one service serves;
+`database.py` reads what the project stores things in, `dependencies.py` what else its code
+talks to, `status.py` whether any of that can be reached, and `routes.py` what one service serves;
 `editor.py`
 is `Open`; `chat.py` dispatches a message to exactly one command and declares the **blocks** a
 palette may offer; `mcp.py` reads one server's entry and runs it; `run.py` calls one system's

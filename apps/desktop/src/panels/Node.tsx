@@ -29,6 +29,7 @@ import {
   routesRead,
   settingsRead,
   settingsWrite,
+  statusRead,
 } from "../core/client";
 import type {
   DatabaseResult,
@@ -37,6 +38,7 @@ import type {
   Observation,
   RoutesResult,
   SettingsResult,
+  StatusResult,
 } from "../core/types";
 import { Flyout } from "../shell/Flyout";
 import { isSystem, labelOf } from "../graph/kinds";
@@ -116,6 +118,28 @@ export function NodePanel({
    */
   const [database, setDatabase] = useState<DatabaseResult | null>(null);
 
+  /**
+   * What a connection last answered about this dependency.
+   *
+   * Asked here as well as on the canvas, because the panel is where the **reason** goes: a
+   * red ring says something is wrong and the sentence beside it says what, which is the
+   * difference between a colour a person can act on and one that is decoration.
+   */
+  const [status, setStatus] = useState<StatusResult | null>(null);
+  const [asking, setAsking] = useState(false);
+
+  const check = useCallback(async () => {
+    setAsking(true);
+    try {
+      setStatus(await statusRead(project, id));
+    } catch {
+      // A status that could not be asked is not a status. The previous answer stays, because
+      // inventing `unreachable` out of a transport failure of ours would be a wrong colour.
+    } finally {
+      setAsking(false);
+    }
+  }, [project, id]);
+
   useEffect(() => {
     let live = true;
     setSettings(null);
@@ -134,6 +158,14 @@ export function NodePanel({
       live = false;
     };
   }, [project, id, graph]);
+
+  useEffect(() => {
+    setStatus(null);
+    const node = graph.nodes.find((item) => item.id === id);
+    // Only a dependency has one. Everything else in the graph is either the project's own
+    // code, which has a verdict, or something declared that nothing can be asked about.
+    if (node?.kind === "dependency") void check();
+  }, [id, graph, check]);
 
   useEffect(() => {
     let live = true;
@@ -293,6 +325,28 @@ export function NodePanel({
                 </span>
               ))}
             </div>
+          </Row>
+        ) : null}
+
+        {/* A status, in words, with the reason under it. **Never a verdict**: a connection
+            reached is not a test passed, and the two are drawn apart so a person cannot read
+            one as the other. The refresh is here because the plan asks every dependency to
+            carry one — polling stops when the window loses focus, and this is the way back. */}
+        {status ? (
+          <Row label="Status">
+            <div className={`bp-status is-${asking ? "checking" : status.status}`}>
+              <span className="bp-status-dot" />
+              {asking ? "checking…" : status.status}
+              <button
+                className="bp-status-refresh nodrag"
+                title="Check again"
+                onClick={() => void check()}
+                disabled={asking}
+              >
+                ↻
+              </button>
+            </div>
+            <div className="bp-node-when">{status.detail}</div>
           </Row>
         ) : null}
 

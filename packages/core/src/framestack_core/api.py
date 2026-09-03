@@ -56,6 +56,7 @@ from framestack_core.shell import (
     resize_shell,
     write_shell,
 )
+from framestack_core.status import read_status
 
 #: Bumped when the payload's shape changes in a way a client would notice. Additive fields
 #: do not bump it; removing or retyping one does.
@@ -329,6 +330,28 @@ DATABASE_SCHEMA = {
     # `postgres`, or `postgres + pgvector` where a model declares a vector column.
     "label": "str",
     "tables": [{"name": "str", "file": "str", "vector": "bool"}],
+}
+
+
+#: The `status.read` payload: whether one dependency can be reached, and when it was asked.
+#:
+#: **A status is not a verdict**, and they never share a colour scale. A verdict comes from a
+#: test and belongs to code you own; this comes from a connection and belongs to something
+#: outside the project. `reachable` is not `green`: reached is not proven.
+#:
+#: Five states, and each is a different claim. `unknown` is not `unreachable` -- "never
+#: checked, or not checkable from here" is a different sentence from "it refused" -- and
+#: `configured` / `unconfigured` belong to the nodes where a check would cost money. **No
+#: check here is ever billable**: a status that costs money is one nobody can afford to poll.
+STATUS_SCHEMA = {
+    "api_version": "int",
+    "ok": "bool",
+    "node": "str",
+    "status": "str",
+    # Why. A colour nobody can act on is decoration, so a refusal carries its reason.
+    "detail": "str",
+    # When it was asked, so a caller can tell a fresh answer from one it still holds.
+    "at": "str",
 }
 
 
@@ -714,6 +737,11 @@ def mcp_connect(project: Path | str, node: str) -> dict[str, Any]:
     """Run the server's own command in a terminal, so it can authorise itself. Never
     implicit (P11), and it stores no credential -- there is nowhere here that one would go."""
     return {"api_version": GRAPH_API_VERSION, **connect_server(project, node).as_dict()}
+
+
+def status_read(project: Path | str, node: str) -> dict[str, Any]:
+    """Whether one dependency can be reached. Connects; starts nothing; costs nothing."""
+    return {"api_version": GRAPH_API_VERSION, **read_status(project, node).as_dict()}
 
 
 def database_read(project: Path | str) -> dict[str, Any]:

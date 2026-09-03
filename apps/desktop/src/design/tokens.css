@@ -115,6 +115,12 @@
      verdict, because nothing in a test run executes a Postgres. */
   --k-dependency: #7a5a2e;
   --k-dependency-bg: #eee2cf;
+  /* A status, and deliberately not the verdict's green and red. A connection reached is not
+     a test passed, and two claims that look alike are two claims a person will confuse. */
+  --status-up: #2f7d63;
+  --status-up-soft: rgba(47, 125, 99, 0.28);
+  --status-down: #a6432f;
+  --status-down-soft: rgba(166, 67, 47, 0.25);
   --k-none: #52525b;
   --k-none-bg: #ececE6;
 
@@ -206,6 +212,10 @@
   --k-container-bg: rgba(111, 195, 156, 0.15);
   --k-dependency: #cfae7f;
   --k-dependency-bg: rgba(207, 174, 127, 0.15);
+  --status-up: #5cc9a4;
+  --status-up-soft: rgba(92, 201, 164, 0.3);
+  --status-down: #e08a76;
+  --status-down-soft: rgba(224, 138, 118, 0.28);
   --k-none: #a1a1aa;
   --k-none-bg: rgba(255, 255, 255, 0.07);
 
