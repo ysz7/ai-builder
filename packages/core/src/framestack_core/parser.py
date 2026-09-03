@@ -140,6 +140,13 @@ class Node:
     #: Everything in the package except a nested system's own files, so the panel can list
     #: what this node is made of without listing its children twice.
     files: tuple[str, ...]
+    #: The entry points an edge may land on, in the order the package states them.
+    #:
+    #: **What the package actually binds, never what it ought to.** A `rag/` that exports
+    #: only `search` has one port, not two with one drawn as broken: the missing export is
+    #: already said in `missing` and `reason`, and a port for a name nothing binds would be
+    #: an attachment point for an import that cannot be written.
+    ports: tuple[str, ...]
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -154,6 +161,7 @@ class Node:
             "parent": self.parent,
             "children": list(self.children),
             "files": list(self.files),
+            "ports": list(self.ports),
         }
 
 
@@ -175,6 +183,14 @@ class Edge:
     #: The MCP server's name. `""` on an import edge: the fact is the import, and labelling
     #: it with one imported symbol would misreport a file that imports three.
     label: str
+    #: Which of the target's ports this lands on, or `""` for the package itself.
+    #:
+    #: `from rag import search` is a fact about `search`, and drawing it at the same point as
+    #: `import rag` throws that away -- `api -> rag` says nothing, while `worker -> rag.index`
+    #: and `agent -> rag.search` say that uploads index and questions retrieve. Set only when
+    #: the imported module **is** the target package and the name is one of its ports: a name
+    #: taken out of `rag.store` is internal, and the edge is about the package.
+    port: str
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -183,6 +199,7 @@ class Edge:
             "target": self.target,
             "kind": self.kind,
             "label": self.label,
+            "port": self.port,
         }
 
 
@@ -307,20 +324,112 @@ def _exports_of(init: Path) -> frozenset[str] | None:
     return frozenset(names)
 
 
-def _imports_of(path: Path, package: str) -> set[str]:
-    """The absolute module paths one file imports, relatives resolved against `package`.
+def _handler_keys(init: Path) -> tuple[str, ...]:
+    """The names a worker answers to: the literal keys of its `HANDLERS` dict.
+
+    Read syntactically, like everything else here, so the keys are the ones **written in the
+    file** -- a dict built by a call, a comprehension or an update in another module has no
+    keys this parser can see, and it reports none rather than a plausible few. That is the
+    same refusal `settings.write` makes about a default built by a call, and for the same
+    reason: a guess that looks right is worse than an absence somebody can act on.
+
+    File order, not sorted. It is the order the author wrote and it is stable across reads,
+    which is all I-4 asks; sorting would reorder a person's own list under them.
+    """
+    module = _parse(init)
+    if module is None:
+        return ()
+
+    found: list[str] = []
+    for statement in module.body:
+        if not isinstance(statement, cst.SimpleStatementLine):
+            continue
+        for small in statement.body:
+            named = False
+            value: cst.BaseExpression | None = None
+            if isinstance(small, cst.Assign):
+                named = any(
+                    isinstance(target.target, cst.Name) and target.target.value == "HANDLERS"
+                    for target in small.targets
+                )
+                value = small.value
+            elif isinstance(small, cst.AnnAssign):
+                # `HANDLERS: dict[str, Callable]` with no value binds nothing, which is why
+                # the annotated form is read through the same test the plain one is.
+                named = isinstance(small.target, cst.Name) and small.target.value == "HANDLERS"
+                value = small.value
+            else:
+                continue
+            if not named or not isinstance(value, cst.Dict):
+                continue
+            for element in value.elements:
+                if not isinstance(element, cst.DictElement):
+                    continue
+                key = element.key
+                if isinstance(key, cst.SimpleString):
+                    text = key.evaluated_value
+                    if isinstance(text, str) and text and text not in found:
+                        found.append(text)
+    return tuple(found)
+
+
+def _ports_of(kind: str, init: Path, names: frozenset[str]) -> tuple[str, ...]:
+    """The entry points of one package: where an edge may land, other than on the package.
+
+    A port is a name the convention already requires, so this adds no syntax and no second
+    mechanism -- it reads the same `__init__.py` the node itself was read from.
+
+    Two kinds are not the plain case:
+
+    `worker/` exports one name, `HANDLERS`, and that name is a *table* of entry points. Its
+    ports are the keys, because `worker.reindex` is the thing another package enqueues and
+    `HANDLERS` is only where the list of them is kept.
+
+    `api/` has none. Its export is an ASGI application: it is served, not called by anything
+    in the project, so there is no import that could land on a port. What it offers is its
+    routes, and those are listed in the node's panel rather than drawn on the canvas -- forty
+    routes must not become forty attachment points.
+    """
+    if kind == "worker":
+        # Only when the name is actually bound. An incomplete worker offers nothing to land
+        # on, and reading keys out of a dict the package does not export would invent one.
+        return _handler_keys(init) if "HANDLERS" in names else ()
+    if kind == "api":
+        return ()
+    return tuple(name for name in REQUIRED[kind] if name in names)
+
+
+def _imports_of(path: Path, package: str) -> set[tuple[str, str]]:
+    """What one file imports: `(module, name)`, relatives resolved against `package`.
 
     Relative imports are resolved here rather than left alone because an edge is a fact
     about two packages, and `from ..rag import search` states it exactly as plainly as the
     absolute form does. Resolving it is arithmetic on the containing package's parts, which
     is the same arithmetic Python does.
+
+    The **name** is what makes an edge land on a port, and it is the name in the exporting
+    package rather than the local one: `from rag import search as look_up` is still a fact
+    about `rag.search`, and the alias is this file's private business. `import rag` names
+    nothing, so it carries `""` and lands on the package -- which is exactly what it says.
     """
     module = _parse(path)
     if module is None:
         return set()
 
-    found: set[str] = set()
+    found: set[tuple[str, str]] = set()
     parts = package.split(".") if package else []
+
+    def take(module_path: str, names: Any) -> None:
+        """One `from X import a, b` as one pair per name. A star import names nothing."""
+        if not module_path:
+            return
+        if isinstance(names, cst.ImportStar):
+            found.add((module_path, ""))
+            return
+        for alias in names:
+            # The exported name, not `asname`: an alias renames it here, not there.
+            symbol = alias.name.value if isinstance(alias.name, cst.Name) else ""
+            found.add((module_path, symbol))
 
     for statement in module.body:
         if not isinstance(statement, cst.SimpleStatementLine):
@@ -330,13 +439,12 @@ def _imports_of(path: Path, package: str) -> set[str]:
                 for alias in small.names:
                     dotted = _dotted(alias.name)
                     if dotted:
-                        found.add(dotted)
+                        found.add((dotted, ""))
             elif isinstance(small, cst.ImportFrom):
                 depth = len(small.relative)
                 named = _dotted(small.module) if small.module is not None else ""
                 if depth == 0:
-                    if named:
-                        found.add(named)
+                    take(named, small.names)
                     continue
                 # One dot is "this package", two is its parent, and so on. A depth that
                 # walks off the top of the project is a broken import; it names nothing
@@ -344,7 +452,7 @@ def _imports_of(path: Path, package: str) -> set[str]:
                 base = parts[: len(parts) - (depth - 1)]
                 if len(base) != len(parts) - (depth - 1):
                     continue
-                found.add(".".join([*base, named]) if named else ".".join(base))
+                take(".".join([*base, named]) if named else ".".join(base), small.names)
     return found
 
 
@@ -403,6 +511,7 @@ def _node_for(
 
     missing: tuple[str, ...] = ()
     reason = ""
+    bound: frozenset[str] = frozenset()
 
     if not init.is_file():
         missing = required
@@ -413,6 +522,7 @@ def _node_for(
             missing = required
             reason = f"{init.relative_to(root).as_posix()} could not be read"
         else:
+            bound = names
             missing = tuple(name for name in required if name not in names)
             if missing:
                 lacking = " or ".join(missing)
@@ -430,6 +540,7 @@ def _node_for(
         parent=parent,
         children=(),
         files=_files_of(package, root, skip if skip.is_dir() else None),
+        ports=_ports_of(kind, init, bound),
     )
 
 
@@ -481,6 +592,8 @@ def _file_nodes(root: Path) -> list[Node]:
             parent="",
             children=(),
             files=(),
+            # A file promises nothing, so there is nothing on it for an edge to land on.
+            ports=(),
         )
         for name in FILE_NODES
         if (root / name).is_file()
@@ -533,6 +646,9 @@ def _mcp_nodes(root: Path) -> list[Node]:
             parent="",
             children=(),
             files=(),
+            # Somebody else's program. What it offers is a question only an MCP client can
+            # ask it, and asking would mean becoming one.
+            ports=(),
         )
         for name in _servers_in(root)
     ]
@@ -555,6 +671,7 @@ def _mcp_edges(nodes: dict[str, Node]) -> list[Edge]:
             target=node.id,
             kind=MCP_KIND,
             label=node.name,
+            port="",
         )
         for node in nodes.values()
         if node.kind == MCP_KIND
@@ -568,10 +685,20 @@ def _import_edges(root: Path, systems: list[Node], packages: dict[str, Path]) ->
     without a second rule: `agent.agents.writer.tools` matches the node `agent.writer` if
     that package is one, and falls back to `agent` if it is not. Direction follows the
     import, as the plan states -- the importer depends on the imported.
+
+    An edge lands on a **port** when the import names one: the module has to be the target
+    package itself and the name has to be one of its ports. `from rag.store import add`
+    resolves to `rag` by prefix and lands on the package, because `add` is inside the
+    package rather than on its boundary -- crediting it to a port would invent an entry
+    point the convention never promised.
     """
     # Module path -> node id. A nested node's module path (`agent.agents.researcher`) is not
     # its id (`agent.researcher`), so the two are kept apart rather than reconstructed.
     by_module = {_module_path(packages[node.id], root): node.id for node in systems}
+    # And back the other way, to ask whether an import named the package itself or something
+    # under it. Derived from the same dict so the two can never drift apart.
+    module_of = {node_id: module for module, node_id in by_module.items()}
+    ports_of = {node.id: frozenset(node.ports) for node in systems}
 
     def owner(module: str) -> str:
         parts = module.split(".")
@@ -581,21 +708,35 @@ def _import_edges(root: Path, systems: list[Node], packages: dict[str, Path]) ->
                 return found
         return ""
 
-    seen: set[tuple[str, str]] = set()
+    seen: set[tuple[str, str, str]] = set()
     for node in systems:
         package = packages[node.id]
         skip = package / _plural(node.kind)
         for file in _python_files(package, skip if skip.is_dir() else None):
-            for module in _imports_of(file, _module_path(file.parent, root)):
+            for module, symbol in _imports_of(file, _module_path(file.parent, root)):
                 target = owner(module)
                 # A self-import is a package's own internals -- `agent/__init__.py` reading
                 # `agent.tools` -- and an edge from a node to itself states nothing.
-                if target and target != node.id:
-                    seen.add((node.id, target))
+                if not target or target == node.id:
+                    continue
+                on_port = module == module_of.get(target) and symbol in ports_of[target]
+                seen.add((node.id, target, symbol if on_port else ""))
 
     return [
-        Edge(id=f"{source}->{target}", source=source, target=target, kind="import", label="")
-        for source, target in sorted(seen)
+        Edge(
+            # The port is in the id because two edges between the same pair are two facts:
+            # `worker -> rag.index` and `worker -> rag.search` are different imports and must
+            # not collapse into one. `#` rather than a dot, so the id cannot be confused with
+            # a nested node's -- `agent->rag.search` would also be an edge to a child of
+            # `rag` called `search`, and ids that can mean two things are ids that will.
+            id=f"{source}->{target}#{port}" if port else f"{source}->{target}",
+            source=source,
+            target=target,
+            kind="import",
+            label="",
+            port=port,
+        )
+        for source, target, port in sorted(seen)
     ]
 
 

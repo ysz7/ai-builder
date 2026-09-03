@@ -49,6 +49,11 @@ def edges(graph: Graph) -> set[tuple[str, str, str]]:
     return {(edge.source, edge.target, edge.kind) for edge in graph.edges}
 
 
+def wires(graph: Graph) -> set[tuple[str, str, str]]:
+    """Every edge as `(source, target, port)`. What Phase A added to the sentence above."""
+    return {(edge.source, edge.target, edge.port) for edge in graph.edges}
+
+
 def node(graph: Graph, node_id: str) -> Node:
     found = [item for item in graph.nodes if item.id == node_id]
     assert found, f"no node {node_id!r} in {[item.id for item in graph.nodes]}"
@@ -163,6 +168,175 @@ def test_a_package_importing_itself_is_not_an_edge() -> None:
     """`agent/__init__.py` reads `agent.tools`. That is its own internals, not a relation."""
     for edge in read_graph(EXAMPLE).edges:
         assert edge.source != edge.target
+
+
+# -- ports (Phase A) -------------------------------------------------------------------
+#
+# An edge attaches to an exported symbol, not to a package. `api -> rag` says nothing;
+# `worker -> rag.index` and `agent -> rag.search` say that uploads index and questions
+# retrieve. Every test here changes one import or one export and asserts the one thing that
+# moves.
+
+
+def test_a_rag_offers_its_two_required_exports_as_ports() -> None:
+    """The convention already names them. Ports add no syntax at all."""
+    assert node(read_graph(EXAMPLE), "rag").ports == ("index", "search")
+
+
+def test_an_api_has_no_ports() -> None:
+    """Its export is an ASGI application: served, never called from another package.
+
+    What it offers is its routes, and forty routes must not become forty attachment points.
+    """
+    assert node(read_graph(EXAMPLE), "api").ports == ()
+
+
+def test_a_worker_has_one_port_per_handler() -> None:
+    """`HANDLERS` is a table of entry points, so the ports are its keys, in file order."""
+    assert node(read_graph(EXAMPLE), "worker").ports == ("reindex", "echo")
+
+
+def test_a_third_handler_is_a_third_port(tmp_path: Path) -> None:
+    """The plan's criterion, stated directly: three handlers, three ports."""
+    root = project(tmp_path)
+    init = root / "worker" / "__init__.py"
+    init.write_text(
+        init.read_text(encoding="utf-8").replace(
+            '"echo": echo,', '"echo": echo,\n    "sweep": echo,'
+        ),
+        encoding="utf-8",
+    )
+
+    assert node(read_graph(root), "worker").ports == ("reindex", "echo", "sweep")
+
+
+def test_handlers_built_by_a_call_offer_no_ports_rather_than_guessed_ones(
+    tmp_path: Path,
+) -> None:
+    """A dict this parser cannot read the keys of has none it can honestly report.
+
+    The node stays complete -- `HANDLERS` is bound, which is the whole contract -- and it
+    simply offers nothing to land on. The same refusal `settings.write` makes about a
+    default built by a call: a plausible guess is worse than a stated absence.
+    """
+    root = project(tmp_path)
+    (root / "worker" / "__init__.py").write_text(
+        "from worker.handlers import echo\n\n\ndef _table() -> dict:\n"
+        "    return {'echo': echo}\n\n\nHANDLERS = _table()\n",
+        encoding="utf-8",
+    )
+
+    worker = node(read_graph(root), "worker")
+    assert worker.complete is True
+    assert worker.ports == ()
+
+
+def test_a_port_a_package_does_not_bind_is_not_offered(tmp_path: Path) -> None:
+    """An incomplete `rag/` offers what it has, not what it was supposed to have.
+
+    A port for a missing name would be an attachment point for an import nobody can write.
+    """
+    root = project(tmp_path)
+    init = root / "rag" / "__init__.py"
+    init.write_text(
+        init.read_text(encoding="utf-8").replace(
+            "def index(paths: list[str]) -> None:", "def _index(paths: list[str]) -> None:"
+        ),
+        encoding="utf-8",
+    )
+
+    rag = node(read_graph(root), "rag")
+    assert rag.missing == ("index",)
+    assert rag.ports == ("search",)
+
+
+def test_two_systems_land_on_two_different_ports_of_the_same_node() -> None:
+    """The whole point of the phase, in one assertion.
+
+    `worker/handlers.py` does `from rag import index` and `agent/tools.py` does
+    `from rag import search`. Two edges, one node, two distinct points on it.
+    """
+    found = wires(read_graph(EXAMPLE))
+    assert ("worker", "rag", "index") in found
+    assert ("agent", "rag", "search") in found
+
+
+def test_removing_the_import_removes_the_port_edge(tmp_path: Path) -> None:
+    """A port edge is a projection like any other: no import, no edge, nothing to migrate."""
+    root = project(tmp_path)
+    assert ("agent", "rag", "search") in wires(read_graph(root))
+
+    (root / "agent" / "tools.py").write_text(
+        "def look_up(query: str, passages: int) -> list[str]:\n    return []\n",
+        encoding="utf-8",
+    )
+
+    found = wires(read_graph(root))
+    assert ("agent", "rag", "search") not in found
+    # And not demoted to an edge on the package either: the import is gone, so the fact is.
+    assert ("agent", "rag", "") not in found
+
+
+def test_a_plain_import_lands_on_the_package_and_not_on_a_port(tmp_path: Path) -> None:
+    """`import rag` names no symbol, so it says exactly what it says: this package."""
+    root = project(tmp_path)
+    (root / "agent" / "tools.py").write_text(
+        "import rag\n\n\ndef look_up(q: str, n: int) -> list[str]:\n"
+        "    return [c.text for c in rag.search(q, top_k=n)]\n",
+        encoding="utf-8",
+    )
+
+    assert ("agent", "rag", "") in wires(read_graph(root))
+
+
+def test_a_name_from_inside_the_package_is_not_a_port(tmp_path: Path) -> None:
+    """`from rag.store import add` is about the package, not about a port it never offered.
+
+    Resolution by longest prefix still finds `rag`; crediting `add` to a port would invent
+    an entry point the convention does not promise.
+    """
+    root = project(tmp_path)
+    (root / "agent" / "tools.py").write_text(
+        "from rag.store import add\n\n\ndef look_up(q: str, n: int) -> list[str]:\n"
+        "    add([], None)\n    return []\n",
+        encoding="utf-8",
+    )
+
+    assert ("agent", "rag", "") in wires(read_graph(root))
+
+
+def test_an_alias_is_still_the_exporting_package_s_name(tmp_path: Path) -> None:
+    """`from rag import search as look` renames it here, not there. The port is `search`."""
+    root = project(tmp_path)
+    (root / "agent" / "tools.py").write_text(
+        "from rag import search as look\n\n\ndef look_up(q: str, n: int) -> list[str]:\n"
+        "    return [c.text for c in look(q, top_k=n)]\n",
+        encoding="utf-8",
+    )
+
+    assert ("agent", "rag", "search") in wires(read_graph(root))
+
+
+def test_two_ports_of_one_node_are_two_edges_with_two_ids(tmp_path: Path) -> None:
+    """One importer, both ports, two facts. An id that collapsed them would lose one."""
+    root = project(tmp_path)
+    (root / "agent" / "tools.py").write_text(
+        "from rag import index, search\n\n\ndef look_up(q: str, n: int) -> list[str]:\n"
+        "    index([])\n    return [c.text for c in search(q, top_k=n)]\n",
+        encoding="utf-8",
+    )
+
+    graph = read_graph(root)
+    found = [edge for edge in graph.edges if edge.source == "agent" and edge.target == "rag"]
+    assert {edge.port for edge in found} == {"index", "search"}
+    assert len({edge.id for edge in found}) == 2
+
+
+def test_neither_a_file_nor_a_server_offers_a_port() -> None:
+    """Neither promises anything, so neither has anything for an edge to land on."""
+    for item in read_graph(EXAMPLE).nodes:
+        if not is_system(item):
+            assert item.ports == ()
 
 
 def test_mcp_servers_are_nodes_the_agent_has_an_edge_to() -> None:

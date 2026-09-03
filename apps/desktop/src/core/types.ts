@@ -64,6 +64,16 @@ export type GraphNode = {
   parent: string;
   children: string[];
   files: string[];
+  /**
+   * The entry points an edge may land on, in the order the package states them.
+   *
+   * `index` and `search` for a rag, one per `HANDLERS` key for a worker, `run` for an
+   * agent, none for an api — its export is an ASGI application, served rather than called,
+   * and its routes belong in the panel. **What the package binds, never what its kind
+   * requires:** a missing export is reported in `missing`, and a port for a name nothing
+   * binds would be an attachment point for an import that cannot be written.
+   */
+  ports: string[];
 };
 
 /**
@@ -81,6 +91,14 @@ export type GraphEdge = {
   kind: string;
   /** An MCP server's name. `""` on an import edge. The node it lands on carries it too. */
   label: string;
+  /**
+   * Which of the target's ports this lands on, or `""` for the package itself.
+   *
+   * `api → rag` says nothing. `worker → rag.index` and `agent → rag.search` say that
+   * uploads index and questions retrieve. Read from the import — `from rag import search`
+   * — and never from anything a person drew.
+   */
+  port: string;
 };
 
 /** `graph.read`: the project as it is on disk. A refusal is a result, as everywhere else. */

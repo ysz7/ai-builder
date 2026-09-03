@@ -25,6 +25,34 @@ export type Box = Point & { width: number; height: number };
 
 /** Wide enough for a dotted path and a contract line to read without wrapping. */
 export const NODE_WIDTH = 268;
+/** One port row: the pin, the name, and the space between rows. Mirrors `.bp-card-port`. */
+const PORT_ROW = 20;
+/** The gap above the first row, where the pill's `margin-top` would otherwise be. */
+const PORTS_TOP = 8;
+/** Between rows. `.bp-card-ports` is a column with this gap. */
+const PORT_GAP = 2;
+
+/**
+ * Does this card draw its ports as rows, or is its single entry point the card itself?
+ *
+ * **Asked in one place because four files have to agree on it**: the height arithmetic, the
+ * card that draws the rows, the canvas that picks a handle, and the fold that rewrites an
+ * edge. A second copy of this test is a card whose edges land somewhere it has no pin.
+ *
+ * One port is the node. An edge landing on `agent.run` and an edge landing on `agent` say
+ * the same thing, and a row that restates the title is a second name for one thing — which
+ * is why the plan grants an agent "a single port, drawn as before".
+ */
+export function hasPorts(node: GraphNode | undefined): boolean {
+  return (node?.ports?.length ?? 0) > 1;
+}
+
+/** How much taller a card is for drawing its ports. Zero where it draws none. */
+export function portsHeight(node: GraphNode): number {
+  if (!hasPorts(node)) return 0;
+  return PORTS_TOP + node.ports.length * PORT_ROW + (node.ports.length - 1) * PORT_GAP;
+}
+
 /** A file node says a name and nothing else, so it is given no more room than that. */
 export const FILE_WIDTH = 176;
 /** A container says a name and where it was declared. Between the two. */
@@ -68,7 +96,9 @@ export function cardHeight(node: GraphNode): number {
     (node.reason ? 34 : 0) +
     // The `Chat` action, drawn only on an agent that has the export to call.
     (node.kind === "agent" && node.missing.length === 0 ? 27 : 0) +
-    38 // the contract pill
+    // The ports, or the contract pill — never both. They would say the same thing twice on
+    // a rag, whose ports *are* its contract, and a card says what it offers once.
+    (hasPorts(node) ? portsHeight(node) : 38)
   );
 }
 
@@ -114,8 +144,13 @@ export function foldEdges(graph: Graph, shown: GraphNode[]): GraphEdge[] {
     const source = stand(edge.source, byId, drawn);
     const target = stand(edge.target, byId, drawn);
     if (!source || !target || source === target) continue;
-    const id = `${source}->${target}:${edge.kind}:${edge.label}`;
-    out.set(id, { ...edge, id, source, target });
+    // A port belongs to the node the core named. Rerouted onto a collapsed parent it would
+    // be a claim about a pin that parent does not have — and a card whose ports are drawn as
+    // one line loses the distinction anyway, so the honest edge is the one to the package.
+    const port =
+      target === edge.target && hasPorts(byId.get(target)) ? edge.port : "";
+    const id = `${source}->${target}:${edge.kind}:${edge.label}:${port}`;
+    out.set(id, { ...edge, id, source, target, port });
   }
   return [...out.values()];
 }

@@ -841,6 +841,32 @@ textarea {
 .bp-card-more:hover {
   color: var(--fg);
 }
+/* The ports: one row per entry point, each carrying the pin its edges land on.
+   `.bp-card-port` is `position: relative` so the pin can be pulled out to the card's left
+   border -- 13px of padding plus the 1px border is the -14px below -- and React Flow's own
+   `top: 50%` then centres it on the row without a number from us. The heights here are
+   arithmetic `place.ts` mirrors: 20px a row, 2px between, 8px above. Change one, change
+   both, or the canvas draws cards that overlap. */
+.bp-card-ports {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-top: 8px;
+}
+.bp-card-port {
+  position: relative;
+  display: flex;
+  align-items: center;
+  height: 20px;
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.01em;
+  color: var(--fg-2);
+}
+.bp-canvas .bp-card-port .pin-data {
+  left: -14px;
+}
+
 .bp-card-pill-row {
   display: flex;
   gap: 6px;

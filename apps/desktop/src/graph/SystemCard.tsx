@@ -18,12 +18,22 @@
  * The incomplete state is separate from all of that and is drawn separately: it is a reading
  * of the code itself, the export the package does not have, so it is said in words. A hue
  * there would later fight Observe's for the same meaning.
+ *
+ * **Ports are rows with a pin each, and they replace the pill rather than joining it.** An
+ * edge attaches to an exported symbol, not to a package: `worker → rag.index` and
+ * `agent → rag.search` say that uploads index and questions retrieve, which `→ rag` twice
+ * does not. On a rag the ports *are* the contract, so drawing the pill underneath would say
+ * the same thing twice; on a worker they are the handler names and the pill's `HANDLERS` is
+ * only where the list is kept. Either way the card says what it offers once.
+ *
+ * A single port is drawn as no rows at all — see `hasPorts`. The pin is where it always was.
  */
 
 import { Handle, Position, type NodeProps } from "@xyflow/react";
 
 import type { GraphNode } from "../core/types";
 import { contractOf, glyphOf, labelOf, tintBgOf, tintOf } from "./kinds";
+import { hasPorts } from "./place";
 import { known, markOf, wordsFor } from "./verdicts";
 
 export type CardData = {
@@ -45,6 +55,7 @@ export type CardData = {
 export function SystemCard({ data, selected }: NodeProps) {
   const { node, verdict, reason, pins, expanded, onOpen, onToggle, onTalk } =
     data as unknown as CardData;
+  const ports = hasPorts(node) ? node.ports : [];
 
   return (
     <div
@@ -160,11 +171,33 @@ export function SystemCard({ data, selected }: NodeProps) {
             whole of what this application can honestly say about it. */}
         {node.reason ? <div className="bp-card-why">{node.reason}</div> : null}
 
-        <div className="bp-card-pill-row">
-          <span className="bp-pill" title={`${labelOf(node.kind)} exports ${contractOf(node.exports)}`}>
-            {contractOf(node.exports)}
-          </span>
-        </div>
+        {/* One row per entry point, each with the pin its edges land on. The pin is placed
+            by the row rather than by arithmetic: the row knows where it is, and a number
+            here would be a second opinion about the stylesheet. */}
+        {ports.length > 0 ? (
+          <div className="bp-card-ports">
+            {ports.map((port) => (
+              <div className="bp-card-port" key={port}>
+                <Handle
+                  type="target"
+                  position={Position.Left}
+                  className="pin pin-data"
+                  id={`port:${port}`}
+                />
+                {port}
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className="bp-card-pill-row">
+            <span
+              className="bp-pill"
+              title={`${labelOf(node.kind)} exports ${contractOf(node.exports)}`}
+            >
+              {contractOf(node.exports)}
+            </span>
+          </div>
+        )}
       </div>
     </div>
   );

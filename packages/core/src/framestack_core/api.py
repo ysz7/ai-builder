@@ -137,12 +137,31 @@ GRAPH_SCHEMA = {
             "parent": "str",
             "children": ["str"],
             "files": ["str"],
+            # The entry points an edge may land on: `index` and `search` for a rag, one per
+            # `HANDLERS` key for a worker, `run` for an agent, none for an api. What the
+            # package **binds**, never what its kind requires -- a missing export is said in
+            # `missing`, and a port for a name nothing binds would be an attachment point
+            # for an import that cannot be written.
+            "ports": ["str"],
         }
     ],
     # Read from imports and from `mcp.json`, never declared. Nothing in the UI creates one.
     # An `mcp` edge lands on the **server**, not on the file that configures it: the agent
     # reaches that server, and the file is where the fact is written down.
-    "edges": [{"id": "str", "source": "str", "target": "str", "kind": "str", "label": "str"}],
+    #
+    # `port` is which of the target's ports the edge lands on, `""` for the package itself.
+    # `api -> rag` says nothing; `worker -> rag.index` and `agent -> rag.search` say that
+    # uploads index and questions retrieve.
+    "edges": [
+        {
+            "id": "str",
+            "source": "str",
+            "target": "str",
+            "kind": "str",
+            "label": "str",
+            "port": "str",
+        }
+    ],
 }
 
 

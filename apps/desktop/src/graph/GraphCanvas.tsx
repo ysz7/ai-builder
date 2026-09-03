@@ -154,8 +154,15 @@ export function GraphCanvas({
 
     // A pin is drawn only where an edge lands on it. Four pins on every card would be a
     // picture of what *could* be connected, and nothing here can be connected.
+    //
+    // The left pin counts only the edges that land on the **package**: one that lands on a
+    // port has its own pin in the port's row, and a body pin nothing arrives at is the same
+    // decoration this rule exists to prevent. `foldEdges` has already cleared the port of
+    // any edge whose target does not draw rows, so the test here is the port alone.
     const pinned = {
-      in: new Set(drawn.filter((e) => e.kind === "import").map((e) => e.target)),
+      in: new Set(
+        drawn.filter((e) => e.kind === "import" && !e.port).map((e) => e.target),
+      ),
       out: new Set(drawn.filter((e) => e.kind === "import").map((e) => e.source)),
       up: new Set(drawn.filter((e) => e.kind === "mcp").map((e) => e.target)),
       down: new Set(drawn.filter((e) => e.kind === "mcp").map((e) => e.source)),
@@ -275,7 +282,10 @@ export function GraphCanvas({
       source: edge.source,
       target: edge.target,
       sourceHandle: edge.kind === "mcp" ? "down" : "out",
-      targetHandle: edge.kind === "mcp" ? "up" : "in",
+      // An edge attaches to an exported symbol where the card draws one. `foldEdges` keeps
+      // `port` only where the target actually has a row for it, so there is no handle named
+      // here that the card did not render.
+      targetHandle: edge.kind === "mcp" ? "up" : edge.port ? `port:${edge.port}` : "in",
       type: "smoothstep",
       // An MCP server is somebody else's process, reached over a protocol rather than
       // imported, so its line is dashed: the same relation drawn in the same weight would
