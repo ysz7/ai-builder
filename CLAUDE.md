@@ -126,6 +126,16 @@ acquire — a connector written is a connector maintained — so they are script
 synchronous ask like `deploy.status`, not one of the six long-lived processes below. Polling stops
 entirely when the window loses focus — an idle machine does nothing on a project's behalf.
 
+**Ollama is the one dependency with panel content of its own**, because it is what makes "nothing
+leaves this machine" literally true. `ollama.py` asks the local daemon over plain HTTP — no vendor
+SDK, because two endpoints are not worth a connector — and a pull follows the P13 shape: a thread
+appending to `.framestack/ollama.log`, polled with an offset the caller keeps. **The model list is
+never a catalogue.** It is whatever this machine has pulled, asked when somebody looks; a registry
+of names shipped with the toolchain would be stale the week after and is exactly what the plan puts
+out of scope. For the same reason a **bare** model tag in settings is not recognised as naming
+Ollama — that would need such a list — while `ollama/llama3.1` is, because the prefix is a literal
+fact about the string.
+
 What a database *is* the project states, and that is all
 `database.py` reads: `__tablename__`, `alembic/versions/`, and a connection string out of a
 `BaseSettings` default with its credentials removed. **One node per backend, never one per table**

@@ -46,6 +46,10 @@ from framestack_core.api import (
     observe_last,
     observe_read,
     observe_start,
+    ollama_models,
+    ollama_pull,
+    ollama_read,
+    ollama_stop,
     routes_read,
     run_last,
     run_read,
@@ -431,6 +435,29 @@ def settings_write(params: dict[str, Any]) -> dict[str, Any]:
     )
 
 
+def ollama_models_method(params: dict[str, Any]) -> dict[str, Any]:
+    """What this machine has pulled. A read: it fetches nothing."""
+    return ollama_models(_project_of(params))
+
+
+def ollama_pull_method(params: dict[str, Any]) -> dict[str, Any]:
+    """Start pulling one model. A method of its own because it starts something (P11)."""
+    return ollama_pull(_project_of(params), _required_str(params, "model"))
+
+
+def ollama_read_method(params: dict[str, Any]) -> dict[str, Any]:
+    """Poll a pull with the offset the caller keeps. Nothing is pushed."""
+    offset = params.get("offset", 0)
+    if not isinstance(offset, int) or isinstance(offset, bool):
+        raise ProtocolError("invalid_params", "'offset' must be a number")
+    return ollama_read(_project_of(params), offset)
+
+
+def ollama_stop_method(params: dict[str, Any]) -> dict[str, Any]:
+    """Stop watching a pull."""
+    return ollama_stop(_project_of(params))
+
+
 def status_read_method(params: dict[str, Any]) -> dict[str, Any]:
     """Whether one dependency can be reached.
 
@@ -568,6 +595,10 @@ HANDLERS: dict[str, Handler] = {
     "settings.read": settings_read,
     "settings.write": settings_write,
     "status.read": status_read_method,
+    "ollama.models": ollama_models_method,
+    "ollama.pull": ollama_pull_method,
+    "ollama.read": ollama_read_method,
+    "ollama.stop": ollama_stop_method,
     "database.read": database_read_method,
     "routes.read": routes_read_method,
     "mcp.read": mcp_read_method,

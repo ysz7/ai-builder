@@ -91,9 +91,17 @@ SIGNS: tuple[Sign, ...] = (
     Sign(
         node="ollama",
         imports=("ollama",),
-        # Ollama's own default port. A literal in a settings default is a fact about the
-        # file; resolving a host would be a connection, which recognition never makes.
-        literals=(":11434",),
+        # Ollama's own default port, and the two ways a framework writes "this model is
+        # served by Ollama" -- `ollama/llama3.1` and `ollama:llama3.1`. All three are facts
+        # about a literal in the file; resolving a host would be a connection, which
+        # recognition never makes.
+        #
+        # A **bare** model tag like `llama3.1:8b` is deliberately not recognised. Doing so
+        # would need a list of model names shipped with this toolchain, which is the
+        # catalogue the plan puts out of scope and which would be stale the week after it
+        # shipped. Where a project names a model that way, the edge follows its client
+        # import instead.
+        literals=(":11434", "ollama/", "ollama:"),
         credentials=("OLLAMA_HOST",),
         paid=False,
     ),

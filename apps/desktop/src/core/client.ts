@@ -79,6 +79,7 @@ import type {
   McpServer,
   Opened,
   ObserveResult,
+  OllamaResult,
   RoutesResult,
   RunResult,
   StatusResult,
@@ -245,6 +246,26 @@ export function chatChanges(project: string): Promise<Changes> {
 /** The commands, and the stacks each kind may be generated on. */
 export function chatChoices(): Promise<ChatChoices> {
   return coreRequest<ChatChoices>("chat.choices", {});
+}
+
+/** What this machine has pulled. A read: it fetches nothing and starts nothing. */
+export function ollamaModels(project: string): Promise<OllamaResult> {
+  return coreRequest<OllamaResult>("ollama.models", { project });
+}
+
+/** Start pulling one model. **Never implicit** — only a press reaches this. */
+export function ollamaPull(project: string, model: string): Promise<OllamaResult> {
+  return coreRequest<OllamaResult>("ollama.pull", { project, model });
+}
+
+/** What the pull has printed since `offset`. Nothing is pushed; the caller keeps it. */
+export function ollamaRead(project: string, offset: number): Promise<OllamaResult> {
+  return coreRequest<OllamaResult>("ollama.read", { project, offset });
+}
+
+/** Stop watching a pull. The daemon keeps whatever it already wrote. */
+export function ollamaStop(project: string): Promise<OllamaResult> {
+  return coreRequest<OllamaResult>("ollama.stop", { project });
 }
 
 /**

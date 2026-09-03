@@ -158,6 +158,31 @@ export type StatusResult = {
   at: string;
 };
 
+/** One model this machine has pulled. Bytes, as the daemon reports them. */
+export type Model = { name: string; size: number };
+
+/**
+ * `ollama.*`: what is on this machine, and how a pull is going.
+ *
+ * One shape for all four verbs, as `shell.*` has. **The list is not a catalogue** — it is
+ * whatever this machine has pulled, asked at the moment somebody looks. A registry of model
+ * names shipped with the toolchain would be stale the week after it shipped.
+ *
+ * A pull takes minutes, so its output is polled with an offset the caller keeps. Nothing is
+ * pushed, and the log is on disk — which is why a panel opened mid-pull can still watch one.
+ */
+export type OllamaResult = {
+  api_version: number;
+  ok: boolean;
+  detail: string;
+  models: Model[];
+  /** Which model is being fetched, or `""`. */
+  pulling: string;
+  running: boolean;
+  output: string;
+  offset: number;
+};
+
 /** One table the project declares, and the file that declares it. */
 export type Table = {
   name: string;

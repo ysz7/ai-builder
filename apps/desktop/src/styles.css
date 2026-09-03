@@ -4236,6 +4236,39 @@ textarea {
   color: var(--muted-2);
 }
 .bp-node-list,
+/* Ollama's panel: the list, the field and the progress. The one dependency with content of
+   its own, because it is what makes "nothing leaves this machine" literally true. */
+.bp-ollama {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 0 4px;
+  border-top: 1px solid var(--line);
+}
+.bp-ollama-pull {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+.bp-ollama-pull .bp-field {
+  flex: 1 1 auto;
+  font-family: var(--mono);
+  font-size: 11.5px;
+}
+.bp-ollama-log {
+  max-height: 160px;
+  overflow: auto;
+  margin: 0;
+  padding: 8px 10px;
+  border-radius: var(--radius-2);
+  background: var(--bg-2);
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 11px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+}
+
 /* A dependency's status: an outline and a dot, and never the verdict's colours reused.
    A verdict comes from a test and belongs to code you own; this comes from a connection.
    The two look different on purpose -- a reachable Postgres is not a proven one, and the day

@@ -26,6 +26,7 @@ from framestack_core.editor import open_in_editor
 from framestack_core.layout import create_project, read_layout, write_layout
 from framestack_core.mcp import connect_server, read_server
 from framestack_core.observe import last_observation, read_observation, start_observation
+from framestack_core.ollama import pull_model, read_models, read_pull, stop_pull
 from framestack_core.parser import read_graph
 from framestack_core.routes import read_routes
 from framestack_core.run import last_run, read_run, start_run, stop_run
@@ -352,6 +353,28 @@ STATUS_SCHEMA = {
     "detail": "str",
     # When it was asked, so a caller can tell a fresh answer from one it still holds.
     "at": "str",
+}
+
+
+#: The `ollama.*` payload: what is on this machine, and how a pull is going.
+#:
+#: One schema for all four verbs, as `shell.*` and `observe.*` have: the list was read, a pull
+#: was started, polled or asked to stop. Output is polled with an offset the caller keeps,
+#: because a pull takes minutes and a verb that answered only at the end would freeze the panel.
+#:
+#: **The list is not a catalogue.** It is whatever this machine has pulled, asked at the moment
+#: somebody looks. A registry of model names shipped with the toolchain would be stale the week
+#: after it shipped, and it is the "catalogue" the plan puts out of scope.
+OLLAMA_SCHEMA = {
+    "api_version": "int",
+    "ok": "bool",
+    "detail": "str",
+    # Bytes, as the daemon reports them. Formatting is the interface's business.
+    "models": [{"name": "str", "size": "int"}],
+    "pulling": "str",
+    "running": "bool",
+    "output": "str",
+    "offset": "int",
 }
 
 
@@ -737,6 +760,26 @@ def mcp_connect(project: Path | str, node: str) -> dict[str, Any]:
     """Run the server's own command in a terminal, so it can authorise itself. Never
     implicit (P11), and it stores no credential -- there is nowhere here that one would go."""
     return {"api_version": GRAPH_API_VERSION, **connect_server(project, node).as_dict()}
+
+
+def ollama_models(project: Path | str) -> dict[str, Any]:
+    """What this machine has pulled. A read: it fetches nothing and starts nothing."""
+    return {"api_version": GRAPH_API_VERSION, **read_models(project).as_dict()}
+
+
+def ollama_pull(project: Path | str, model: str) -> dict[str, Any]:
+    """Start pulling one model. Never implicit -- only a press gets here."""
+    return {"api_version": GRAPH_API_VERSION, **pull_model(project, model).as_dict()}
+
+
+def ollama_read(project: Path | str, offset: int = 0) -> dict[str, Any]:
+    """What the pull has printed since `offset`, and whether it is still going."""
+    return {"api_version": GRAPH_API_VERSION, **read_pull(project, offset).as_dict()}
+
+
+def ollama_stop(project: Path | str) -> dict[str, Any]:
+    """Stop watching a pull. The daemon keeps whatever it already wrote."""
+    return {"api_version": GRAPH_API_VERSION, **stop_pull(project).as_dict()}
 
 
 def status_read(project: Path | str, node: str) -> dict[str, Any]:

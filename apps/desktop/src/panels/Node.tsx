@@ -45,6 +45,7 @@ import { isSystem, labelOf } from "../graph/kinds";
 import { known, markOf, wordsFor } from "../graph/verdicts";
 import { Deploy } from "./Deploy";
 import { Knob } from "./Knob";
+import { Ollama } from "./Ollama";
 import { McpPanel } from "./McpPanel";
 import { Run } from "./Run";
 
@@ -349,6 +350,12 @@ export function NodePanel({
             <div className="bp-node-when">{status.detail}</div>
           </Row>
         ) : null}
+
+        {/* The one dependency with panel content of its own, and the plan says why: local
+            models are the reason some people will pick this tool, and that claim is answered
+            by a list a person can look at. It is not a catalogue — nothing here suggests a
+            model or knows what one is for. */}
+        {node.id === "ollama" ? <Ollama project={project} /> : null}
 
         {/* What the storage holds, and who touches each of it. The file is where the table
             is declared, which is a fact rather than an inference — and `[vector]` is what
