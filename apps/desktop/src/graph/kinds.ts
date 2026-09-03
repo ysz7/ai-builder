@@ -27,6 +27,9 @@ const LABELS: Record<string, string> = {
   file: "File",
   container: "Container",
   mcp: "MCP",
+  // One module in `agent/tools/`. Not a fifth convention: it has no required export, and
+  // being in that one directory is the whole of what makes it a node.
+  tool: "Tool",
 };
 
 /**
@@ -48,6 +51,8 @@ const GLYPHS: Record<string, string> = {
   container: "M12 3l8 4.5-8 4.5-8-4.5zM4 7.5v9l8 4.5 8-4.5v-9M12 12v9",
   // A plug reaching out to something this project does not contain.
   mcp: "M9 3v6M15 3v6M6 9h12v3a6 6 0 0 1-12 0zM12 18v3",
+  // A wrench. One thing the agent can do, rather than the agent itself.
+  tool: "M20 5.5a4.5 4.5 0 0 1-5.9 4.3L6 18a2.1 2.1 0 0 1-3-3l8.2-8.1A4.5 4.5 0 0 1 15.5 1c.8 0 1.5.2 2.1.5l-3.1 3.1 1.9 1.9 3.1-3.1c.3.6.5 1.3.5 2.1z",
 };
 
 /** A kind the core actually names. Anything else lands on the neutral tint. */

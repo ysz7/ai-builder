@@ -192,6 +192,20 @@ export function NodePanel({
           </Row>
         )}
 
+        {/* Where an edge may land, and for a tool the whole of what it is: its public
+            functions. Listed here as well as on the card, because the card draws rows only
+            where there is more than one — a single port is the node, and a row restating
+            the title is a second name for one thing. */}
+        {node.ports.length > 0 ? (
+          <Row label={node.kind === "tool" ? `Functions (${node.ports.length})` : "Ports"}>
+            <div className="bp-node-exports">
+              {node.ports.map((port) => (
+                <code key={port}>{port}</code>
+              ))}
+            </div>
+          </Row>
+        ) : null}
+
         {/* Said plainly, and never repaired into something plausible. This sentence is the
             most useful thing the parser can produce, because it is the way out of the state
             the node is actually in. */}

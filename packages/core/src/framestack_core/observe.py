@@ -498,8 +498,16 @@ def _verdicts(
     verdicts: list[Verdict] = []
     for node in systems:
         verdict, reason, tests = own[node.id]
-        if node.children:
-            children = [own[child][0] for child in node.children if child in own]
+        # Only the children that **can** carry a verdict, and only if there are any.
+        #
+        # A node's children are not all systems: an agent's tools are children too, and a
+        # tool has no verdict -- its lines live inside the agent package and are already part
+        # of what a test of the agent proves. Rolling up an empty list would still reach
+        # `_aggregate`, which answers amber for anything that is not wholly green, and an
+        # agent that grew a tool would go amber for having one. Amber means "something was
+        # never checked"; a node that can never be checked must not be able to say it.
+        children = [own[child][0] for child in node.children if child in own]
+        if children:
             rolled = _aggregate(verdict, children)
             if rolled != verdict:
                 grey = [child for child in node.children if child in own and own[child][0] == GREY]

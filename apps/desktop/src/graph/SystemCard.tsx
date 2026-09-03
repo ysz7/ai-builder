@@ -32,7 +32,7 @@
 import { Handle, Position, type NodeProps } from "@xyflow/react";
 
 import type { GraphNode } from "../core/types";
-import { contractOf, glyphOf, labelOf, tintBgOf, tintOf } from "./kinds";
+import { contractOf, glyphOf, isSystem, labelOf, tintBgOf, tintOf } from "./kinds";
 import { hasPorts } from "./place";
 import { known, markOf, wordsFor } from "./verdicts";
 
@@ -148,7 +148,12 @@ export function SystemCard({ data, selected }: NodeProps) {
           ) : null}
         </div>
 
-        <div className="bp-card-desc">{node.path}/</div>
+        {/* A package is a directory and a tool is a file, and the slash is what says which.
+            Writing `agent/tools/look_up.py/` would be a path that does not exist. */}
+        <div className="bp-card-desc">
+          {node.path}
+          {isSystem(node.kind) ? "/" : ""}
+        </div>
 
         {/* On the card rather than only in the panel, because talking to the thing is what a
             person came to the canvas to do. Drawn only where the export exists: a button
@@ -188,7 +193,7 @@ export function SystemCard({ data, selected }: NodeProps) {
               </div>
             ))}
           </div>
-        ) : (
+        ) : node.exports.length > 0 ? (
           <div className="bp-card-pill-row">
             <span
               className="bp-pill"
@@ -197,7 +202,7 @@ export function SystemCard({ data, selected }: NodeProps) {
               {contractOf(node.exports)}
             </span>
           </div>
-        )}
+        ) : null}
       </div>
     </div>
   );

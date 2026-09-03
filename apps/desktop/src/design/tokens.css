@@ -94,6 +94,11 @@
   --k-mcp-bg: #e2e5f3;
   --k-agent: #6d3ce4;
   --k-agent-bg: #ddd3fb;
+  /* A tool is the agent's own code, one file of it, so it takes the agent's hue a step
+     quieter rather than a colour of its own. A sixth family would say it is a sixth kind of
+     thing, and it is not -- it is the inside of one of them. */
+  --k-tool: #7c5bc4;
+  --k-tool-bg: #e7e0f7;
   --k-rag: #0f6f6f;
   --k-rag-bg: #d2ecec;
   --k-worker: #a26a06;
@@ -184,6 +189,8 @@
   --k-mcp-bg: rgba(152, 166, 232, 0.15);
   --k-agent: #b79bf5;
   --k-agent-bg: rgba(183, 155, 245, 0.15);
+  --k-tool: #a693dd;
+  --k-tool-bg: rgba(166, 147, 221, 0.13);
   --k-rag: #5fc8c8;
   --k-rag-bg: rgba(95, 200, 200, 0.15);
   --k-worker: #dcae5a;

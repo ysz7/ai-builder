@@ -30,11 +30,18 @@ The new contract is one sentence:
 registry. Parsing is deterministic and the agent's job shrinks to what it already does well in an
 ordinary editor.
 
-There is one layer. A node is a package that satisfies the convention, and that is the only
-granularity the application knows. Nesting one level down uses the same rule, so a sub-agent is a
-node for the same reason its parent is. **Nothing finer exists** — no nodes inside a package, no
-verdict on a function, no annotations. That granularity would need a second mechanism on top of the
-convention, and building a second mechanism is what produced the problem this rebuild is fixing.
+A node is a package that satisfies the convention. Nesting one level down uses the same rule, so a
+sub-agent is a node for the same reason its parent is. **Below that there is one named exception and
+no others**: a module in `agent/tools/` is a node, because the directory says so — no decorator, no
+registration, nothing to satisfy. It carries no verdict; its lines live inside the agent package and
+are already part of what a test of the agent proves, so giving them two owners would let one node be
+green and the other grey for the same run.
+
+Everything finer is still absent — no nodes for functions, no verdict on a function, no annotations.
+That granularity would need a second mechanism on top of the convention, and building a second
+mechanism is what produced the problem this rebuild is fixing. `agent/tools/` is a *place*, which a
+person can see in their own file tree; an annotation is a *claim about code*, which is what went
+wrong before.
 
 ## The convention
 
@@ -60,6 +67,11 @@ and having both makes document upload a first-class action rather than a UI spec
 
 A directory that looks like a system but is missing its export is an **incomplete node** — visible,
 grey, with the reason stated. It is never guessed at. A directory not in the table is not a node.
+
+**Tools.** An `agent/` may contain `tools/`, and a module in it that defines a public function is a
+node named `agent.tools.<file>`. Its public functions are its **ports**. A module defining none is a
+helper and is not a node. Read on the top-level `agent/` only: a sub-agent's tools would be a second
+level of nesting.
 
 **Settings.** A system may contain `settings.py` with a single `BaseSettings` subclass. The node panel
 edits exactly that class and nothing else. A system with no `settings.py` shows no knobs, which is
@@ -364,9 +376,10 @@ systems, four file nodes, and a test suite that proves each export does somethin
 parser is tested on and what every acceptance criterion in the plan is stated about. Change it only
 deliberately.
 
-Its `agent/tools.py` imports from `rag`, which is the only reason there is an edge between those two
-nodes. It carries no Framestack-specific symbol of any kind, and `pytest` works in it with the
-builder uninstalled — which is invariant 6, stated as a fixture.
+Its `agent/tools/look_up.py` imports from `rag`, which is the only reason there is an edge between
+those two nodes — and the edge belongs to that tool rather than to the agent, which is what makes an
+agent node stop being opaque. It carries no Framestack-specific symbol of any kind, and `pytest`
+works in it with the builder uninstalled — which is invariant 6, stated as a fixture.
 
 The reference's suite runs in this repository's `pytest` too: a reference whose tests do not pass is
 a fixture that proves nothing.

@@ -79,6 +79,19 @@ FILE_NODES: tuple[str, ...] = (".env", "compose.yaml", "Dockerfile", "mcp.json")
 #: test that matters here.
 MCP_KIND = "mcp"
 
+#: The one directory below a package that produces nodes, and what those nodes are called.
+#:
+#: **The single exception to "no granularity below a package", and it is named rather than
+#: derived.** A module in `agent/tools/` is a node because the directory says so -- no
+#: decorator, no registration, nothing to satisfy. That is what keeps it from being the
+#: annotation layer coming back: the signal is where the file is, which a person can see in
+#: their own file tree, and there is exactly one such directory.
+#:
+#: Read on the top-level `agent/` only. A sub-agent's tools would be a second level of
+#: nesting, which this plan puts out of scope, and one level is the rule everywhere else.
+TOOLS_DIR = "tools"
+TOOL_KIND = "tool"
+
 
 def is_system(node: Node) -> bool:
     """Whether this node is a package the convention recognises.
@@ -466,6 +479,75 @@ def import_map(path: Path, package: str) -> dict[str, str]:
     return found
 
 
+def _callables_in(module: cst.Module) -> tuple[str, ...]:
+    """The public functions a module defines, at module level, in source order.
+
+    Functions, not every callable: a class is callable too, and counting one would make a
+    module with a helper dataclass look like a tool that does two things. A leading
+    underscore is the author saying "not this one", which is the only signal here and needs
+    no convention of ours.
+    """
+    found: list[str] = []
+    for statement in module.body:
+        if isinstance(statement, cst.FunctionDef) and not statement.name.value.startswith("_"):
+            found.append(statement.name.value)
+    return tuple(found)
+
+
+def _tools_of(package: Path, root: Path, node_id: str) -> list[Node]:
+    """The tool modules one agent contains: `agent/tools/*.py`, one node each.
+
+    A module is a node when it defines at least one public function. One that defines none
+    is a helper -- constants, a shared client -- and drawing a node for it would put a box on
+    the canvas for a file nobody calls.
+
+    With exactly one function the node is named after **it**; with several it is named after
+    the file and lists them. Either way the id is the file's, because the file is the thing on
+    disk and a rename of the function must not move a node's identity out from under a
+    person's saved layout.
+
+    The callables become the node's **ports**, which is not a special case: a port is an entry
+    point an edge may land on, and `from agent.tools.send_email import send_email` lands on
+    exactly that.
+    """
+    nest = package / TOOLS_DIR
+    if not nest.is_dir():
+        return []
+
+    out: list[Node] = []
+    for item in sorted(nest.iterdir(), key=lambda one: one.name):
+        if not item.is_file() or item.suffix != ".py" or _ignored(item.name):
+            continue
+        module = _parse(item)
+        if module is None:
+            continue
+        callables = _callables_in(module)
+        if not callables:
+            continue
+        stem = item.stem
+        out.append(
+            Node(
+                id=f"{node_id}.{TOOLS_DIR}.{stem}",
+                name=callables[0] if len(callables) == 1 else stem,
+                kind=TOOL_KIND,
+                path=item.relative_to(root).as_posix(),
+                # There is no contract for a tool to fail. It is a module in a directory,
+                # and being in that directory is the whole of what makes it a node.
+                complete=True,
+                exports=(),
+                missing=(),
+                reason="",
+                parent=node_id,
+                children=(),
+                # Its path *is* the file. Listing it again under "Files" would say the same
+                # thing twice, and the agent already lists it as code it is answerable for.
+                files=(),
+                ports=callables,
+            )
+        )
+    return out
+
+
 def _imports_of(path: Path, package: str) -> set[tuple[str, str]]:
     """What one file imports: `(module, name)`, relatives resolved against `package`.
 
@@ -741,7 +823,109 @@ def _mcp_edges(nodes: dict[str, Node]) -> list[Edge]:
     ]
 
 
-def _import_edges(root: Path, systems: list[Node], packages: dict[str, Path]) -> list[Edge]:
+class _Strings(cst.CSTVisitor):
+    """Every string literal in one subtree."""
+
+    def __init__(self) -> None:
+        self.found: set[str] = set()
+
+    def visit_SimpleString(self, node: cst.SimpleString) -> bool:
+        text = node.evaluated_value
+        if isinstance(text, str):
+            self.found.add(text)
+        return False
+
+
+class _Used(cst.CSTVisitor):
+    """String literals a module **uses**: passed to a call, or assigned to a name.
+
+    Prose is excluded by construction rather than by a filter -- a docstring is a bare
+    expression statement and is never an argument or a right-hand side, so it is never seen
+    here. That matters: a tool whose docstring mentions Gmail must not draw an edge to a
+    server, and a rule that had to recognise a docstring would be a rule with an exception.
+    """
+
+    def __init__(self) -> None:
+        self.found: set[str] = set()
+
+    def _take(self, node: cst.CSTNode) -> None:
+        seeker = _Strings()
+        node.visit(seeker)
+        self.found |= seeker.found
+
+    def visit_Call(self, node: cst.Call) -> bool:
+        for argument in node.args:
+            self._take(argument.value)
+        return True
+
+    def visit_Assign(self, node: cst.Assign) -> bool:
+        self._take(node.value)
+        return True
+
+    def visit_AnnAssign(self, node: cst.AnnAssign) -> bool:
+        if node.value is not None:
+            self._take(node.value)
+        return True
+
+    def visit_Subscript(self, node: cst.Subscript) -> bool:
+        # `HANDLERS["reindex"](payload)` is how a worker's table is called, and the key is
+        # not an argument -- it is the index. An index is never prose either, so it belongs
+        # here for the same reason the others do.
+        for element in node.slice:
+            self._take(element.slice)
+        return True
+
+
+def _named_in(path: Path) -> set[str]:
+    """The string literals one file **uses**. Cached by nobody: each file is read once."""
+    module = _parse(path)
+    if module is None:
+        return set()
+    seeker = _Used()
+    module.visit(seeker)
+    return seeker.found
+
+
+def _tool_server_edges(root: Path, tools: list[Node], servers: list[Node]) -> list[Edge]:
+    """A tool to the MCP server it names, one edge per pair.
+
+    **This is the one edge in the graph that is not an import**, because there is nothing to
+    import: a server is somebody else's program reached over a protocol, and the only thing a
+    module can do in Python is name it. So the relation read here is exactly that, and the
+    claim is exactly that -- *this module names that server* -- never that it calls it or
+    that the call succeeded. Nothing here starts a server or asks it anything.
+
+    The set of names is closed: it is the keys of `mcp.json`, which the parser already read.
+    A string only matches a server the project has actually configured, so this cannot invent
+    a target, and where it is wrong it is wrong about a module that wrote a configured
+    server's name into a call for some other reason.
+    """
+    by_name = {server.name: server.id for server in servers}
+    if not by_name:
+        return []
+
+    out: list[Edge] = []
+    for tool in tools:
+        for name in sorted(_named_in(root / tool.path) & set(by_name)):
+            out.append(
+                Edge(
+                    id=f"{tool.id}->{by_name[name]}",
+                    source=tool.id,
+                    target=by_name[name],
+                    kind=MCP_KIND,
+                    label=name,
+                    port="",
+                )
+            )
+    return out
+
+
+def _import_edges(
+    root: Path,
+    systems: list[Node],
+    packages: dict[str, Path],
+    walk: dict[str, list[Path]],
+) -> list[Edge]:
     """Edges between system packages, read from the import statements between them.
 
     The mapping is by **longest module prefix**, which is what makes a nested node work
@@ -762,6 +946,10 @@ def _import_edges(root: Path, systems: list[Node], packages: dict[str, Path]) ->
     # under it. Derived from the same dict so the two can never drift apart.
     module_of = {node_id: module for module, node_id in by_module.items()}
     ports_of = {node.id: frozenset(node.ports) for node in systems}
+    parent_of = {node.id: node.parent for node in systems}
+    kind_of = {node.id: node.kind for node in systems}
+    #: The strings each file uses, read once per file and only where a worker is involved.
+    named: dict[Path, set[str]] = {}
 
     def owner(module: str) -> str:
         parts = module.split(".")
@@ -773,17 +961,44 @@ def _import_edges(root: Path, systems: list[Node], packages: dict[str, Path]) ->
 
     seen: set[tuple[str, str, str]] = set()
     for node in systems:
-        package = packages[node.id]
-        skip = package / _plural(node.kind)
-        for file in _python_files(package, skip if skip.is_dir() else None):
+        for file in walk[node.id]:
             for module, symbol in _imports_of(file, _module_path(file.parent, root)):
                 target = owner(module)
                 # A self-import is a package's own internals -- `agent/__init__.py` reading
                 # `agent.tools` -- and an edge from a node to itself states nothing.
                 if not target or target == node.id:
                     continue
+                # Nor does one between a node and the node that contains it. A parent
+                # importing its own tool, or its own sub-agent, is the same statement the
+                # frame around them already makes, and an arrow repeating it would put a
+                # line on the canvas beside every child there is.
+                if target == parent_of.get(node.id) or parent_of.get(target) == node.id:
+                    continue
                 on_port = module == module_of.get(target) and symbol in ports_of[target]
-                seen.add((node.id, target, symbol if on_port else ""))
+                if on_port:
+                    seen.add((node.id, target, symbol))
+                    continue
+
+                # A worker's ports are the **keys of its `HANDLERS` dict**, which are strings
+                # in the source. No import can name one, so the only way a caller can is by
+                # writing the string -- `enqueue("reindex", ...)` -- and that is what is read
+                # here. The edge still exists because of the import; the string only decides
+                # which port it lands on, which is the whole job of a port.
+                #
+                # It is not done for any other kind, and the reason is the asymmetry: a rag's
+                # ports are importable names, so `from rag import search` already lands on
+                # one, and a bare `"search"` somewhere in a file would be a coincidence read
+                # as a fact.
+                if kind_of.get(target) == "worker" and ports_of[target]:
+                    if file not in named:
+                        named[file] = _named_in(file)
+                    hit = sorted(named[file] & ports_of[target])
+                    if hit:
+                        for one in hit:
+                            seen.add((node.id, target, one))
+                        continue
+
+                seen.add((node.id, target, ""))
 
     return [
         Edge(
@@ -815,7 +1030,15 @@ def read_graph(project: Path | str) -> Graph:
         return Graph(False, f"there is no project at {root}", str(root), (), ())
 
     systems: list[Node] = []
+    tools: list[Node] = []
     packages: dict[str, Path] = {}
+    #: Whose imports each node answers for. Kept apart from `files` on purpose: a tool's
+    #: **imports** belong to the tool, and its **coverage** belongs to the agent that
+    #: contains it. Those are different questions -- an edge says who depends on what, a
+    #: verdict says whose code a test ran -- and the tool's lines are inside the agent
+    #: package, so giving them two owners would let one node be green and the other grey
+    #: for the same run.
+    walk: dict[str, list[Path]] = {}
 
     for kind in sorted(REQUIRED):
         directory = root / kind
@@ -823,24 +1046,56 @@ def read_graph(project: Path | str) -> Graph:
             continue
 
         children = _children_of(directory, root, kind, kind)
+        # Only the top-level agent. A sub-agent's tools would be a second level of nesting,
+        # which is out of scope, and one level is the rule everywhere else here.
+        own_tools = _tools_of(directory, root, kind) if kind == "agent" else []
         parent = _node_for(directory, root, kind, kind, "")
         # Frozen, so the children are attached by rebuilding rather than by mutating: a node
         # that could be edited after it was read is a node two callers could disagree about.
-        systems.append(replace(parent, children=tuple(child.id for child in children)))
+        systems.append(
+            replace(
+                parent,
+                children=tuple(child.id for child in [*children, *own_tools]),
+            )
+        )
         packages[kind] = directory
+
+        nest = directory / _plural(kind)
+        taken = {root / tool.path for tool in own_tools}
+        walk[kind] = [
+            file
+            for file in _python_files(directory, nest if nest.is_dir() else None)
+            if file not in taken
+        ]
+
         for child in children:
             systems.append(child)
             packages[child.id] = root / child.path
+            nested = (root / child.path) / _plural(child.kind)
+            walk[child.id] = _python_files(root / child.path, nested if nested.is_dir() else None)
+
+        for tool in own_tools:
+            tools.append(tool)
+            packages[tool.id] = root / tool.path
+            walk[tool.id] = [root / tool.path]
 
     servers = _mcp_nodes(root)
     files = _file_nodes(root)
-    nodes = [*systems, *files, *servers]
+    coded = [*systems, *tools]
+    nodes = [*coded, *files, *servers]
     by_id = {node.id: node for node in nodes}
-    edges = [*_import_edges(root, systems, packages), *_mcp_edges(by_id)]
+    edges = [
+        *_import_edges(root, coded, packages, walk),
+        *_mcp_edges(by_id),
+        *_tool_server_edges(root, tools, servers),
+    ]
 
     return Graph(
         ok=True,
-        detail=f"{len(systems)} system(s), {len(files)} file(s), {len(servers)} server(s)",
+        detail=(
+            f"{len(systems)} system(s), {len(tools)} tool(s), "
+            f"{len(files)} file(s), {len(servers)} server(s)"
+        ),
         root=str(root),
         nodes=tuple(nodes),
         edges=tuple(edges),

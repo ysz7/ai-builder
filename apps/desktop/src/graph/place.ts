@@ -97,8 +97,13 @@ export function cardHeight(node: GraphNode): number {
     // The `Chat` action, drawn only on an agent that has the export to call.
     (node.kind === "agent" && node.missing.length === 0 ? 27 : 0) +
     // The ports, or the contract pill — never both. They would say the same thing twice on
-    // a rag, whose ports *are* its contract, and a card says what it offers once.
-    (hasPorts(node) ? portsHeight(node) : 38)
+    // a rag, whose ports *are* its contract, and a card says what it offers once. A tool has
+    // no contract to state, so where it draws no rows it draws nothing at all.
+    (hasPorts(node)
+      ? portsHeight(node)
+      : node.exports.length > 0
+      ? 38
+      : 0)
   );
 }
 

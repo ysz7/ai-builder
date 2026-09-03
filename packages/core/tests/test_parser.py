@@ -101,6 +101,9 @@ def test_a_kind_is_never_a_framework() -> None:
         "rag",
         "worker",
         "file",
+        # A module in `agent/tools/`. Not a framework and not a fifth convention: it has no
+        # required export, and being in that one directory is the whole of what makes it one.
+        "tool",
         # Not a framework and not a fifth kind: a server has no required export and nothing
         # that could prove it, which makes it the same sort of thing a file node is.
         "mcp",
@@ -130,9 +133,15 @@ def test_a_project_that_is_not_there_is_a_result_and_not_a_crash() -> None:
 # -- edges -----------------------------------------------------------------------------
 
 
-def test_the_agent_rag_edge_exists_because_of_one_import() -> None:
-    """`agent/tools.py` does `from rag import search`. That import is the whole edge."""
-    assert ("agent", "rag", "import") in edges(read_graph(EXAMPLE))
+def test_the_tool_rag_edge_exists_because_of_one_import() -> None:
+    """`agent/tools/look_up.py` does `from rag import search`. That import is the whole edge.
+
+    It belongs to the **tool**, not to the agent, and that is what Phase 4 bought: the agent
+    node stops being opaque, because the dependency is attributed to the one file that wrote
+    it. Folded shut, the tool's line lands on the agent again -- a view state cannot
+    contradict the code.
+    """
+    assert ("agent.tools.look_up", "rag", "import") in edges(read_graph(EXAMPLE))
 
 
 def test_removing_the_import_removes_the_edge(tmp_path: Path) -> None:
@@ -142,26 +151,26 @@ def test_removing_the_import_removes_the_edge(tmp_path: Path) -> None:
     deleted -- because there was never anywhere for one to be stored.
     """
     root = project(tmp_path)
-    assert ("agent", "rag", "import") in edges(read_graph(root))
+    assert ("agent.tools.look_up", "rag", "import") in edges(read_graph(root))
 
-    (root / "agent" / "tools.py").write_text(
+    (root / "agent" / "tools" / "look_up.py").write_text(
         "def look_up(query: str, passages: int) -> list[str]:\n    return []\n",
         encoding="utf-8",
     )
 
-    assert ("agent", "rag", "import") not in edges(read_graph(root))
+    assert ("agent.tools.look_up", "rag", "import") not in edges(read_graph(root))
 
 
 def test_a_relative_import_states_the_same_fact_as_an_absolute_one(tmp_path: Path) -> None:
     """`from ..rag import search` is the same dependency, written differently."""
     root = project(tmp_path)
-    (root / "agent" / "tools.py").write_text(
-        "from ..rag import search\n\n\ndef look_up(q: str, n: int) -> list[str]:\n"
+    (root / "agent" / "tools" / "look_up.py").write_text(
+        "from ...rag import search\n\n\ndef look_up(q: str, n: int) -> list[str]:\n"
         "    return [c.text for c in search(q, top_k=n)]\n",
         encoding="utf-8",
     )
 
-    assert ("agent", "rag", "import") in edges(read_graph(root))
+    assert ("agent.tools.look_up", "rag", "import") in edges(read_graph(root))
 
 
 def test_a_package_importing_itself_is_not_an_edge() -> None:
@@ -258,23 +267,23 @@ def test_two_systems_land_on_two_different_ports_of_the_same_node() -> None:
     """
     found = wires(read_graph(EXAMPLE))
     assert ("worker", "rag", "index") in found
-    assert ("agent", "rag", "search") in found
+    assert ("agent.tools.look_up", "rag", "search") in found
 
 
 def test_removing_the_import_removes_the_port_edge(tmp_path: Path) -> None:
     """A port edge is a projection like any other: no import, no edge, nothing to migrate."""
     root = project(tmp_path)
-    assert ("agent", "rag", "search") in wires(read_graph(root))
+    assert ("agent.tools.look_up", "rag", "search") in wires(read_graph(root))
 
-    (root / "agent" / "tools.py").write_text(
+    (root / "agent" / "tools" / "look_up.py").write_text(
         "def look_up(query: str, passages: int) -> list[str]:\n    return []\n",
         encoding="utf-8",
     )
 
     found = wires(read_graph(root))
-    assert ("agent", "rag", "search") not in found
+    assert ("agent.tools.look_up", "rag", "search") not in found
     # And not demoted to an edge on the package either: the import is gone, so the fact is.
-    assert ("agent", "rag", "") not in found
+    assert ("agent.tools.look_up", "rag", "") not in found
 
 
 def test_a_plain_import_lands_on_the_package_and_not_on_a_port(tmp_path: Path) -> None:
@@ -333,9 +342,14 @@ def test_two_ports_of_one_node_are_two_edges_with_two_ids(tmp_path: Path) -> Non
 
 
 def test_neither_a_file_nor_a_server_offers_a_port() -> None:
-    """Neither promises anything, so neither has anything for an edge to land on."""
+    """Neither promises anything, so neither has anything for an edge to land on.
+
+    Named families rather than "everything that is not a system": a tool is not a system
+    either, and it *does* offer ports -- its public functions, which are exactly what
+    another module imports from it.
+    """
     for item in read_graph(EXAMPLE).nodes:
-        if not is_system(item):
+        if item.kind in ("file", "mcp"):
             assert item.ports == ()
 
 
@@ -523,12 +537,14 @@ def child(root: Path, name: str, body: str = "") -> None:
 
 def test_a_child_appears_under_its_parent_and_the_count_moves(tmp_path: Path) -> None:
     root = project(tmp_path)
-    assert node(read_graph(root), "agent").children == ()
+    # The reference's agent already has one child: its tool. A sub-agent joins it rather
+    # than replacing it -- both are contained by the agent, which is what a child is.
+    assert node(read_graph(root), "agent").children == ("agent.tools.look_up",)
 
     child(root, "researcher")
 
     graph = read_graph(root)
-    assert node(graph, "agent").children == ("agent.researcher",)
+    assert node(graph, "agent").children == ("agent.researcher", "agent.tools.look_up")
     assert node(graph, "agent.researcher").parent == "agent"
     assert node(graph, "agent.researcher").kind == "agent"
 
@@ -553,9 +569,199 @@ def test_a_parent_does_not_own_its_children_s_files(tmp_path: Path) -> None:
     graph = read_graph(root)
     parent_files = node(graph, "agent").files
 
-    assert "agent/tools.py" in parent_files
+    assert "agent/settings.py" in parent_files
     assert not any(item.startswith("agent/agents/") for item in parent_files)
+    # A tool's file **is** still the agent's, and deliberately: its lines live in the agent
+    # package and are part of what a test of the agent proves. Only its *imports* moved to
+    # the tool node, which is a different question -- who depends on what, not whose code ran.
+    assert "agent/tools/look_up.py" in parent_files
     assert "agent/agents/researcher/work.py" in node(graph, "agent.researcher").files
+
+
+# -- tools (Phase 4) -------------------------------------------------------------------
+#
+# A module in `agent/tools/` is a node because the directory says so. No decorator, no
+# registration, nothing to satisfy -- which is what keeps this from being the annotation
+# layer coming back. The point of it is the edges: the agent node stops being opaque,
+# because a dependency is attributed to the one file that wrote the import.
+
+
+def tool(root: Path, name: str, body: str) -> None:
+    """Write `agent/tools/<name>.py`."""
+    (root / "agent" / "tools" / f"{name}.py").write_text(body, encoding="utf-8")
+
+
+def test_the_reference_s_one_tool_is_a_node_named_after_its_function() -> None:
+    """`agent/tools/look_up.py` defines one public function, so the node is `look_up`."""
+    found = node(read_graph(EXAMPLE), "agent.tools.look_up")
+
+    assert found.kind == "tool"
+    assert found.name == "look_up"
+    assert found.parent == "agent"
+    # Its path is the module itself, not a directory. A tool *is* a file.
+    assert found.path == "agent/tools/look_up.py"
+
+
+def test_a_tool_offers_its_public_functions_as_ports(tmp_path: Path) -> None:
+    """Not a special case: a port is an entry point, and these are what another file calls."""
+    assert node(read_graph(project(tmp_path)), "agent.tools.look_up").ports == ("look_up",)
+
+
+def test_a_module_defining_several_is_one_node_named_after_the_file(tmp_path: Path) -> None:
+    """One node, and the functions listed on it. Two nodes for one file would be a
+    granularity below a file, which nothing here has."""
+    root = project(tmp_path)
+    tool(
+        root,
+        "mail",
+        "def send(to: str) -> None:\n    return None\n\n\n"
+        "def draft(to: str) -> str:\n    return to\n",
+    )
+
+    found = node(read_graph(root), "agent.tools.mail")
+    assert found.name == "mail"
+    assert found.ports == ("send", "draft")
+
+
+def test_a_module_with_no_public_function_is_not_a_node(tmp_path: Path) -> None:
+    """A helper -- constants, a shared client -- is not a tool, and a box for it would be a
+    node nobody calls."""
+    root = project(tmp_path)
+    tool(root, "shared", "TIMEOUT = 30\n\n\ndef _client() -> None:\n    return None\n")
+
+    assert not [item for item in read_graph(root).nodes if item.id.endswith(".shared")]
+
+
+def test_a_tool_carries_no_verdict_and_is_not_a_package(tmp_path: Path) -> None:
+    """The rot this phase could have caused, asserted so it cannot come back.
+
+    A tool's lines live inside the agent package and are already part of what a test of the
+    agent proves. Were it a system, Observe would hand coverage the same lines under two
+    owners and one of them would be green while the other was grey for the same run.
+    """
+    graph = read_graph(project(tmp_path))
+    found = node(graph, "agent.tools.look_up")
+
+    assert not is_system(found)
+    assert found.exports == () and found.missing == () and found.complete is True
+    # And the agent is still answerable for the file, which is the half that would be easy
+    # to lose: moving the imports must not move the coverage.
+    assert "agent/tools/look_up.py" in node(graph, "agent").files
+
+
+def test_a_tool_importing_the_queue_draws_an_edge_to_the_matching_worker_port(
+    tmp_path: Path,
+) -> None:
+    """The plan's first criterion. `from worker import HANDLERS` is the whole edge."""
+    root = project(tmp_path)
+    tool(
+        root,
+        "send_email",
+        "from worker import HANDLERS\n\n\ndef send_email(to: str) -> None:\n"
+        '    HANDLERS["echo"]({"to": to})\n',
+    )
+
+    assert ("agent.tools.send_email", "worker", "echo") in wires(read_graph(root))
+
+
+def test_deleting_the_import_removes_the_tool_s_edge(tmp_path: Path) -> None:
+    """The plan's second criterion, and the projection proven one more time."""
+    root = project(tmp_path)
+    tool(
+        root,
+        "send_email",
+        "from worker import HANDLERS\n\n\ndef send_email(to: str) -> None:\n"
+        '    HANDLERS["echo"]({"to": to})\n',
+    )
+    assert ("agent.tools.send_email", "worker", "import") in edges(read_graph(root))
+
+    tool(root, "send_email", "def send_email(to: str) -> None:\n    return None\n")
+
+    assert ("agent.tools.send_email", "worker", "import") not in edges(read_graph(root))
+
+
+def test_a_tool_naming_an_mcp_server_draws_an_edge_to_that_server(tmp_path: Path) -> None:
+    """The plan's third criterion, and the one edge here that is not an import.
+
+    There is nothing to import: a server is somebody else's program reached over a protocol,
+    and naming it is the only thing a module can do in Python. The claim is exactly that --
+    this module names that server -- and the set of names is closed to what `mcp.json`
+    already configures, so it cannot invent a target.
+    """
+    root = project(tmp_path)
+    tool(
+        root,
+        "read_file",
+        "def read_file(path: str) -> str:\n"
+        '    return call("filesystem", "read", path)\n\n\n'
+        "def call(server: str, name: str, arg: str) -> str:\n    return arg\n",
+    )
+
+    found = [
+        (edge.source, edge.target)
+        for edge in read_graph(root).edges
+        if edge.kind == "mcp" and edge.source.startswith("agent.tools.")
+    ]
+    assert found == [("agent.tools.read_file", "mcp.filesystem")]
+
+
+def test_a_docstring_that_mentions_a_server_is_not_an_edge(tmp_path: Path) -> None:
+    """Prose is excluded by construction: a docstring is never an argument or a right-hand
+    side, so it is never seen. A rule that had to recognise a docstring would have an
+    exception, and the first tool documented in English would draw a line nobody wrote."""
+    root = project(tmp_path)
+    tool(
+        root,
+        "notes",
+        '"""Nothing to do with the filesystem server."""\n\n\ndef notes() -> str:\n    return ""\n',
+    )
+
+    assert not [
+        edge
+        for edge in read_graph(root).edges
+        if edge.kind == "mcp" and edge.source.startswith("agent.tools.")
+    ]
+
+
+def test_a_string_naming_no_configured_server_is_not_an_edge(tmp_path: Path) -> None:
+    """The set of names is `mcp.json`'s. A word that is not in it is just a word."""
+    root = project(tmp_path)
+    tool(root, "post", 'def post() -> str:\n    return call("slack")\n')
+
+    assert not [
+        edge
+        for edge in read_graph(root).edges
+        if edge.kind == "mcp" and edge.source == "agent.tools.post"
+    ]
+
+
+def test_a_parent_draws_no_edge_to_its_own_tool() -> None:
+    """Containment is the frame around them, and an arrow repeating it would put a line on
+    the canvas beside every child there is."""
+    for edge in read_graph(EXAMPLE).edges:
+        assert not (edge.source == "agent" and edge.target.startswith("agent.tools."))
+
+
+def test_a_sub_agent_s_tools_are_not_read(tmp_path: Path) -> None:
+    """A second level of nesting, which this plan puts out of scope. Silence, not an error."""
+    root = project(tmp_path)
+    child(root, "researcher")
+    nest = root / "agent" / "agents" / "researcher" / "tools"
+    nest.mkdir()
+    (nest / "dig.py").write_text("def dig() -> None:\n    return None\n", encoding="utf-8")
+
+    graph = read_graph(root)
+    assert graph.ok is True
+    assert not [item for item in graph.nodes if item.id.endswith(".dig")]
+
+
+def test_reading_the_reference_twice_gives_the_same_tools() -> None:
+    """I-4 for this phase: `iterdir` has no order, so the walk sorts and stays sorted."""
+    seen = {
+        tuple(item.id for item in read_graph(EXAMPLE).nodes if item.kind == "tool")
+        for _ in range(3)
+    }
+    assert len(seen) == 1
 
 
 def test_a_third_level_produces_no_nodes_and_no_error(tmp_path: Path) -> None:
@@ -582,7 +788,7 @@ def test_a_directory_in_the_nest_that_is_not_a_package_is_not_a_node(tmp_path: P
     plain.mkdir(parents=True)
     (plain / "readme.md").write_text("not a package\n", encoding="utf-8")
 
-    assert node(read_graph(root), "agent").children == ()
+    assert node(read_graph(root), "agent").children == ("agent.tools.look_up",)
 
 
 def test_a_child_missing_its_export_is_incomplete_rather_than_absent(tmp_path: Path) -> None:
