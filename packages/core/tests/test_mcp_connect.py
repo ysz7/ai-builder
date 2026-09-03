@@ -51,7 +51,7 @@ from framestack_core.mcp import (
 )
 from framestack_core.oauth import client_id_key, token_key
 
-EXAMPLE = Path(__file__).resolve().parents[3] / "examples" / "reference"
+EXAMPLE = Path(__file__).resolve().parents[3] / "examples" / "full"
 
 #: An MCP server, in as few lines as one can be written. It answers the two questions the
 #: probe asks and nothing else — which is the point: the probe must work against whatever a

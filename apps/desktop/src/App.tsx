@@ -56,6 +56,7 @@ import {
 } from "./core/client";
 import type {
   ComposeService,
+  GraphNode,
   McpProbe,
   DatabaseResult,
   Graph,
@@ -504,6 +505,31 @@ export default function App() {
   );
 
   /**
+   * Ask the chat to make one node satisfy its kind.
+   *
+   * **The one place the graph talks back**, and what it says is a fact rather than an
+   * opinion: this package does not bind the name its kind requires, which the parser checked
+   * by reading the file. The message names the export and nothing else — there is no repair
+   * path here that writes anything, and the node turns complete when the code does.
+   *
+   * No pending marker: nothing new is coming. The node is already on the canvas, and a
+   * marker standing in for a thing that is already drawn would be a second box for it.
+   */
+  const repair = useCallback((node: GraphNode) => {
+    setRail("");
+    setSelected("");
+    setHandOver({
+      text:
+        `/repair ${node.path} is a ${node.kind} and does not export ` +
+        `${node.missing.join(" or ")}. Make it export ${node.missing.join(" and ")}, ` +
+        `with a real implementation and a test.`,
+      send: true,
+      fresh: true,
+    });
+    setSummon((n) => n + 1);
+  }, []);
+
+  /**
    * The turn ended, however it ended.
    *
    * The marker goes on a failed turn exactly as on a successful one: what it stood for is
@@ -639,6 +665,7 @@ export default function App() {
             composed={composed}
             probes={probes}
             costs={costs}
+            onRepair={repair}
             dockerless={dockerless}
             database={database}
             statuses={known}
@@ -762,6 +789,7 @@ export default function App() {
           // shape for one.
           onLogs={() => setSheet("deploy")}
           onTalk={talkTo}
+          onRepair={repair}
           // It is running where the person can read every line of it and stop it themselves,
           // which is the only honest place to start somebody else's program with their own
           // account on the other end.

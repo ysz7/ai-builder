@@ -21,7 +21,7 @@ from framestack_core.api import WATCH_SCHEMA, watch_read
 from framestack_core.parser import read_graph
 from framestack_core.watch import SETTLE, forget_watch, read_watch
 
-EXAMPLE = Path(__file__).resolve().parents[3] / "examples" / "reference"
+EXAMPLE = Path(__file__).resolve().parents[3] / "examples" / "full"
 
 #: Long enough for the scan to run twice and the settle window to pass, short enough that a
 #: watcher that never notices fails the suite rather than holding it open.

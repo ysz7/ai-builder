@@ -232,6 +232,13 @@ What follows, day to day:
 - **Local execution is the pitch.** Everything runs on the user's machine or their server. The graph
   is a view of their own Python, so nothing leaves the network unless their code sends it there.
 
+**An incomplete node explains itself, and that is the one place the graph talks back.** A
+package that does not bind the name its kind requires is a *fact* — checkable, and checked by
+reading the file — so the card names the missing export and offers to send `/repair` with it
+named. The button produces a **message**, never a file: the node turns complete when the code
+does. The prompt refuses the dishonest fix by name, because an export satisfied by a stub is a
+node that says something untrue.
+
 **The palette writes code; it does not draw nodes.** Pressing a block sends one command to the
 chat and nothing else — the node appears because the agent wrote a package and the graph was read
 again. The blocks are declared by `chat.py`, so a palette cannot offer a command the prompts have
@@ -240,6 +247,14 @@ marker is drawn while a turn runs, and it is a progress indicator rather than a 
 entry, no verdict, no settings, no Run, gone when the turn ends. Each of those absences is a way
 it could otherwise outlive its turn, and a marker that outlives its turn is a node the code does
 not have.
+
+A **dependency** block is the same rule pointed at something outside the project: pressing one
+sends a task to write the client, the settings and the code that uses them, and the node appears
+because the project's own Python now names it. The five offered are the five the recogniser
+knows — a block that produced code the parser could not see would look like a failure while
+being correct. Each block declares `becomes`, the id of the node a press would eventually
+produce, which is how the palette enforces "only one" while knowing none of the convention's
+rules; it is a thing to *look for*, never an entry to create.
 
 **`Connect` means two things, because `mcp.json` holds two kinds of entry.** A `command`
 entry is a **stdio** server: the MCP authorization spec does not describe it, the ones that need
@@ -286,7 +301,7 @@ npm install             # front-end and Tauri CLI
 
 npm run dev             # full app: Vite + Tauri window + Python sidecar
 npm run web:dev         # front-end alone in a browser (core absent, ping will fail)
-npm run test:py         # all Python tests (core + the reference project's own suite)
+npm run test:py         # all Python tests (core + examples/full's own suite)
 npm run check           # scripts/check.sh: ruff lint + format, mypy --strict, pytest — what CI runs
 npm run build           # freeze the sidecar (scripts/build-sidecar.sh), then bundle .app/.dmg
 ```
@@ -476,19 +491,32 @@ add, remove or rename one**: a node with no entry still draws, an entry with no 
 orphaned coordinates are kept rather than tidied on sight, because an agent rewriting a file makes a
 node vanish and come back.
 
-## The reference project
+## The examples
 
-[examples/reference/](examples/reference/) is the project the builder is written against: four
-systems, four file nodes, and a test suite that proves each export does something. It is what the
-parser is tested on and what every acceptance criterion in the plan is stated about. Change it only
-deliberately.
+Three projects in [examples/](examples/), and they are the fixtures as well as the demonstrations:
 
-Its `agent/tools/look_up.py` imports from `rag`, which is the only reason there is an edge between
-those two nodes — and the edge belongs to that tool rather than to the agent, which is what makes an
+* **[examples/full/](examples/full/)** — the whole convention: four systems, a chat route, a
+  database in `repositories/`, and the four file nodes. It is the project the builder is written
+  against, what the parser is tested on, and what every acceptance criterion in the plan is stated
+  about. Change it only deliberately.
+* **[examples/rag/](examples/rag/)** — upload, index, ask. Two systems and **no storage**, which is
+  why the database tests use it: a test asking "does adding a model add a row" has to start from no
+  rows.
+* **[examples/agent/](examples/agent/)** — an agent with three tools, one file each, and one MCP
+  server.
+
+Each runs with `docker compose up`, passes its own suite with the builder uninstalled, and holds no
+credential. **Their suites run in separate processes** — every one of them declares a `rag/` or an
+`agent/`, because the convention names those directories, and one interpreter can hold one of each.
+`pyproject.toml` runs the core's tests beside `examples/full`, and `scripts/check.sh` runs the other
+two on their own.
+
+`examples/full`'s `agent/tools/look_up.py` imports from `rag`, which is the only reason there is an
+edge between those two nodes — and the edge belongs to that tool rather than to the agent, which is what makes an
 agent node stop being opaque. It carries no Framestack-specific symbol of any kind, and `pytest`
 works in it with the builder uninstalled — which is invariant 6, stated as a fixture.
 
-The reference's suite runs in this repository's `pytest` too: a reference whose tests do not pass is
+`examples/full`'s suite runs in this repository's `pytest` too: an example whose tests do not pass is
 a fixture that proves nothing.
 
 ## Conventions

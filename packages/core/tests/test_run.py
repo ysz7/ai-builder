@@ -41,7 +41,7 @@ from framestack_core.run import (
     stop_run,
 )
 
-EXAMPLE = Path(__file__).resolve().parents[3] / "examples" / "reference"
+EXAMPLE = Path(__file__).resolve().parents[3] / "examples" / "full"
 
 #: Long enough for a cold interpreter to import the project on a loaded machine, short enough
 #: that a hang fails the suite rather than holding CI open.

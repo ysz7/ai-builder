@@ -6,15 +6,23 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from sqlalchemy import create_engine
 
+import repositories
 from api import app
 from rag import index
 from rag.store import clear
 
 
 @pytest.fixture(autouse=True)
-def empty_index() -> None:
+def fresh(tmp_path: Path) -> None:
+    """An empty index and a database of this test's own.
+
+    SQLite in a temporary file rather than the Postgres the compose stack runs: a test that
+    needed a server would fail on a laptop for a reason that is not about the code.
+    """
     clear()
+    repositories.use(create_engine(f"sqlite:///{tmp_path / 'api.db'}", future=True))
 
 
 def call(path: str, query: str = "") -> tuple[int, Any]:

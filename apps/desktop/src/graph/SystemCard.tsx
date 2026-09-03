@@ -58,10 +58,18 @@ export type CardData = {
   onToggle: (id: string) => void;
   /** Open this agent's own chat. Only an agent has one; nothing else is talked to. */
   onTalk: (id: string) => void;
+  /**
+   * Ask the chat to make this node satisfy its kind, naming what it is missing.
+   *
+   * Absent on a node that has nothing missing, and it produces a **message**, never a file:
+   * the graph is still a projection, and the only thing that changes a project is the agent
+   * writing code that gets read back.
+   */
+  onRepair?: (node: GraphNode) => void;
 };
 
 export function SystemCard({ data, selected }: NodeProps) {
-  const { node, verdict, reason, cost, pins, expanded, onOpen, onToggle, onTalk } =
+  const { node, verdict, reason, cost, pins, expanded, onOpen, onToggle, onTalk, onRepair } =
     data as unknown as CardData;
   const ports = hasPorts(node) ? node.ports : [];
 
@@ -199,6 +207,24 @@ export function SystemCard({ data, selected }: NodeProps) {
             the state a half-written package is in, and naming the missing export is the
             whole of what this application can honestly say about it. */}
         {node.reason ? <div className="bp-card-why">{node.reason}</div> : null}
+
+        {/* **The one place the graph talks back**, and it is allowed because a convention
+            violation is a fact rather than an opinion: this package does not bind the name
+            its kind requires, which is checkable and is checked. The button sends `/repair`
+            with the missing export named — it writes nothing itself, and the node turns
+            complete only when the code does. */}
+        {node.missing.length > 0 && onRepair ? (
+          <button
+            className="bp-card-talk nodrag"
+            title={`Ask the agent to add ${node.missing.join(" and ")}`}
+            onClick={(event) => {
+              event.stopPropagation();
+              onRepair(node);
+            }}
+          >
+            Ask agent to fix
+          </button>
+        ) : null}
 
         {/* One row per entry point, each with the pin its edges land on. The pin is placed
             by the row rather than by arithmetic: the row knows where it is, and a number

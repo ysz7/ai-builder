@@ -108,8 +108,10 @@ export function cardHeight(node: GraphNode, costed: ReadonlySet<string> = EMPTY)
     // always existed would invite a default to be put in it, and a node nobody has run has
     // no cost rather than a zero one.
     (costed.has(node.id) ? 18 : 0) +
-    // The `Chat` action, drawn only on an agent that has the export to call.
-    (node.kind === "agent" && node.missing.length === 0 ? 27 : 0) +
+    // The `Chat` action, drawn only on an agent that has the export to call, and the
+    // repair action, drawn only where something is missing. Never both: an agent with a
+    // missing `run` has nothing to chat with, which is why one of them is there instead.
+    ((node.kind === "agent" && node.missing.length === 0) || node.missing.length > 0 ? 27 : 0) +
     // The ports, or the contract pill — never both. They would say the same thing twice on
     // a rag, whose ports *are* its contract, and a card says what it offers once. A tool has
     // no contract to state, so where it draws no rows it draws nothing at all.

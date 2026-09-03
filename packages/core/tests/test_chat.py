@@ -41,9 +41,11 @@ from framestack_core.chat import (
     send,
     stack_of,
 )
+from framestack_core.database import DATABASE_NODE
+from framestack_core.dependencies import SIGNS
 from framestack_core.handlers import HANDLERS
 
-EXAMPLE = Path(__file__).resolve().parents[3] / "examples" / "reference"
+EXAMPLE = Path(__file__).resolve().parents[3] / "examples" / "full"
 
 
 def project(tmp_path: Path) -> Path:
@@ -221,7 +223,7 @@ def test_the_answer_to_that_question_dispatches_without_asking_again(
 
     assert answer.command == "repair"
     assert answer.sent is True
-    assert "Fix only what that check covers." in sent[0]["text"]
+    assert "Fix only what you were given." in sent[0]["text"]
 
 
 def test_a_command_this_build_does_not_have_is_refused(
@@ -475,10 +477,16 @@ def test_every_declared_block_names_a_command_that_ships_with_a_prompt() -> None
         # which is what `argument` is; a chat names none, because there is exactly one place
         # a chat route can go and nothing for the message to choose.
         if block.kind:
-            assert block.kind in {*STACKS, "chat"}, block.kind
-        if block.argument:
+            assert block.kind in {*STACKS, "chat", "dependency"}, block.kind
+        # A system block names its kind in the message it sends, which is what `argument`
+        # is; a dependency block names *which* dependency, which is not a kind at all.
+        if block.argument and block.kind != "dependency":
             assert block.argument in STACKS, block.argument
             assert block.argument == block.kind
+        # Where a press produces a node whose id is predictable, the block says which — it
+        # is what lets a palette enforce `once` while knowing none of the rules.
+        if block.once:
+            assert block.becomes, block.command
         else:
             assert block.label, block.command
         # `requires` names a kind that must exist first. A typo here disables a block forever.
@@ -508,7 +516,7 @@ def test_a_block_press_parses_as_the_command_the_block_named() -> None:
         # Only where the message names a kind. A block may become a node without naming one
         # — a chat goes in the one place a chat route goes — and asserting on `kind` here
         # would be asserting that every block is a system block.
-        if block.argument:
+        if block.argument and block.kind != "dependency":
             assert _kind_in(" ".join(parts)) == block.kind
 
 
@@ -527,3 +535,66 @@ def test_the_chat_block_is_offered_once_and_needs_an_agent_to_talk_to() -> None:
     assert chat.takes == ""
     # And the prompt ships, which is the half that would otherwise fail in the built app.
     assert "api/routes/chat.py" in prompt_for("add-chat")
+
+
+def test_a_dependency_block_exists_for_everything_the_parser_can_recognise() -> None:
+    """Phase 14: pressing `+` on one sends a task, and the node appears because the code
+    then names it.
+
+    The list is the recogniser's, so a block cannot offer something that would produce code
+    and no node — a press that looked like a failure while being correct is the one outcome
+    nobody could explain.
+    """
+    offered = {block.argument for block in blocks() if block.command == "add-dependency"}
+
+    assert offered == {DATABASE_NODE, *(sign.node for sign in SIGNS)}
+    for block in blocks():
+        if block.command != "add-dependency":
+            continue
+        # Named for itself: five blocks share a kind and are not five Databases.
+        assert block.label == block.argument
+        assert block.becomes == block.argument
+        assert block.takes == ""
+
+
+def test_no_block_carries_a_scaffold() -> None:
+    """The palette writes code; it does not ship any. A block is a command and the words
+    around it — a field holding a template would make this a gallery, which is the one thing
+    the palette must never become."""
+    for block in blocks():
+        for value in (block.hint, block.label, block.argument):
+            assert "def " not in value and "import " not in value
+
+
+def test_the_repair_prompt_covers_a_missing_export_as_well_as_a_failing_test() -> None:
+    """The repair button names an export rather than a traceback, so the prompt has to know
+    what to do with one — and it has to refuse the dishonest fix by name."""
+    prompt = prompt_for("repair")
+
+    assert "missing" in prompt
+    assert "NotImplementedError" in prompt
+    assert "__init__.py" in prompt
+
+
+def test_the_generation_prompts_ask_for_the_layout_the_interface_can_read() -> None:
+    """Phase 15: not a graph change, a generation change.
+
+    Each of these is load-bearing somewhere else in the application, which is why they are
+    asserted rather than left to review: a handler with forty lines of logic cannot be traced
+    into a route's downstream, and a module holding six tools is one node where there should
+    be six.
+    """
+    system = prompt_for("add-system")
+
+    assert "api/routes/" in system
+    assert "api/deps.py" in system
+    assert "api/schemas.py" in system
+    assert "five lines" in system
+    assert "services/" in system
+    assert "agent/tools/" in system
+    assert "one file per tool" in system.lower()
+
+    tool = prompt_for("add-tool")
+    assert "agent/tools/<name>.py" in tool
+    # The old shape — one module holding every tool — is the thing this replaced.
+    assert "agent/tools.py" not in tool

@@ -473,8 +473,17 @@ export type Block = {
   /** `""`, `"stack"` (one of `choices`), or `"name"` (free text — a list would be a gallery). */
   takes: string;
   choices: string[];
-  /** Whether the convention allows only one at the root, and what must exist first. */
+  /** Whether the convention allows only one, and what must exist first. */
   once: boolean;
+  /**
+   * The id of the node a press would eventually produce, where that is predictable —
+   * `agent`, `api.routes.chat`, `redis` — and `""` where it is not.
+   *
+   * It is what lets this palette enforce `once` while knowing none of the convention's
+   * rules. **It is not a promise that pressing draws it**: nothing here draws a node, and
+   * one appears later only because the agent wrote code the parser then read.
+   */
+  becomes: string;
   requires: string;
 };
 

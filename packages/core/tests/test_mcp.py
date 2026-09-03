@@ -22,7 +22,7 @@ from framestack_core.api import MCP_SCHEMA, mcp_connect, mcp_read
 from framestack_core.mcp import connect_server, read_server
 from framestack_core.shell import close_everything_opened_here, list_shells, read_shell
 
-EXAMPLE = Path(__file__).resolve().parents[3] / "examples" / "reference"
+EXAMPLE = Path(__file__).resolve().parents[3] / "examples" / "full"
 
 
 def project(tmp_path: Path) -> Path:

@@ -42,6 +42,7 @@ from framestack_core.database import DATABASE_NODE, Database, read_database
 
 __all__ = [
     "CREDENTIALS",
+    "SIGNS",
     "Dependency",
     "read_dependencies",
 ]

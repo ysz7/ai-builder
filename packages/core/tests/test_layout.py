@@ -17,7 +17,7 @@ from contract import validate, wire_form
 from framestack_core.api import LAYOUT_READ_SCHEMA, LAYOUT_WRITE_SCHEMA, layout_get, layout_put
 from framestack_core.layout import LAYOUT_PATH, read_layout, write_layout
 
-EXAMPLE = Path(__file__).resolve().parents[3] / "examples" / "reference"
+EXAMPLE = Path(__file__).resolve().parents[3] / "examples" / "full"
 
 POSITIONS = {
     "api": {"x": 40, "y": 40, "collapsed": False},

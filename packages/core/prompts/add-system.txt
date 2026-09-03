@@ -18,13 +18,51 @@ package name or its exports.
 Produce:
   <kind>/__init__.py        re-exports the required symbols
   <kind>/settings.py        one BaseSettings subclass, only behavioural values
-  <kind>/<implementation>   however many modules the implementation needs
+  <kind>/<implementation>   the layout below, for api and agent
   tests/test_<kind>.py      at least one test per required export
 
 The test must call the export and assert something real. A test that only imports
 the module is not acceptable.
 
 If the package already exists, stop and say so. Do not overwrite.
+
+### The layout, for api
+
+  api/__init__.py       exports app
+  api/settings.py
+  api/routes/           one module per resource, never one module for all of them
+  api/deps.py           auth, database session, repository construction
+  api/schemas.py        request and response models
+
+Rules, and they are not stylistic:
+
+  A route handler is at most five lines: call a service, return a response. A
+  handler with logic in it cannot be read back — the interface traces a request by
+  the names a handler calls, and forty lines of branching has no single answer to
+  "where does this go next".
+
+  Business logic lives in services/ at the project root, never in api/. The api is
+  transport.
+
+  Request and response models live in schemas.py, never inline in a handler.
+
+  Everything a handler depends on is built in deps.py and injected. A handler that
+  constructs its own database session is a handler nobody can test.
+
+### The layout, for agent
+
+  agent/__init__.py     exports run
+  agent/settings.py
+  agent/supervisor.py   or loop.py, or graph.py — whichever the stack calls it
+  agent/prompts.py      the prompt text, out of the code that sends it
+  agent/tools/          one file per tool
+
+  One tool per file, and no god-module. Each of those files is a node in the
+  interface, so a file with six tools in it is one box where there should be six —
+  and a person cannot see what the agent can do.
+
+A rag or a worker takes however many modules its implementation needs. There is no
+layout imposed on them, because nothing in the interface reads their insides.
 
 ### Creating a nested system
 

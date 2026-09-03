@@ -108,8 +108,9 @@ npm install      # front-end and Tauri CLI
 npm run dev      # the app
 ```
 
-Then open [examples/reference/](examples/reference/) — four systems, four file nodes and a suite that
-proves each export does something — and press **Observe**.
+Then open [examples/full/](examples/full/) — four systems, a chat, a database, four file nodes and a
+suite that proves each export does something — and press **Observe**. There are two smaller ones
+beside it: [examples/rag/](examples/rag/) and [examples/agent/](examples/agent/).
 
 ### Or talk to the core by hand
 
@@ -118,19 +119,23 @@ line:
 
 ```bash
 echo '{"id":1,"method":"ping"}' | uv run python -m framestack_core
-echo '{"id":2,"method":"graph.read","params":{"project":"examples/reference"}}' \
+echo '{"id":2,"method":"graph.read","params":{"project":"examples/full"}}' \
   | uv run python -m framestack_core
 ```
 
 ## Status
 
-Version **0.1.0**, and the rebuild is complete: the read-only graph, Observe, the settings panel, the
-chat, `Run`, `Deploy`, the palette, compose services, MCP nodes and `Connect`. 284 tests and one gate
-(`npm run check`) that CI runs and nothing else.
+Version **0.1.0**. The rebuild is complete — the read-only graph, Observe, the settings panel, the
+chat, `Run`, `Deploy`, the palette, compose services, MCP nodes and `Connect` — and so is the plan
+that followed it: ports on the cards, routes, tool nodes, the database node, dependency status,
+Ollama, the docker node with its compose editor, MCP connection with an earned tool count, cost and
+tokens, the chat route, live re-parse and repair. 473 tests — 455 in one run, plus nine each for the
+two smaller examples — and one gate (`npm run check`) that CI runs and nothing else.
 
 **Honest caveats:** the chat half needs Claude Code installed and signed in. `Deploy` needs Docker.
 Building the desktop app needs a Rust toolchain, and `.app`/`.dmg` can only be built on macOS. There
-is one reference project, and it is the one every acceptance criterion is stated about.
+are three example projects, and `examples/full` is the one every acceptance criterion is stated
+about.
 
 **Deliberately out of scope:** any granularity below a package, more than one level of nesting, any
 kind beyond the four, a gallery of templates we ship, multi-project workspaces, cloud sync, executing

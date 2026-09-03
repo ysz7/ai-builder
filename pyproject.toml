@@ -17,6 +17,7 @@ dev = [
     # with libcst and never imports it, so nothing here may become a dependency of the core.
     "pydantic>=2.0",
     "pydantic-settings>=2.0",
+    "sqlalchemy>=2.0",
 ]
 
 [tool.uv.workspace]
@@ -28,7 +29,15 @@ framestack-core = { workspace = true }
 [tool.pytest.ini_options]
 # The reference project's own suite runs here too: it is the run the graph is observed by,
 # so a reference whose tests do not pass is a fixture that proves nothing.
-testpaths = ["packages/core/tests", "examples/reference/tests"]
+# The full example's own suite runs here too: it is the run the graph is observed by, so an
+# example whose tests do not pass is a fixture that proves nothing.
+#
+# The other two examples are run by `scripts/check.sh` in **their own process**, and that is
+# not tidiness: all three declare a `rag/` and an `agent/`, because the convention names those
+# directories. One interpreter can hold one `rag`, so a single run would import one example's
+# package into another example's test. Separate processes are what "an ordinary Python
+# project" costs here, and it is the honest price.
+testpaths = ["packages/core/tests", "examples/full/tests"]
 
 [tool.ruff]
 line-length = 100
@@ -39,12 +48,12 @@ select = ["E", "F", "I", "UP", "B", "SIM", "TID"]
 
 [tool.ruff.lint.isort]
 # The reference project's own packages, so its imports sort as first-party where it lives.
-known-first-party = ["framestack_core", "agent", "api", "rag", "worker"]
+known-first-party = ["framestack_core", "agent", "api", "rag", "repositories", "worker"]
 
 [tool.mypy]
 python_version = "3.10"
 strict = true
-files = ["packages/core/src", "examples/reference"]
+files = ["packages/core/src", "examples/full"]
 
 [[tool.mypy.overrides]]
 # libcst ships types, but its matchers module is loose enough to fight strict mode.

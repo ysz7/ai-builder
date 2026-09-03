@@ -75,6 +75,7 @@ export function NodePanel({
   onUndeploy,
   onLogs,
   onTalk,
+  onRepair,
   onConnected,
   onProbed,
 }: {
@@ -94,6 +95,8 @@ export function NodePanel({
   onLogs: () => void;
   /** Open the agent's own chat. The other half of the split this panel is one side of. */
   onTalk: (id: string) => void;
+  /** Ask the chat to make this node satisfy its kind, naming what it is missing. */
+  onRepair: (node: GraphNode) => void;
   /** A server is authorising itself in this terminal. The workspace shows the drawer. */
   onConnected: (shell: string) => void;
   /**
@@ -286,8 +289,15 @@ export function NodePanel({
 
         {/* Said plainly, and never repaired into something plausible. This sentence is the
             most useful thing the parser can produce, because it is the way out of the state
-            the node is actually in. */}
+            the node is actually in — and beside it, the way to act on it. The button sends a
+            message naming the missing export; it writes nothing, and the node turns complete
+            when the code does. */}
         {node.reason ? <div className="bp-node-why">{node.reason}</div> : null}
+        {node.missing.length > 0 ? (
+          <button className="bp-node-open" onClick={() => onRepair(node)}>
+            Ask agent to add {node.missing.join(" and ")}
+          </button>
+        ) : null}
 
         {/* What a run proved, with the run's own words for it and the tests behind it.
             Absent where nothing has been observed: an unobserved node says nothing here

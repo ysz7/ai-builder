@@ -1,6 +1,6 @@
 """The routes an `api/` package declares, and where each one sends the request (Phase 3).
 
-Stated about `examples/reference` and about copies of it, like every other test here. The
+Stated about `examples/full` and about copies of it, like every other test here. The
 reference is the case the plan names last and cares about most: it serves its routes from a
 table it built by hand, with no decorator anywhere, and the answer has to be an empty list
 and no error rather than a failure.
@@ -20,7 +20,7 @@ from contract import validate, wire_form
 from framestack_core.api import ROUTES_SCHEMA, routes_read
 from framestack_core.routes import Routes, read_routes
 
-EXAMPLE = Path(__file__).resolve().parents[3] / "examples" / "reference"
+EXAMPLE = Path(__file__).resolve().parents[3] / "examples" / "full"
 
 
 def project(tmp_path: Path) -> Path:
@@ -32,11 +32,18 @@ def project(tmp_path: Path) -> Path:
     root = tmp_path / "project"
     shutil.copytree(EXAMPLE, root, ignore=shutil.ignore_patterns("__pycache__", ".framestack"))
 
-    (root / "repositories").mkdir()
+    # The example has both of these; this replaces them with the smallest versions the
+    # tests below are stated about, so a change to the example cannot quietly change what
+    # a route resolves to here.
+    (root / "repositories").mkdir(exist_ok=True)
+    for stale in (root / "repositories").glob("*.py"):
+        stale.unlink()
     (root / "repositories" / "__init__.py").write_text(
         "def get_document(doc_id: str) -> dict:\n    return {}\n", encoding="utf-8"
     )
-    (root / "api" / "routes").mkdir()
+    (root / "api" / "routes").mkdir(exist_ok=True)
+    for stale in (root / "api" / "routes").glob("*.py"):
+        stale.unlink()
     (root / "api" / "routes" / "__init__.py").write_text("", encoding="utf-8")
     return root
 
@@ -58,11 +65,11 @@ def only(answer: Routes) -> tuple[str, ...]:
 
 
 def test_a_project_with_no_decorators_is_an_empty_list_and_not_a_failure() -> None:
-    """The plan's fourth criterion, and the reference proves it as it stands.
+    """The plan's fourth criterion, and the example proves it as it stands.
 
-    `api/__init__.py` there builds an ASGI app around a table it wrote by hand. Nothing in
-    this codebase recognises that, and the honest answer is nothing at all -- not an error,
-    and not a route guessed out of the table.
+    `examples/full` builds its ASGI app around a table it wrote by hand -- no decorator
+    anywhere in it. Nothing in this codebase recognises that, and the honest answer is
+    nothing at all: not an error, and not a route guessed out of the table.
     """
     answer = read_routes(EXAMPLE, "api")
     assert answer.ok is True

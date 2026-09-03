@@ -35,18 +35,23 @@ apps/desktop/src-tauri/gen/schemas/
 # that does cannot make its first commit the one that leaks a key.
 .env
 .env.*
-# ...except the reference project's, which is one of its four file nodes and therefore has
-# to be in the repository for the graph to have anything to draw. It holds defaults and no
-# credentials, and it is the one .env in here that a person is meant to read.
-!examples/reference/.env
+# ...except the examples', which are file nodes and therefore have to be in the repository
+# for the graph to have anything to draw. They hold local development defaults and no
+# credentials, and they are the only .env files in here a person is meant to read.
+!examples/full/.env
+!examples/rag/.env
+!examples/agent/.env
 !.env.example
 
 # the reconciliation reference: a build artifact, rewritten by any passing gate run
 .framestack/
 
-# the reference project's own index, written by running its `index` export. Its content is
-# whatever a person uploaded on their machine, which is nobody else's business.
+# An example's own state, written by running its exports: the index a person filled, the
+# notes an agent kept, the documents somebody uploaded. Whatever is in them is that person's
+# business and nobody else's.
 .rag-index.json
+.agent-notes.txt
+examples/*/uploads/
 
 # design documents: kept locally, not published. The one file in here that the toolchain
 # actually reads -- the agent's system prompt -- is package data under

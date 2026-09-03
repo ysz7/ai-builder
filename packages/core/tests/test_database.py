@@ -19,7 +19,7 @@ from framestack_core.api import DATABASE_SCHEMA, database_read
 from framestack_core.database import read_database
 from framestack_core.parser import read_graph
 
-EXAMPLE = Path(__file__).resolve().parents[3] / "examples" / "reference"
+EXAMPLE = Path(__file__).resolve().parents[3] / "examples" / "full"
 
 MODEL = (
     "from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column\n\n\n"
@@ -30,9 +30,19 @@ MODEL = (
 )
 
 
+#: An example with no storage at all. Most projects have none, and the tests below are about
+#: what *makes* one — so they start from a project where nothing does.
+NO_STORAGE = Path(__file__).resolve().parents[3] / "examples" / "rag"
+
+
 def project(tmp_path: Path) -> Path:
+    """A copy with no storage in it.
+
+    `examples/full` has a real one, which is exactly why it cannot be the fixture here: a
+    test asking "does adding a model add a row" has to start from no rows.
+    """
     root = tmp_path / "project"
-    shutil.copytree(EXAMPLE, root, ignore=shutil.ignore_patterns("__pycache__", ".framestack"))
+    shutil.copytree(NO_STORAGE, root, ignore=shutil.ignore_patterns("__pycache__", ".framestack"))
     return root
 
 
@@ -48,17 +58,39 @@ def names(root: Path) -> list[str]:
     return [table.name for table in read_database(root).tables]
 
 
+def reader(root: Path, body: str) -> None:
+    """Write a module in `api/` that does — or does not — import a model.
+
+    The importer is the api because this fixture has one; which system does the importing is
+    not what any of these tests is about, and the edge is drawn by the same rule either way.
+    """
+    (root / "api" / "reader.py").write_text(body, encoding="utf-8")
+
+
 # -- absent is a real answer -----------------------------------------------------------
 
 
-def test_the_reference_has_no_database_and_no_node_for_one() -> None:
+def test_an_example_with_no_storage_has_no_node_for_one() -> None:
     """Most projects have none. A node drawn anyway would be a box with nothing behind it.
 
-    The reference does have a `docker` dependency -- it has a `compose.yaml` -- so this asks
-    about the storage node by name rather than about the family it belongs to.
+    `examples/rag` keeps its index in a file, and it does have a `docker` dependency -- it
+    has a `compose.yaml` -- so this asks about the storage node by name rather than about the
+    family it belongs to.
     """
-    assert read_database(EXAMPLE).present is False
-    assert not [node for node in read_graph(EXAMPLE).nodes if node.id == "postgres"]
+    assert read_database(NO_STORAGE).present is False
+    assert not [node for node in read_graph(NO_STORAGE).nodes if node.id == "postgres"]
+
+
+def test_the_example_that_does_store_things_names_its_tables() -> None:
+    """The other half, on a project that has one: two tables, read from the models
+    themselves, and the connection string out of the settings default with nothing secret
+    left in it."""
+    found = read_database(EXAMPLE)
+
+    assert found.present is True
+    assert [table.name for table in found.tables] == ["conversations", "turns"]
+    assert found.target.startswith("postgresql")
+    assert "reference:reference" not in found.target
 
 
 def test_a_project_that_is_not_there_is_a_result_and_not_a_crash(tmp_path: Path) -> None:
@@ -252,44 +284,28 @@ def test_a_system_importing_a_model_draws_an_edge_to_the_node(tmp_path: Path) ->
     """The plan's second criterion. The import is the edge, as everywhere else."""
     root = project(tmp_path)
     store(root, "document", MODEL)
-    handlers = root / "worker" / "handlers.py"
-    handlers.write_text(
-        "from repositories.document import Document\n\n\n"
-        "def echo(payload: dict) -> dict:\n    return {'echoed': payload}\n",
-        encoding="utf-8",
-    )
+    reader(root, "from repositories.document import Document\n\n\nUSED = Document\n")
 
     found = {(edge.source, edge.target) for edge in read_graph(root).edges}
-    assert ("worker", "postgres") in found
+    assert ("api", "postgres") in found
 
 
 def test_removing_the_import_removes_the_edge(tmp_path: Path) -> None:
     root = project(tmp_path)
     store(root, "document", MODEL)
-    handlers = root / "worker" / "handlers.py"
-    handlers.write_text(
-        "from repositories.document import Document\n\n\n"
-        "def echo(payload: dict) -> dict:\n    return {'echoed': payload}\n",
-        encoding="utf-8",
-    )
-    assert ("worker", "postgres") in {(e.source, e.target) for e in read_graph(root).edges}
+    reader(root, "from repositories.document import Document\n\n\nUSED = Document\n")
+    assert ("api", "postgres") in {(e.source, e.target) for e in read_graph(root).edges}
 
-    handlers.write_text(
-        "def echo(payload: dict) -> dict:\n    return {'echoed': payload}\n", encoding="utf-8"
-    )
+    reader(root, "USED = None\n")
 
-    assert ("worker", "postgres") not in {(e.source, e.target) for e in read_graph(root).edges}
+    assert ("api", "postgres") not in {(e.source, e.target) for e in read_graph(root).edges}
 
 
 def test_an_edge_lands_on_the_node_and_never_on_a_table(tmp_path: Path) -> None:
     """Table-level edges produce a hairball. The mapping lives in the panel, read on demand."""
     root = project(tmp_path)
     store(root, "document", MODEL)
-    (root / "worker" / "handlers.py").write_text(
-        "from repositories.document import Document\n\n\n"
-        "def echo(payload: dict) -> dict:\n    return {'echoed': payload}\n",
-        encoding="utf-8",
-    )
+    reader(root, "from repositories.document import Document\n\n\nUSED = Document\n")
 
     for edge in read_graph(root).edges:
         if edge.target == "postgres":

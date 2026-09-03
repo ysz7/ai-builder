@@ -76,7 +76,7 @@ class Service:
 
     name: str
     #: `""` where the service builds its own image rather than pulling one. Not a failure --
-    #: a `build:` service is ordinary, and it is the reference project's own `api`.
+    #: a `build:` service is ordinary, and it is `examples/full`'s own `api`.
     image: str
     ports: tuple[str, ...]
     #: The short form, `KEY=value`, whichever of compose's two forms the file uses. A write

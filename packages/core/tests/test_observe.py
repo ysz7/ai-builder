@@ -30,7 +30,7 @@ from framestack_core.observe import (
 )
 from framestack_core.parser import is_system, read_graph
 
-EXAMPLE = Path(__file__).resolve().parents[3] / "examples" / "reference"
+EXAMPLE = Path(__file__).resolve().parents[3] / "examples" / "full"
 
 #: Long enough for a cold interpreter to import pytest on a loaded machine, short enough that
 #: a hang fails the suite rather than holding CI open.

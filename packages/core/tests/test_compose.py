@@ -1,6 +1,6 @@
 """The compose stack, read and edited (Phase 9).
 
-Stated about `examples/reference`, which has a real `compose.yaml` with three services, a
+Stated about `examples/full`, which has a real `compose.yaml` with three services, a
 comment at the top of it, a service that builds rather than pulls, and an `environment:`
 written as a mapping. That is the fixture the editing rules matter for: the promise is that
 `git diff` after a write is the line that changed and nothing else.
@@ -21,7 +21,7 @@ from contract import validate, wire_form
 from framestack_core.api import COMPOSE_SCHEMA, compose_read, compose_write
 from framestack_core.compose import EDITABLE, Service, read_compose, write_compose
 
-EXAMPLE = Path(__file__).resolve().parents[3] / "examples" / "reference"
+EXAMPLE = Path(__file__).resolve().parents[3] / "examples" / "full"
 
 
 def project(tmp_path: Path) -> Path:

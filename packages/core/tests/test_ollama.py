@@ -23,7 +23,7 @@ from framestack_core.dependencies import SIGNS
 from framestack_core.ollama import LOG_PATH, pull_model, read_models, read_pull, stop_pull
 from framestack_core.parser import read_graph
 
-EXAMPLE = Path(__file__).resolve().parents[3] / "examples" / "reference"
+EXAMPLE = Path(__file__).resolve().parents[3] / "examples" / "full"
 
 
 def project(tmp_path: Path) -> Path:

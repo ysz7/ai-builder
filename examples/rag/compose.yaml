@@ -1,0 +1,11 @@
+# What this project needs running around it: itself, and nothing else. Retrieval is a file
+# here, so there is no database to bring up.
+services:
+  api:
+    build: .
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    volumes:
+      - ./uploads:/app/uploads

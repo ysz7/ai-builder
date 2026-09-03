@@ -51,6 +51,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from framestack_core.database import DATABASE_NODE
+from framestack_core.dependencies import SIGNS
 from framestack_core.parser import is_system, read_graph
 from framestack_core.session import (
     STRICT_MCP,
@@ -97,6 +99,7 @@ PROMPTS = _prompts_dir()
 #: answer "what does this do?" by editing something.
 COMMANDS = (
     "add-system",
+    "add-dependency",
     "add-tool",
     "add-service",
     "add-mcp",
@@ -155,8 +158,18 @@ class Block:
     #: gallery).
     takes: str
     choices: tuple[str, ...]
-    #: Whether the convention allows only one of these at the root.
+    #: Whether the convention allows only one of these.
     once: bool
+    #: The **id of the node this would produce**, where that is predictable. `""` otherwise.
+    #:
+    #: It is what makes `once` checkable without the interface knowing any of the rules: an
+    #: `agent/` becomes `agent`, a chat becomes `api.routes.chat`, a dependency becomes its
+    #: own name. A palette asks "is that node here already?" and needs to know nothing else.
+    #:
+    #: **It is not a promise that pressing draws it.** Nothing here draws a node -- a press
+    #: sends one message, and a node appears later because the agent wrote code the parser
+    #: then read. This is the id to *look for*, not an entry to create.
+    becomes: str
     #: A kind that must already exist for this to be addable. `""` when there is none.
     requires: str
 
@@ -170,6 +183,7 @@ class Block:
             "takes": self.takes,
             "choices": list(self.choices),
             "once": self.once,
+            "becomes": self.becomes,
             "requires": self.requires,
         }
 
@@ -194,9 +208,40 @@ def blocks() -> tuple[Block, ...]:
             # One system of each kind per level. Shown disabled rather than hidden: a rule
             # nobody can see is one they keep running into.
             once=True,
+            becomes=kind,
             requires="",
         )
         for kind, stacks in STACKS.items()
+    ]
+
+    # The dependencies this build can *recognise*, offered as things to have written.
+    #
+    # **Pressing one draws nothing.** It sends a task to write the client, the settings and
+    # the code that uses them, and the node appears afterwards because the project's own
+    # Python now names it — which is the same rule that put every other dependency node on
+    # the canvas. A block that added a node directly would be the toolchain asserting a
+    # relation the code does not have.
+    #
+    # The list is `SIGNS` plus the database, so a block cannot offer something the parser
+    # would never recognise: a press that produced code and no node would look like a
+    # failure, and the honest reason it would not be one is impossible to explain.
+    made += [
+        Block(
+            command="add-dependency",
+            argument=name,
+            kind="dependency",
+            # Its own name, because the kind's word is not it: `Database` over an `ollama`
+            # block would be a label that disagrees with the thing under it.
+            label=name,
+            hint=f"the code that talks to {name}",
+            takes="",
+            choices=(),
+            # One node per backend, so a second press has nothing to add.
+            once=True,
+            becomes=name,
+            requires="",
+        )
+        for name in (DATABASE_NODE, *(sign.node for sign in SIGNS))
     ]
 
     made.append(
@@ -209,7 +254,9 @@ def blocks() -> tuple[Block, ...]:
             takes="name",
             choices=(),
             once=False,
-            # A tool is written into `agent/tools.py`, so there has to be an agent.
+            # A tool's node is named after the file, which the person has yet to name.
+            becomes="",
+            # A tool is written into `agent/tools/`, so there has to be an agent.
             requires="agent",
         )
     )
@@ -225,6 +272,7 @@ def blocks() -> tuple[Block, ...]:
             takes="name",
             choices=(),
             once=False,
+            becomes="",
             requires="",
         )
     )
@@ -242,6 +290,7 @@ def blocks() -> tuple[Block, ...]:
             choices=(),
             # One per project: the node is `api/routes/chat.py`, and there is one of those.
             once=True,
+            becomes="api.routes.chat",
             # It calls the agent's `run`, so there has to be an agent to call. The prompt
             # refuses just as plainly when the `api/` package is the missing half -- one
             # kind is all a block can require, and the agent is the one being talked to.
@@ -258,6 +307,7 @@ def blocks() -> tuple[Block, ...]:
             takes="name",
             choices=(),
             once=False,
+            becomes="",
             requires="",
         )
     )

@@ -1,6 +1,6 @@
 """The graph, read from a project's own directories and imports (Phase 1).
 
-Every test here is stated about `examples/reference` or about a copy of it, because that is
+Every test here is stated about `examples/full` or about a copy of it, because that is
 the fixture the plan's acceptance criteria are written against: four systems, four file
 nodes, and one import between two of them.
 
@@ -22,7 +22,7 @@ from contract import validate, wire_form
 from framestack_core.api import GRAPH_SCHEMA, graph_get
 from framestack_core.parser import REQUIRED, Graph, Node, is_system, read_graph
 
-EXAMPLE = Path(__file__).resolve().parents[3] / "examples" / "reference"
+EXAMPLE = Path(__file__).resolve().parents[3] / "examples" / "full"
 
 
 def project(tmp_path: Path) -> Path:
@@ -110,6 +110,9 @@ def test_a_kind_is_never_a_framework() -> None:
         # Not a framework and not a fifth kind: a server has no required export and nothing
         # that could prove it, which makes it the same sort of thing a file node is.
         "mcp",
+        # `api/routes/chat.py`. A node because that file is there, which is a place a person
+        # can see rather than a claim about what the code is built on.
+        "chat",
     }
 
 
@@ -842,10 +845,21 @@ def test_reading_the_reference_is_under_500ms() -> None:
 # -- the chat route (Phase 12) ---------------------------------------------------------------
 
 
-def test_the_reference_has_no_chat_node() -> None:
-    """No `api/routes/chat.py`, no node. The rule stated as its absence, which is the half
-    that keeps a panel from existing without code behind it."""
-    assert [node for node in read_graph(EXAMPLE).nodes if node.kind == "chat"] == []
+def test_the_example_s_chat_is_the_file_it_serves_from() -> None:
+    """`examples/full` has one, and it is a node for one reason: that file is there."""
+    chat = [node for node in read_graph(EXAMPLE).nodes if node.kind == "chat"]
+
+    assert [node.path for node in chat] == ["api/routes/chat.py"]
+    assert chat[0].parent == "api"
+
+
+def test_no_file_means_no_chat_node(tmp_path: Path) -> None:
+    """The rule stated as its absence, which is the half that keeps a panel from existing
+    with nothing behind it."""
+    root = project(tmp_path)
+    (root / "api" / "routes" / "chat.py").unlink()
+
+    assert [node for node in read_graph(root).nodes if node.kind == "chat"] == []
 
 
 def test_a_chat_route_is_a_node_because_the_file_is_there(tmp_path: Path) -> None:
@@ -853,7 +867,7 @@ def test_a_chat_route_is_a_node_because_the_file_is_there(tmp_path: Path) -> Non
     inspected, and there is no contract for it to fail."""
     root = project(tmp_path)
     routes = root / "api" / "routes"
-    routes.mkdir()
+    routes.mkdir(exist_ok=True)
     (routes / "__init__.py").write_text("", encoding="utf-8")
     (routes / "chat.py").write_text(
         "from agent import run\n\n\ndef talk(message: str) -> str:\n    return run(message)\n",
@@ -880,7 +894,7 @@ def test_the_edge_to_the_agent_is_the_route_s_own_import(tmp_path: Path) -> None
     leaves the *chat* rather than the service, which is what makes the flow readable."""
     root = project(tmp_path)
     routes = root / "api" / "routes"
-    routes.mkdir()
+    routes.mkdir(exist_ok=True)
     (routes / "__init__.py").write_text("", encoding="utf-8")
     (routes / "chat.py").write_text("from agent import run\n", encoding="utf-8")
 
@@ -895,7 +909,7 @@ def test_a_chat_carries_no_verdict_because_its_lines_belong_to_the_service(
     same lines. A chat is not a system, and `is_system` is the question that says so."""
     root = project(tmp_path)
     routes = root / "api" / "routes"
-    routes.mkdir()
+    routes.mkdir(exist_ok=True)
     (routes / "__init__.py").write_text("", encoding="utf-8")
     (routes / "chat.py").write_text("def talk() -> str:\n    return 'hi'\n", encoding="utf-8")
 

@@ -1,0 +1,4 @@
+psycopg[binary]>=3.2
+pydantic-settings>=2.0
+sqlalchemy>=2.0
+uvicorn>=0.30

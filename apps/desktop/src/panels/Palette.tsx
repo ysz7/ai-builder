@@ -58,7 +58,10 @@ function Block({
 
   // A block with a kind is named by the kind, so there is one table of those words and it is
   // the one the canvas draws from. Everything else carries its own label from the core.
-  const label = spec.kind ? labelOf(spec.kind) : spec.label;
+  // The block's own label wins where it has one: five dependency blocks share a kind and
+  // are not five Databases, and a word that disagrees with the thing under it is worse than
+  // no word. The kind's name is the fallback, and it is the canvas's own table.
+  const label = spec.label || (spec.kind ? labelOf(spec.kind) : "");
   const ready = taken === "" && (spec.takes !== "name" || name.trim() !== "");
 
   const press = () => {
@@ -177,23 +180,25 @@ export function Palette({
   );
 
   /**
-   * Every kind in the graph, wherever it sits.
+   * Every node there is, by id.
    *
-   * A chat lives inside the api rather than at the root, so "there is already one" cannot be
-   * asked of `rooted` — and a block that stayed pressable after its node existed would ask
-   * the agent to write a file that is already there.
+   * `once` is asked of this rather than of the kinds at the root, because the three things
+   * it covers sit in three different places: a system at the root, a chat inside the api, a
+   * dependency beside the graph. The block says which id it becomes, so this panel enforces
+   * the rule while knowing none of it.
    */
-  const anywhere = new Set((graph?.nodes ?? []).map((node) => node.kind));
+  const present = new Set((graph?.nodes ?? []).map((node) => node.id));
 
   /** Why this block cannot be pressed, in the convention's words, or `""`. */
   const why = (spec: BlockSpec): string => {
     // The core's own sentence for the same situation, so the two agree.
     if (busy) return "a turn is already running — wait for it rather than starting a second";
-    if (spec.once && spec.argument && rooted.has(spec.argument)) {
-      return `there is already a ${spec.argument}/ here — one of each kind per level`;
-    }
-    if (spec.once && !spec.argument && spec.kind && anywhere.has(spec.kind)) {
-      return `there is already a ${spec.kind} in this project — one per project`;
+    if (spec.once && spec.becomes && present.has(spec.becomes)) {
+      // One sentence per shape of the rule, because they are different rules: a kind is
+      // one per level, and the other two are one per project.
+      return spec.kind && rooted.has(spec.kind)
+        ? `there is already a ${spec.becomes}/ here — one of each kind per level`
+        : `there is already a ${spec.becomes} in this project`;
     }
     if (spec.requires && !rooted.has(spec.requires)) {
       return `it goes inside ${spec.requires}/, and there is not one here yet`;

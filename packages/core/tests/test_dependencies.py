@@ -27,7 +27,7 @@ from framestack_core.status import (
     read_status,
 )
 
-EXAMPLE = Path(__file__).resolve().parents[3] / "examples" / "reference"
+EXAMPLE = Path(__file__).resolve().parents[3] / "examples" / "full"
 
 
 def project(tmp_path: Path) -> Path:
@@ -47,13 +47,15 @@ def edges_to(root: Path, node: str) -> set[str]:
 # -- how they appear: automatically, never by hand --------------------------------------
 
 
-def test_the_reference_names_docker_and_nothing_else() -> None:
-    """It has a `compose.yaml`, and its Python imports no client of anything.
+def test_the_example_names_only_what_its_own_code_reaches() -> None:
+    """A `compose.yaml` makes `docker`; models and a connection string make `postgres`.
 
-    A node for a thing the code does not reference would be a box with nothing behind it,
-    which is the defect the whole taxonomy exists to avoid.
+    Both are facts in the project: a file at the root, and a `__tablename__` beside a URL in
+    a settings default. A node for a thing the code does not reference would be a box with
+    nothing behind it, which is the defect the whole taxonomy exists to avoid — so there is
+    no `redis` here, and no `anthropic`, because nothing in it names one.
     """
-    assert deps(EXAMPLE) == {"docker"}
+    assert deps(EXAMPLE) == {"docker", "postgres"}
 
 
 def test_a_client_import_is_what_makes_the_node(tmp_path: Path) -> None:

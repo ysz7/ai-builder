@@ -7,9 +7,7 @@ WORKDIR /app
 COPY requirements.txt ./
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY agent/ ./agent/
 COPY api/ ./api/
 COPY rag/ ./rag/
-COPY worker/ ./worker/
 
 CMD ["python", "-m", "uvicorn", "api:app", "--host", "0.0.0.0", "--port", "8000"]

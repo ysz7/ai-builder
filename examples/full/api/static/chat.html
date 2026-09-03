@@ -1,0 +1,81 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>chat</title>
+<style>
+  body { margin: 0; font: 15px/1.55 system-ui, sans-serif; background: #fbfbfa; color: #1c1c1a; }
+  main { max-width: 46rem; margin: 0 auto; padding: 2rem 1rem 7rem; }
+  .turn { margin: 0 0 1.1rem; white-space: pre-wrap; }
+  .turn b { display: block; font: 600 11px/1.6 ui-monospace, monospace; color: #6b6b66;
+            letter-spacing: .06em; text-transform: uppercase; }
+  form { position: fixed; inset: auto 0 0 0; display: flex; gap: .5rem; padding: .75rem 1rem;
+         background: #fbfbfaee; border-top: 1px solid #e6e5e1; backdrop-filter: blur(6px); }
+  input, button { font: inherit; border-radius: 8px; border: 1px solid #d9d8d3; padding: .55rem .8rem; }
+  input { flex: 1; max-width: 40rem; margin-left: auto; background: #fff; }
+  button { margin-right: auto; background: #1c1c1a; color: #fbfbfa; border-color: #1c1c1a; cursor: pointer; }
+  button[disabled] { opacity: .45; cursor: default; }
+</style>
+
+<main id="log"></main>
+
+<form id="ask">
+  <input id="message" placeholder="Ask something" autocomplete="off" autofocus>
+  <button id="go">Send</button>
+</form>
+
+<script>
+  const log = document.getElementById("log");
+  const form = document.getElementById("ask");
+  const field = document.getElementById("message");
+  const go = document.getElementById("go");
+
+  function turn(who) {
+    const box = document.createElement("p");
+    box.className = "turn";
+    box.innerHTML = "<b></b><span></span>";
+    box.querySelector("b").textContent = who;
+    log.append(box);
+    window.scrollTo(0, document.body.scrollHeight);
+    return box.querySelector("span");
+  }
+
+  form.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const message = field.value.trim();
+    if (!message) return;
+    field.value = "";
+    go.disabled = true;
+    turn("you").textContent = message;
+    const into = turn("agent");
+
+    try {
+      const answer = await fetch("/chat", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ message }),
+      });
+      const reader = answer.body.getReader();
+      const decode = new TextDecoder();
+      let rest = "";
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        rest += decode.decode(value, { stream: true });
+        const events = rest.split("\n\n");
+        rest = events.pop();
+        for (const event of events) {
+          const line = event.split("\n").find((one) => one.startsWith("data:"));
+          if (!line) continue;
+          const payload = JSON.parse(line.slice(5));
+          if (payload.delta) into.textContent += payload.delta;
+          if (payload.error) into.textContent = payload.error;
+        }
+        window.scrollTo(0, document.body.scrollHeight);
+      }
+    } catch (failure) {
+      into.textContent = String(failure);
+    } finally {
+      go.disabled = false;
+      field.focus();
+    }
+  });
+</script>

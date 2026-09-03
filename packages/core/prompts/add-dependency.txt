@@ -1,0 +1,37 @@
+Make the project use the thing the message names.
+
+The message names one of: postgres, redis, ollama, anthropic, openai. That is the
+whole list, because it is the list this project's own reader recognises.
+
+Nothing about this is a registration. There is no manifest to add it to and no
+node to draw: the thing appears on the canvas afterwards, because the project's
+own Python names it. If you write no code that uses it, nothing appears, and that
+is correct.
+
+Take the system that should talk to it from the message. If the message does not
+say and more than one could, say which ones and stop. Do not spread a client
+across three packages to be helpful.
+
+Produce:
+  the client, constructed where the system that uses it constructs things
+  its settings in that system's settings.py -- host, url, model name, whichever
+    of those the thing actually has -- so a person can tune it from the interface
+  the local development values in .env, and nothing else in .env
+  the code that actually uses it, in the system that needs it, doing the thing the
+    message asked for
+  a test that exercises that code with a fake, passing with the service down and
+    with no network
+
+For postgres, that means the models and the session the project's own code already
+implies -- never a second ORM beside one that is there, and never a migration you
+were not asked for.
+
+For anthropic or openai, the key is read from the environment by name and is never
+written into a file. A default model belongs in settings.py, where it can be
+changed without editing code.
+
+For ollama, nothing is pulled and no model is chosen for the person: the model name
+is a setting with a value they can change, and a comment is not the place for it.
+
+Never write a credential that is not a local development default. Anything real
+belongs in the person's own environment, and you say so rather than inventing one.

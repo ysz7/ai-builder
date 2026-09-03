@@ -526,7 +526,13 @@ CHAT_CHOICES_SCHEMA = {
             # catalogue of databases and servers, and a catalogue is a gallery).
             "takes": "str",
             "choices": ["str"],
-            # Whether the convention allows only one at the root, and what must exist first.
+            # The id of the node a press would eventually produce, where that is
+            # predictable -- `agent`, `api.routes.chat`, `redis` -- and `""` where it is not.
+            # It is what lets a palette check `once` while knowing none of the rules, and it
+            # is **not** a promise that pressing draws it: a node appears because the agent
+            # wrote code the parser then read.
+            "becomes": "str",
+            # Whether the convention allows only one, and what must exist first.
             "once": "bool",
             "requires": "str",
         }

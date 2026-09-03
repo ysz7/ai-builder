@@ -24,7 +24,7 @@ from framestack_core.api import USAGE_SCHEMA, usage_read
 from framestack_core.run import last_run, start_run
 from framestack_core.usage import LEDGER_PATH, price_of, read_usage
 
-EXAMPLE = Path(__file__).resolve().parents[3] / "examples" / "reference"
+EXAMPLE = Path(__file__).resolve().parents[3] / "examples" / "full"
 
 PATIENCE = 120
 

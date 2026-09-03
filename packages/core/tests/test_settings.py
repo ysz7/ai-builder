@@ -32,7 +32,7 @@ from framestack_core.editor import open_in_editor
 from framestack_core.observe import read_observation, start_observation
 from framestack_core.settings import Settings, read_settings, write_setting
 
-EXAMPLE = Path(__file__).resolve().parents[3] / "examples" / "reference"
+EXAMPLE = Path(__file__).resolve().parents[3] / "examples" / "full"
 
 
 def project(tmp_path: Path) -> Path:

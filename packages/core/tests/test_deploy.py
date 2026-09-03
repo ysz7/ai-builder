@@ -34,7 +34,7 @@ from framestack_core.deploy import (
 )
 from framestack_core.deploy import deploy_status as status
 
-EXAMPLE = Path(__file__).resolve().parents[3] / "examples" / "reference"
+EXAMPLE = Path(__file__).resolve().parents[3] / "examples" / "full"
 
 
 def project(tmp_path: Path) -> Path:

@@ -43,6 +43,7 @@ import "@xyflow/react/dist/style.css";
 
 import type {
   ComposeService,
+  GraphNode,
   McpProbe,
   DatabaseResult,
   Graph,
@@ -102,6 +103,7 @@ export function GraphCanvas({
   onMove,
   onToggle,
   onTalk,
+  onRepair,
   pending,
   services,
   composed,
@@ -138,6 +140,14 @@ export function GraphCanvas({
   onToggle: (id: string) => void;
   /** Open an agent's own chat. Passed through to the card; the canvas has no opinion on it. */
   onTalk: (id: string) => void;
+  /**
+   * Ask the chat to make one node satisfy its kind.
+   *
+   * The one place the graph talks back, and it says a fact: this package does not bind the
+   * name its kind requires. What it produces is a message; the node turns complete when the
+   * code does, and not before.
+   */
+  onRepair: (node: GraphNode) => void;
   /**
    * Which kind is being written right now, or `""`.
    *
@@ -390,6 +400,7 @@ export function GraphCanvas({
                 onOpen: onSelect,
                 onToggle,
                 onTalk,
+                onRepair,
               },
       });
     }
@@ -483,6 +494,7 @@ export function GraphCanvas({
     onSelect,
     onToggle,
     onTalk,
+    onRepair,
     pending,
     services,
     composed,

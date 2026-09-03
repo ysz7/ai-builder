@@ -1,0 +1,19 @@
+# What this project needs running around it. The agent itself, and the local model daemon it
+# would talk to with OFFLINE=false — nothing leaves the machine either way.
+services:
+  agent:
+    build: .
+    env_file:
+      - .env
+    depends_on:
+      - ollama
+
+  ollama:
+    image: ollama/ollama:0.6.8
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama:/root/.ollama
+
+volumes:
+  ollama:
