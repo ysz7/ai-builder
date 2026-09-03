@@ -30,6 +30,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { runRead, runStart, runStop } from "../core/client";
 import type { GraphNode } from "../core/types";
 import { Flyout } from "../shell/Flyout";
+import { Markdown } from "../code/markdown";
 import { Copy } from "./Copy";
 
 /** How often a turn is polled while it runs. Output is polled, never pushed (P13). */
@@ -133,7 +134,10 @@ export function AgentChat({
   }, [draft, running, project, node.id]);
 
   return (
-    <Flyout title={node.name} onClose={onClose}>
+    // On the right, where the builder's own chat is. It is the same act — saying something
+    // and reading an answer — and a conversation that opened on the opposite edge from the
+    // other conversation would be two applications in one window.
+    <Flyout title={node.name} side="right" onClose={onClose}>
       <div className="bp-talk">
         {/* The one thing a person has to know to read this panel correctly, said where they
             will read it rather than in documentation they will not. */}
@@ -157,14 +161,26 @@ export function AgentChat({
 
             {turns.map((turn, index) => (
               <div className="bp-talk-turn" key={`${turn.at}-${index}`}>
-                <div className="bp-talk-said">{turn.message}</div>
+                {/* The same shapes the builder's own chat uses, because it is the same
+                    reading: a person's line as a bubble on the right, an answer as text
+                    across the panel. What the person typed is shown **as typed** —
+                    rendering their asterisks would be editing what they said. */}
+                <div className="bp-turn is-you">
+                  <div className="bp-turn-text">{turn.message}</div>
+                </div>
 
                 {turn.output ? (
                   <pre className="bp-talk-printed">{turn.output}</pre>
                 ) : null}
 
                 {turn.reply !== null ? (
-                  <div className="bp-talk-heard">{turn.reply}</div>
+                  // Formatted, because a model answers in Markdown and a panel that showed
+                  // the asterisks would be the only place in this application that did.
+                  <div className="bp-turn is-says">
+                    <div className="bp-turn-text">
+                      <Markdown source={turn.reply} />
+                    </div>
+                  </div>
                 ) : turn.error ? (
                   /* Verbatim, never repaired into something plausible: it is the way out of
                      the state the code is actually in — which is also why it is the one
@@ -177,7 +193,12 @@ export function AgentChat({
                     <Copy text={turn.error} what="this traceback" />
                   </div>
                 ) : (
-                  <div className="bp-talk-waiting">running…</div>
+                  /* Where the work is happening, in the transcript, exactly as the builder's
+                     own chat says it. */
+                  <div className="bp-turn is-working">
+                    <span className="bp-livedot" />
+                    <span className="bp-step-text">running…</span>
+                  </div>
                 )}
               </div>
             ))}
@@ -187,10 +208,13 @@ export function AgentChat({
 
         {refused ? <div className="bp-node-why">{refused}</div> : null}
 
+        {/* The field the builder's own chat uses, with none of the row under it: there is no
+            attachment, no mode and no context here, and drawing those controls dead would be
+            promising four things this panel cannot do. */}
         <div className="bp-talk-ask">
           <textarea
-            className="bp-field"
-            rows={2}
+            className="bp-chat-field"
+            rows={1}
             placeholder="Say something to it"
             value={draft}
             disabled={node.missing.length > 0}
@@ -204,19 +228,22 @@ export function AgentChat({
           />
           {running ? (
             <button
-              className="bp-run-go"
+              className="bp-send is-stop"
               onClick={() => void runStop(project, node.id)}
               title="End this turn"
+              aria-label="Stop"
             >
-              Stop
+              ■
             </button>
           ) : (
             <button
-              className="bp-run-go"
+              className="bp-send"
               disabled={!draft.trim() || node.missing.length > 0}
               onClick={() => void send()}
+              title="Send"
+              aria-label="Send"
             >
-              Send
+              ↑
             </button>
           )}
         </div>

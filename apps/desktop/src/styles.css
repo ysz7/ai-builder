@@ -300,6 +300,14 @@ textarea {
   box-shadow: var(--shadow-3);
   overflow: hidden;
 }
+/* A conversation opens on the right, at the width the builder's chat uses, because it is
+   the same reading in the same shape. The rail's panels stay on the left, where the rail
+   that opens them is. */
+.bp-flyout.is-right {
+  left: auto;
+  right: 12px;
+  width: 440px;
+}
 .bp-flyout-head {
   flex: 0 0 auto;
   display: flex;
@@ -1074,6 +1082,41 @@ button.bp-mark:hover {
 }
 .bp-frame-bar .bp-mark {
   margin-left: 0;
+}
+
+/* The folded bar: the frame's own header, kept on the canvas while the frame is shut. It is
+   the same object at two sizes — the bar, then the bar with its contents under it — so it is
+   set in the same type and the same tint, and only the chevron and the border tell them
+   apart. Dashed, because what it stands for is not drawn yet. */
+.bp-head {
+  width: 100%;
+  height: 100%;
+}
+.bp-head-bar {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  width: 100%;
+  height: 100%;
+  padding: 0 11px;
+  border: 1px dashed var(--line);
+  border-radius: 9px;
+  background: var(--tint-bg, var(--k-none-bg));
+  color: var(--tint, var(--k-none));
+  font-size: 11.5px;
+  font-weight: 600;
+  cursor: pointer;
+  pointer-events: all;
+}
+.bp-head-bar:hover {
+  border-style: solid;
+}
+
+/* A containment line: thinner and dotted, and never an arrow. It says "this is inside that",
+   which an import's weight would turn into "this calls that" — and the two relations run at
+   right angles to each other so that neither can be read as the other. */
+.bp-edge-holds .react-flow__edge-path {
+  opacity: 0.8;
 }
 
 /* wires */
@@ -2598,8 +2641,6 @@ body {
 .bp-term-out,
 .bp-detail-addr,
 .bp-notice-text,
-.bp-talk-said,
-.bp-talk-heard,
 .bp-talk-printed,
 .bp-talk-broke,
 input,
@@ -4198,11 +4239,116 @@ textarea {
 /* The panel a node opens. A column of label-and-value rows: what it is, where it is, what
    its kind requires, what it contains. Each row is a reading of the code, never a control
    -- the controls arrive beside the capability that can answer for them. */
-.bp-node-panel {
+/* ---------- the node, in the middle of the window ---------- */
+
+/* A dialog rather than a flyout, because of what is in it: everything about one box — what
+   it is, what it contains, what a run proved, what a person can tune, what it can be asked
+   to do. In a 340px column at the left edge that is one long scroll with the node itself
+   hidden behind it. Centred and two columns wide, it is a thing to read. */
+.bp-focus {
+  width: min(760px, 92vw);
+  max-height: min(760px, 88vh);
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--surface);
+  box-shadow: var(--shadow-3);
+  overflow: hidden;
+}
+.bp-focus-head {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 52px;
+  padding: 0 10px 0 16px;
+  border-bottom: 1px solid var(--line);
+}
+.bp-focus-name {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  min-width: 0;
+}
+/* The kind, in the kind's own colour: the same word the tab on the card carries, so the
+   dialog and the box it came from are recognisably the same thing. */
+.bp-focus-badge {
+  flex: 0 0 auto;
+  align-self: center;
+  padding: 2px 8px;
+  border-radius: var(--radius-pill);
+  background: var(--tint-bg, var(--k-none-bg));
+  color: var(--tint, var(--fg-2));
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+.bp-focus-title {
+  font-weight: 600;
+  font-size: 15px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.bp-focus-where {
+  font-family: var(--mono);
+  font-size: 11.5px;
+  color: var(--muted-2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.bp-focus-head .bp-icon {
+  margin-left: auto;
+}
+.bp-focus-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  background: var(--bg);
+}
+
+/* Two columns, filled by flow rather than by hand. Every block in here is independent —
+   a reading, a list, a set of knobs — so which column one lands in carries no meaning, and
+   laying them out by hand would be a second thing to keep in step with the panel's order. */
+.bp-node-panel {
   padding: 14px;
+  columns: 2;
+  column-gap: 14px;
+}
+@media (max-width: 700px) {
+  .bp-node-panel {
+    columns: 1;
+  }
+}
+/* Each block whole, in a card of its own: a run of captions down a page is a list, and a
+   list is what this panel used to read as. */
+.bp-node-panel > div {
+  break-inside: avoid;
+  -webkit-column-break-inside: avoid;
+  display: block;
+  margin: 0 0 12px;
+  padding: 11px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-2);
+  background: var(--surface);
+}
+/* A block of its own that is a button — the offer to repair — is an action rather than a
+   reading, and dressing it as a card would make it the one card a person can press. */
+.bp-node-panel > button {
+  break-inside: avoid;
+  -webkit-column-break-inside: avoid;
+  display: block;
+  width: 100%;
+  margin: 0 0 12px;
+}
+/* The sentences are notes about the panel rather than blocks of it: no card, no border. */
+.bp-node-panel > .bp-node-why {
+  padding: 9px 11px;
+  border-color: transparent;
+  background: var(--danger-soft);
 }
 .bp-node-row {
   display: flex;
@@ -4797,35 +4943,18 @@ textarea {
   font-family: var(--mono);
   font-size: 11px;
 }
+/* One turn: what was said, what was printed on the way, and what came back. The pieces are
+   the builder chat's own — `.bp-turn`, `.bp-turn-text`, the working line — because this is
+   the same reading of the same shape, and two chats in one application that set type
+   differently look like two applications. */
 .bp-talk-turn {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 8px;
+  margin-bottom: 4px;
 }
-/* What was asked, aligned right the way a sent message is everywhere else. */
-.bp-talk-said {
-  align-self: flex-end;
-  max-width: 88%;
-  padding: 7px 11px;
-  border-radius: 12px 12px 3px 12px;
-  background: var(--accent-soft);
-  font-size: 12.5px;
-  line-height: 1.5;
-  color: var(--fg-2);
-  white-space: pre-wrap;
-  word-break: break-word;
-}
-.bp-talk-heard {
-  align-self: flex-start;
-  max-width: 92%;
-  padding: 8px 11px;
-  border-radius: 12px 12px 12px 3px;
-  background: var(--bg-2);
-  font-size: 12.5px;
-  line-height: 1.55;
-  color: var(--fg-2);
-  white-space: pre-wrap;
-  word-break: break-word;
+.bp-talk-turn .bp-turn {
+  margin-bottom: 0;
 }
 /* What the agent printed on its way to an answer. Quieter than the reply and kept apart from
    it: a `print` is not what the function returned, and merging them would put words in the
@@ -4869,20 +4998,31 @@ textarea {
   right: 4px;
   background: var(--danger-soft);
 }
-.bp-talk-waiting {
-  align-self: flex-start;
-  font-size: 11.5px;
-  color: var(--muted-3);
-}
+/* The composer, in the shape the builder's chat uses: one bordered box holding the field
+   and the send button, and nothing else in it — this panel has no attachments and no modes,
+   and a row of controls that did nothing would promise four things it cannot do. */
 .bp-talk-ask {
   flex: 0 0 auto;
   display: flex;
-  align-items: flex-start;
+  align-items: flex-end;
   gap: 6px;
+  padding: 6px 6px 6px 2px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--surface);
 }
-.bp-talk-ask .bp-field {
+.bp-talk-ask:focus-within {
+  border-color: var(--accent-line);
+}
+.bp-talk-ask .bp-chat-field {
   flex: 1 1 auto;
   min-width: 0;
+  padding: 8px 10px;
+  min-height: 34px;
+  color: var(--fg);
+}
+.bp-talk-ask .bp-send {
+  margin-bottom: 2px;
 }
 
 /* The way in, on the card. Talking to the thing is what a person came to the canvas to do,

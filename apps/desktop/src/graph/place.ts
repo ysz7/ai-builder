@@ -225,19 +225,31 @@ export function placeAll(
   let column = 0;
   let deepest = 0;
   for (const system of systems) {
-    const x = ORIGIN + column * COLUMN;
+    const mine = graph.nodes.filter((node) => node.parent === system.id);
+    // A system whose parts sit beside it takes two columns and stands in the right-hand one,
+    // so its routes have a lane of their own to run in rather than landing on the card to
+    // its left. Underneath needs no room in x, only in y.
+    const beside = mine.length > 0 && holdSide(system.kind) === "left";
+    const x = ORIGIN + (column + (beside ? 1 : 0)) * COLUMN;
     placed[system.id] = saved(system.id) ?? { x, y: ORIGIN };
 
-    let cursor = ORIGIN + cardHeight(system, costed) + GUTTER + FRAME_TOP;
-    if (isExpanded(layout, system.id)) {
-      for (const child of shown.filter((node) => node.parent === system.id)) {
-        placed[child.id] = saved(child.id) ?? { x: x + INDENT, y: cursor };
-        cursor += cardHeight(child, costed) + GUTTER;
-      }
-      cursor += FRAME_PAD;
+    // Children are placed whether or not they are drawn. Folded, the bar that stands for
+    // them sits **where they are**, so opening it puts the frame in the same place rather
+    // than somewhere the person then has to find — and the coordinate that survives the
+    // fold is theirs, on their own nodes, not one this canvas invented for a bar.
+    const at = placed[system.id];
+    let cursor = at.y + (beside ? 0 : cardHeight(system, costed) + GUTTER + FRAME_TOP);
+    for (const child of mine) {
+      placed[child.id] =
+        saved(child.id) ??
+        (beside
+          ? { x: at.x - cardWidth(child) - COLUMN / 4, y: cursor }
+          : { x: at.x + INDENT, y: cursor });
+      cursor += cardHeight(child, costed) + GUTTER;
     }
-    deepest = Math.max(deepest, cursor);
-    column += 1;
+    if (mine.length > 0) cursor += FRAME_PAD;
+    deepest = Math.max(deepest, isExpanded(layout, system.id) ? cursor : at.y + 200);
+    column += beside ? 2 : 1;
   }
 
   stores.forEach((store, index) => {
@@ -279,6 +291,66 @@ export function placeAll(
     stray += 1;
   }
   return placed;
+}
+
+/** How tall the folded bar is: the frame's own bar, and nothing under it yet. */
+export const HEAD_HEIGHT = 32;
+
+/**
+ * Which side of a card the things it holds hang off.
+ *
+ * Not decoration and not a preference: it is what the parts **are**. A service's routes are
+ * its own flow — a request arrives, a handler answers — and that flow is drawn the way every
+ * import on this canvas is, left to right into the card. An agent's tools are equipment
+ * beside it, reached and returned from, so they hang underneath where they cannot be read as
+ * a step in anything.
+ *
+ * A table rather than a rule, because there are two answers and inventing a third from
+ * something structural would be a guess about somebody's architecture.
+ */
+export function holdSide(kind: string): "left" | "bottom" {
+  return kind === "api" ? "left" : "bottom";
+}
+
+/**
+ * The folded bar's id on the canvas.
+ *
+ * Prefixed for the reason a container's is: it is **not a graph node**, it must never reach
+ * `layout.json`, and a bare name could collide with a package somebody called that.
+ */
+export function headId(system: string): string {
+  return `head:${system}`;
+}
+
+/**
+ * The folded bar's box: **the frame's own bar, where the frame would be.**
+ *
+ * Derived from where the children are — which is why opening the fold does not move
+ * anything. The bar stays exactly where it is and the box grows underneath it, so a person
+ * who put this row of tools somewhere finds it there at both sizes.
+ */
+export function headBox(
+  system: GraphNode,
+  all: GraphNode[],
+  placed: Record<string, Point>,
+  costed: ReadonlySet<string> = EMPTY,
+): Box | null {
+  const members = all
+    .filter((node) => node.parent === system.id)
+    .map((node) => ({ at: placed[node.id], node }))
+    .filter((member) => member.at !== undefined);
+  if (members.length === 0) return null;
+
+  const left = Math.min(...members.map((m) => m.at.x));
+  const top = Math.min(...members.map((m) => m.at.y));
+  const right = Math.max(...members.map((m) => m.at.x + cardWidth(m.node)));
+  void costed;
+  return {
+    x: left - FRAME_PAD,
+    y: top - FRAME_TOP,
+    width: right - left + FRAME_PAD * 2,
+    height: HEAD_HEIGHT,
+  };
 }
 
 /**

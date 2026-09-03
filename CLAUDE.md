@@ -105,6 +105,26 @@ of a model this machine has pulled, asked of the local daemon, because a bare ta
 is otherwise unattributable without the catalogue the plan puts out of scope — and the same list is
 offered as **suggestions** under a model field, never as the values it is limited to.
 
+**What a system holds is drawn at both sizes.** A count on a header said "there is more here"
+and nothing else, so a project's tools and routes were absent from the picture until somebody
+pressed a fold. Folded, one bar stands for the children and the line lands on **it**; open, the
+bar becomes the frame and the lines land on the cards inside. Pressing the fold changes what
+the line points at, never whether the thing exists. The line is dotted and thinner than an import,
+because it is not one.
+
+**Which side it hangs off is what the parts are, not taste.** A service's routes are its own
+flow — a request arrives, a handler answers — so they sit to its **left** and run into it the
+way every import on this canvas does. An agent's tools are equipment beside it, so they hang
+**underneath**, where they cannot be read as a step in anything. Two answers, in a table
+(`holdSide`); a third invented from something structural would be a guess about somebody's
+architecture.
+
+The bar is not a node: no verdict, no settings, no Run, and **no entry in `layout.json`**. It
+can still be moved — dragging it moves the cards it stands for, and what gets written is
+*their* coordinates — which is what makes "it opens where you put it" true without this
+application storing a position for something the code does not have. Its box is the frame's
+box, so opening the fold grows a region under the bar and moves nothing.
+
 **Nesting.** A system may contain others one level down, in a directory named after the plural of the
 kind (`agents/`, `rags/`, `workers/`). Only one level is recognised; a third produces no nodes and no
 error. Nested nodes are named by path (`agent.researcher`) and are children of their container.
@@ -209,8 +229,12 @@ These hold in every phase. A change that breaks one is reverted.
 Two, permanently: the **graph** (system nodes, file nodes, edges from imports, colour from the last
 Observe) and the **chat** (one agent, one contract: ordinary Python following the convention). Four
 commands reachable from the graph — `Observe`, `Run`, `Deploy`, `Open` — and a terminal that is a
-slide-out drawer, not a tab. Everything else lives on a node: click it and a panel opens with its
-settings, its files, its last verdict and its Run controls.
+slide-out drawer, not a tab. Everything else lives on a node: click it and a **centred dialog** opens with its
+settings, its files, its last verdict and its Run controls — a dialog rather than a flyout
+because it is everything about one box, and in a 340px column at the edge that is one long
+scroll with the node itself hidden behind it. The rail's panels stay flyouts; the node is the
+one surface that takes the middle of the window, laid out in two flowing columns where the
+column a block lands in carries no meaning.
 
 **Every write goes through libcst, and the smallest one is the model for the rest.**
 `settings.write` changes one field's default in one class in one file; `git diff` afterwards is

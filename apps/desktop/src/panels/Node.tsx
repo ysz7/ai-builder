@@ -45,8 +45,8 @@ import type {
   SettingsResult,
   StatusResult,
 } from "../core/types";
-import { Flyout } from "../shell/Flyout";
-import { isSystem, labelOf } from "../graph/kinds";
+import { Modal } from "../shell/Modal";
+import { isSystem, labelOf, tintBgOf, tintOf } from "../graph/kinds";
 import { known, markOf, wordsFor } from "../graph/verdicts";
 import { Deploy } from "./Deploy";
 import { Docker } from "./Docker";
@@ -342,12 +342,18 @@ export function NodePanel({
   );
 
   return (
-    <Flyout title={node.name} onClose={onClose}>
+    // The kind and the path move into the header: they are what the card on the canvas
+    // already says, and two rows repeating it were the first two things in a column
+    // somebody had to scroll past to reach anything they came for.
+    <Modal
+      title={node.name}
+      badge={labelOf(node.kind)}
+      subtitle={node.path}
+      tint={tintOf(node.kind)}
+      tintBg={tintBgOf(node.kind)}
+      onClose={onClose}
+    >
       <div className="bp-node-panel">
-        <Row label="Kind">{labelOf(node.kind)}</Row>
-        <Row label="Path">
-          <code>{node.path}</code>
-        </Row>
 
         {/* A file node and an MCP server promise nothing, so they are asked for nothing. The
             absence is the same one that keeps them uncoloured: no contract to satisfy. */}
@@ -691,6 +697,6 @@ export function NodePanel({
           </Row>
         ) : null}
       </div>
-    </Flyout>
+    </Modal>
   );
 }

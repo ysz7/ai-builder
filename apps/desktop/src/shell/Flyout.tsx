@@ -14,10 +14,17 @@ import { useEffect } from "react";
 
 export function Flyout({
   title,
+  /**
+   * Which edge it opens from. `"left"` is where the rail's panels live, because that is
+   * where the rail is; a **conversation** opens on the right, beside the other one — two
+   * chats in one window that dock to opposite edges read as two different applications.
+   */
+  side = "left",
   onClose,
   children,
 }: {
   title: string;
+  side?: "left" | "right";
   onClose: () => void;
   children: React.ReactNode;
 }) {
@@ -32,7 +39,7 @@ export function Flyout({
   }, [onClose]);
 
   return (
-    <aside className="bp-flyout" role="dialog" aria-label={title}>
+    <aside className={`bp-flyout is-${side}`} role="dialog" aria-label={title}>
       <header className="bp-flyout-head">
         <span className="bp-flyout-title">{title}</span>
         <button className="bp-icon" onClick={onClose} title="Close" aria-label="Close">

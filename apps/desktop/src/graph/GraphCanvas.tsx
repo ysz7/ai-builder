@@ -55,6 +55,7 @@ import { ContainerCard } from "./ContainerCard";
 import { dependencyOf } from "./services";
 import { FileCard } from "./FileCard";
 import { Frame } from "./Frame";
+import { FrameHead } from "./FrameHead";
 import { PendingCard } from "./PendingCard";
 import { SystemCard } from "./SystemCard";
 import {
@@ -65,9 +66,13 @@ import {
   cardWidth,
   foldEdges,
   frameBox,
+  headBox,
+  headId,
+  holdSide,
   isExpanded,
   pendingSpot,
   placeAll,
+  type Point,
   serviceId,
   visible,
 } from "./place";
@@ -76,6 +81,7 @@ const NODE_TYPES = {
   system: SystemCard,
   file: FileCard,
   frame: Frame,
+  head: FrameHead,
   pending: PendingCard,
   container: ContainerCard,
 };
@@ -244,6 +250,31 @@ export function GraphCanvas({
       }))
       .filter((link) => link.dependency !== "");
 
+    /**
+     * What holds what, as lines rather than as a number on a header.
+     *
+     * The children of a system are in the code whether or not somebody has pressed the
+     * fold, so they are on the canvas at both sizes: folded, one bar stands for them and
+     * the line lands on it; open, the bar becomes the frame and the lines land on the cards
+     * inside it. Either way the relation is drawn, and pressing the fold changes **what the
+     * line points at** rather than whether the thing exists.
+     *
+     * Always **down** from the parent and **into the top** of what it holds. Containment is
+     * vertical and an import is horizontal, so the two can never be read as each other —
+     * and it is why an agent's tools hang below it while `api → agent` still runs across.
+     */
+    const holds: { parent: string; part: string; side: "left" | "bottom" }[] = [];
+    for (const system of shown) {
+      if (system.children.length === 0) continue;
+      const side = holdSide(system.kind);
+      const inside = shown.filter((node) => node.parent === system.id);
+      if (isExpanded(layout, system.id) && inside.length > 0) {
+        holds.push(...inside.map((child) => ({ parent: system.id, part: child.id, side })));
+      } else {
+        holds.push({ parent: system.id, part: headId(system.id), side });
+      }
+    }
+
     // A pin is drawn only where an edge lands on it. Four pins on every card would be a
     // picture of what *could* be connected, and nothing here can be connected.
     //
@@ -254,13 +285,31 @@ export function GraphCanvas({
     const pinned = {
       in: new Set([
         ...drawn.filter((e) => e.kind === "import" && !e.port).map((e) => e.target),
+        // A service's parts run into it from the left, so the pin they land in is the one
+        // every import lands in — the same relation drawn the same way.
+        ...holds.filter((one) => one.side === "left").map((one) => one.parent),
         // A pin an edge *does* use and that is not drawn is worse than a decorative one:
         // React Flow cannot place the line at all, and the relation silently disappears.
         ...sameAs.map((link) => link.dependency),
       ]),
-      out: new Set(drawn.filter((e) => e.kind === "import").map((e) => e.source)),
-      up: new Set(drawn.filter((e) => e.kind === "mcp").map((e) => e.target)),
-      down: new Set(drawn.filter((e) => e.kind === "mcp").map((e) => e.source)),
+      out: new Set([
+        ...drawn.filter((e) => e.kind === "import").map((e) => e.source),
+        // The part a line leaves *from*, where it sits beside its parent rather than under
+        // it. Without this the handle is never drawn and React Flow drops the edge without
+        // a word — the relation is in the model and absent from the picture, which is the
+        // one failure this canvas must not have.
+        ...holds.filter((one) => one.side === "left").map((one) => one.part),
+      ]),
+      up: new Set([
+        ...drawn.filter((e) => e.kind === "mcp").map((e) => e.target),
+        // What is held draws the pin the containment line lands in — only where it hangs
+        // underneath; a part beside its parent uses the horizontal pins instead.
+        ...holds.filter((one) => one.side === "bottom").map((one) => one.part),
+      ]),
+      down: new Set([
+        ...drawn.filter((e) => e.kind === "mcp").map((e) => e.source),
+        ...holds.filter((one) => one.side === "bottom").map((one) => one.parent),
+      ]),
     };
 
     const flow: Node[] = [];
@@ -294,6 +343,43 @@ export function GraphCanvas({
             .sort(([a], [b]) => a.localeCompare(b))
             .map(([kind, count]) => ({ kind, count })),
           verdict: found.get(system.id)?.verdict ?? "",
+          onToggle,
+        },
+      });
+    }
+
+    // The folded bars, one per system that is holding something and is shut. Undraggable and
+    // unselectable for the same reason the frame is: it is not a node, and a position for it
+    // would be a coordinate for something the code does not have.
+    for (const one of holds) {
+      if (!one.part.startsWith("head:")) continue;
+      const system = shown.find((node) => node.id === one.parent);
+      if (!system) continue;
+      const box = headBox(system, graph.nodes, placed, costed);
+      if (!box) continue;
+      const tally = new Map<string, number>();
+      for (const child of graph.nodes) {
+        if (child.parent !== system.id) continue;
+        tally.set(child.kind, (tally.get(child.kind) ?? 0) + 1);
+      }
+      flow.push({
+        id: one.part,
+        type: "head",
+        // The frame's bar, in the frame's place, at the frame's width: opening the fold
+        // grows a box under it and moves nothing.
+        position: { x: box.x, y: box.y },
+        ...sized(box.width, box.height),
+        // **Movable, and still not a node.** Dragging it moves the cards it stands for —
+        // their coordinates are what is written, and this bar has none of its own. That is
+        // what makes "it opens where you put it" true without a layout entry for a bar.
+        draggable: true,
+        selectable: false,
+        data: {
+          system: system.id,
+          side: one.side,
+          parts: [...tally.entries()]
+            .sort(([a], [b]) => a.localeCompare(b))
+            .map(([kind, count]) => ({ kind, count })),
           onToggle,
         },
       });
@@ -472,6 +558,25 @@ export function GraphCanvas({
       },
     }));
 
+    // Containment, drawn in a weight of its own: thinner and dotted, because it is not an
+    // import and a line of the same weight would claim one. No label — the bar it lands on
+    // already says what is down there, and the same words twice read as two facts.
+    for (const one of holds) {
+      const beside = one.side === "left";
+      wires.push({
+        id: `holds:${one.parent}:${one.part}`,
+        // Beside, the part is upstream of the card the way an import is — the line runs into
+        // the service. Underneath, it comes down from the card that holds it.
+        source: beside ? one.part : one.parent,
+        target: beside ? one.parent : one.part,
+        sourceHandle: beside ? "out" : "down",
+        targetHandle: beside ? "in" : "up",
+        type: "smoothstep",
+        className: "bp-edge-holds",
+        style: { stroke: "var(--line-strong)", strokeWidth: 1.5, strokeDasharray: "3 4" },
+      });
+    }
+
     for (const link of sameAs) {
       wires.push({
         id: `same:${link.service}:${link.dependency}`,
@@ -525,10 +630,43 @@ export function GraphCanvas({
     [graph, services],
   );
 
+  /**
+   * A folded bar was dragged, so the cards it stands for move with it.
+   *
+   * **The bar has no coordinate of its own and must never acquire one.** What is written is
+   * its children's own positions, moved by the same delta — which is why opening the fold
+   * finds the frame exactly where the bar was left, and why deleting `layout.json` loses
+   * nothing but a person's arrangement of real nodes.
+   */
+  const moveHead = useCallback(
+    (system: string, to: Point, done: boolean) => {
+      if (!graph) return;
+      const costed = new Set(Object.keys(costs).filter((id) => costs[id]));
+      const placed = placeAll(graph, layout, services, costed);
+      const node = graph.nodes.find((one) => one.id === system);
+      const box = node ? headBox(node, graph.nodes, placed, costed) : null;
+      if (!node || !box) return;
+      const dx = to.x - box.x;
+      const dy = to.y - box.y;
+      if (dx === 0 && dy === 0 && !done) return;
+      for (const child of graph.nodes) {
+        if (child.parent !== system) continue;
+        const at = placed[child.id];
+        if (!at) continue;
+        onMove(child.id, { x: at.x + dx, y: at.y + dy }, done);
+      }
+    },
+    [graph, layout, services, costs, onMove],
+  );
+
   const onNodesChange = useCallback(
     (changes: NodeChange[]) => {
       for (const change of changes) {
         if (change.type !== "position" || !change.position) continue;
+        if (change.id.startsWith("head:")) {
+          moveHead(change.id.slice("head:".length), change.position, change.dragging === false);
+          continue;
+        }
         // **Only a real node's position is ever reported.** Frames and the pending marker are
         // already undraggable, so this should be unreachable — and it is here anyway, because
         // what it prevents is a coordinate for something that is not in the code reaching
@@ -538,7 +676,7 @@ export function GraphCanvas({
         onMove(change.id, change.position, change.dragging === false);
       }
     },
-    [onMove, real],
+    [onMove, real, moveHead],
   );
 
   return (

@@ -164,7 +164,10 @@
   --surface-region: rgba(255, 255, 255, 0.035);
   --line: rgba(255, 255, 255, 0.09);
   --line-2: rgba(255, 255, 255, 0.06);
-  --line-strong: rgba(255, 255, 255, 0.2);
+  /* Wires are drawn in this, and on a dark ground a short one between two neighbouring
+     cards was almost invisible — a relation a person cannot see is a relation the picture
+     is not making. Lifted until the shortest edge on the canvas reads as a line. */
+  --line-strong: rgba(255, 255, 255, 0.32);
 
   --surface: #191919;
   --surface-2: #212124;
