@@ -95,18 +95,30 @@ that, it is two projects.
 import. An edge to an MCP server is read from `mcp.json`. **No edge is ever created by hand in the
 UI** — connecting two nodes means writing an import, which is a code edit made by the chat.
 
-**Declared nodes.** Two things are nodes without being packages, alongside the four files: a
-**server** in `mcp.json`, and a **container** in `compose.yaml`. Neither has a required export,
-so neither can be incomplete and **neither can ever carry a verdict** — nothing in a test run
-executes a Postgres. They are not a fifth kind; ask `is_system(node)` (`isSystem(kind)` in the
-UI) to tell a package from one of these, and **never `kind != "file"`**: that meant "is it a
-package" only while `file` was the sole exception, and it would have handed `mcp.json` to
-coverage as a source directory the day servers became nodes.
+**Declared nodes.** Three things are nodes without being packages, alongside the four files: a
+**server** in `mcp.json`, a **container** in `compose.yaml`, and the **database** the project's
+own code talks to. None has a required export, so none can be incomplete and **none can ever
+carry a verdict** — nothing in a test run executes a Postgres. They are not a fifth kind; ask
+`is_system(node)` (`isSystem(kind)` in the UI) to tell a package from one of these, and **never
+`kind != "file"`**: that meant "is it a package" only while `file` was the sole exception, and
+it would have handed `mcp.json` to coverage as a source directory the day servers became nodes.
 
-The two differ in where they come from, and the difference is the rule. A server is in the
-graph, because `mcp.json` is a file the parser already reads. A container is **beside** the
-graph, because the only honest way to learn a service's name is `docker compose config
---services` — a subprocess, a different question, and a different moment to go stale.
+They differ in where they come from, and the difference is the rule. A server is in the graph,
+because `mcp.json` is a file the parser already reads. The database is in the graph for the same
+reason — a `__tablename__` and a connection string are in the project's own Python. A container
+is **beside** the graph, because the only honest way to learn a service's name is `docker compose
+config --services` — a subprocess, a different question, and a different moment to go stale.
+
+**A verdict and a status are different things**, and they never share a colour scale. A verdict
+comes from a test and belongs to code you own; a status comes from a connection check and belongs
+to something external. The database is the first node of the second sort — a **dependency** — and
+until something exists that can make a connection check it carries neither, which is the honest
+state rather than a placeholder for one. What a database *is* the project states, and that is all
+`database.py` reads: `__tablename__`, `alembic/versions/`, and a connection string out of a
+`BaseSettings` default with its credentials removed. **One node per backend, never one per table**
+— twelve tables are twelve rows in a panel, and table-level edges are a hairball whose every line
+has to choose a table to land on. The base class of a model is never resolved: that would mean
+knowing SQLAlchemy, and the parser learns no library, ever.
 
 ### The graph is a projection, not an executor
 
@@ -265,7 +277,9 @@ Inside the core: `protocol.py` is the wire; `handlers.py` is the method table an
 payloads it assembles; `parser.py` derives the graph from the convention; `session.py` is the chat
 agent's process; `shell.py` is the terminal the person types into; `layout.py` is where a person put
 things; `observe.py` runs the project's tests and turns what happened into colour;
-`settings.py` reads and writes the one `BaseSettings` class a system may declare; `editor.py`
+`settings.py` reads and writes the one `BaseSettings` class a system may declare;
+`database.py` reads what the project stores things in and `routes.py` what one service serves;
+`editor.py`
 is `Open`; `chat.py` dispatches a message to exactly one command and declares the **blocks** a
 palette may offer; `mcp.py` reads one server's entry and runs it; `run.py` calls one system's
 export in the project's own interpreter and `deploy.py` brings the compose stack up;

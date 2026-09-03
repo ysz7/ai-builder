@@ -1,9 +1,10 @@
 /**
  * Something the project **declares** and can never prove, drawn as a node.
  *
- * Two of them share this card because they are the same sort of thing: a container in
- * `compose.yaml`, and an MCP server in `mcp.json`. Neither has an export, neither is a
- * package, and neither is ever executed by a test — so neither can carry a verdict.
+ * Three of them share this card because they are the same sort of thing: a container in
+ * `compose.yaml`, an MCP server in `mcp.json`, and the database the project's own code talks
+ * to. None has an export, none is a package, and none is ever executed by a test — so none
+ * can carry a verdict.
  *
  * **Never coloured, and this is a different component so that it cannot become so.** Nothing
  * in a test run executes a Postgres, so nothing can prove one; a card that merely omitted the
@@ -16,8 +17,10 @@
  * to add one: a parser for somebody else's format is a second opinion about a thing that
  * already has a first one, and it is wrong in ways that look right.
  *
- * So the card says a name and what declared it, and nothing else. Everything a person can do
- * with these lives on the `compose.yaml` node, because that is the thing they are written in.
+ * So the card says a name and one quiet line under it, and nothing else. Everything a person
+ * can do with a container lives on the `compose.yaml` node, because that is the thing they
+ * are written in; everything about the database lives in its panel, because twelve tables are
+ * twelve rows and never twelve boxes.
  */
 
 import { Handle, Position, type NodeProps } from "@xyflow/react";
@@ -26,9 +29,15 @@ import { glyphOf, labelOf, tintBgOf, tintOf } from "./kinds";
 
 export type ContainerData = {
   name: string;
-  /** `container` or `mcp`. Two things the project declares and can never prove. */
+  /** `container`, `mcp` or `dependency`. Things the project states and can never prove. */
   kind: string;
-  /** The file that declares it. What a person opens to change it. */
+  /**
+   * The one line under the name.
+   *
+   * For a container and a server it is the file that declares them, which is what a person
+   * opens to change one. For the database there is no such file — it is stated in several
+   * places at once — so it is the reading instead: how many tables, or what it points at.
+   */
   where: string;
   /**
    * Whether an edge actually lands here.
@@ -38,10 +47,12 @@ export type ContainerData = {
    * the canvas. A container has no edges; a server has the one from the agent that reaches it.
    */
   pinned: boolean;
+  /** Whether an import edge lands on the left. A database has these; the other two do not. */
+  inbound: boolean;
 };
 
 export function ContainerCard({ data, selected }: NodeProps) {
-  const { name, kind, where, pinned } = data as unknown as ContainerData;
+  const { name, kind, where, pinned, inbound } = data as unknown as ContainerData;
 
   return (
     <div
@@ -68,6 +79,12 @@ export function ContainerCard({ data, selected }: NodeProps) {
       <div className="bp-card bp-card-container">
         {pinned ? (
           <Handle type="target" position={Position.Top} className="pin pin-data" id="up" />
+        ) : null}
+        {/* A dependency is imported *into* the project's code, so its lines arrive from the
+            side the way every other import edge does. A server is reached over a protocol
+            and keeps its own pin above. */}
+        {inbound ? (
+          <Handle type="target" position={Position.Left} className="pin pin-data" id="in" />
         ) : null}
         <div className="bp-card-head">
           <svg

@@ -70,6 +70,7 @@ export function ping(echo?: string): Promise<PingResult> {
 import type {
   Changes,
   ChatChoices,
+  DatabaseResult,
   DeployResult,
   Dispatch,
   Graph,
@@ -243,6 +244,17 @@ export function chatChanges(project: string): Promise<Changes> {
 /** The commands, and the stacks each kind may be generated on. */
 export function chatChoices(): Promise<ChatChoices> {
   return coreRequest<ChatChoices>("chat.choices", {});
+}
+
+/**
+ * What the project's storage is: its tables, and the connection string it states.
+ *
+ * A read that walks the project, so it is asked once beside the graph rather than on every
+ * render — and it says nothing about whether the database is up. That is a different
+ * question, asked by something that can actually ask it.
+ */
+export function databaseRead(project: string): Promise<DatabaseResult> {
+  return coreRequest<DatabaseResult>("database.read", { project });
 }
 
 /**

@@ -23,8 +23,15 @@
 
 import { useCallback, useEffect, useState } from "react";
 
-import { editorOpen, routesRead, settingsRead, settingsWrite } from "../core/client";
+import {
+  databaseRead,
+  editorOpen,
+  routesRead,
+  settingsRead,
+  settingsWrite,
+} from "../core/client";
 import type {
+  DatabaseResult,
   Graph,
   GraphNode,
   Observation,
@@ -100,6 +107,15 @@ export function NodePanel({
    */
   const [routes, setRoutes] = useState<RoutesResult | null>(null);
 
+  /**
+   * What the storage holds, asked only of the database node and only when it is open.
+   *
+   * **Twelve tables are twelve rows here and never twelve boxes out there.** Table-level
+   * edges produce a hairball whose every line has to choose a table to land on; the mapping
+   * belongs where it can be read on demand.
+   */
+  const [database, setDatabase] = useState<DatabaseResult | null>(null);
+
   useEffect(() => {
     let live = true;
     setSettings(null);
@@ -114,6 +130,20 @@ export function NodePanel({
       .catch((error: unknown) =>
         live && setRefused(error instanceof Error ? error.message : String(error)),
       );
+    return () => {
+      live = false;
+    };
+  }, [project, id, graph]);
+
+  useEffect(() => {
+    let live = true;
+    setDatabase(null);
+    const node = graph.nodes.find((item) => item.id === id);
+    if (!node || node.kind !== "dependency") return;
+    void databaseRead(project)
+      .then((answer) => live && setDatabase(answer))
+      // A reading, not the panel. If it cannot be had, the node is still worth showing.
+      .catch(() => undefined);
     return () => {
       live = false;
     };
@@ -264,6 +294,44 @@ export function NodePanel({
               ))}
             </div>
           </Row>
+        ) : null}
+
+        {/* What the storage holds, and who touches each of it. The file is where the table
+            is declared, which is a fact rather than an inference — and `[vector]` is what
+            makes the node itself read `postgres + pgvector`. */}
+        {database && database.present ? (
+          <>
+            {database.target ? (
+              <Row label="Connection">
+                <code>{database.target}</code>
+              </Row>
+            ) : null}
+            {database.tables.length > 0 ? (
+              <Row label={`Tables (${database.tables.length})`}>
+                <div className="bp-routes">
+                  {database.tables.map((table) => (
+                    <button
+                      key={`${table.file} ${table.name}`}
+                      className="bp-route"
+                      title={`declared in ${table.file}`}
+                      onClick={() => void editorOpen(project, table.file, 1)}
+                    >
+                      <span className="bp-route-path">{table.name}</span>
+                      <span className="bp-route-to">
+                        {table.vector ? "[vector] " : ""}← {table.file}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              </Row>
+            ) : (
+              <Row label="Tables">
+                <span className="bp-node-quiet">
+                  no models declared, so there is nothing to list
+                </span>
+              </Row>
+            )}
+          </>
         ) : null}
 
         {/* Where each request goes next, and never a node for any of it. The arrow is read

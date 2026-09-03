@@ -42,6 +42,8 @@ from typing import Any
 
 import libcst as cst
 
+from framestack_core.database import DATABASE_NODE, STORAGE_PACKAGE, Database, read_database
+
 __all__ = [
     "FILE_NODES",
     "REQUIRED",
@@ -91,6 +93,14 @@ MCP_KIND = "mcp"
 #: nesting, which this plan puts out of scope, and one level is the rule everywhere else.
 TOOLS_DIR = "tools"
 TOOL_KIND = "tool"
+
+#: The second class of node in the taxonomy: something the project's code **talks to**.
+#:
+#: A dependency is not a package and never carries a verdict -- no test executes a Postgres,
+#: so no run can prove one. What it carries is a status, which is a different claim from a
+#: different mechanism and arrives with the thing that can actually ask. Until then it has
+#: neither, which is the honest state and not a placeholder for one.
+DEPENDENCY_KIND = "dependency"
 
 
 def is_system(node: Node) -> bool:
@@ -767,6 +777,44 @@ def _servers_in(root: Path) -> list[str]:
     return sorted(name for name in servers if isinstance(name, str) and name)
 
 
+def _database_node(database: Database) -> list[Node]:
+    """The project's storage, as one node. **One per backend, never one per table.**
+
+    Twelve tables are twelve rows in a panel; twelve boxes would be a hairball, and every
+    edge into them would have to choose a table to land on. What the graph answers is "what
+    does this project talk to", and for a database that answer is one thing.
+
+    It is in the graph rather than beside it because the facts come from the project's own
+    Python, which the parser already reads -- the same test that puts an MCP server in the
+    graph and leaves a compose service outside it. What it does *not* carry is the reading:
+    the tables and the connection string are asked for separately, because they go stale at
+    a different moment and cost a walk of the project to produce.
+    """
+    if not database.present:
+        return []
+    return [
+        Node(
+            id=DATABASE_NODE,
+            # `postgres + pgvector` where a model declares a vector column. The label is a
+            # reading of the schema, not a second node and not a kind.
+            name=database.label,
+            kind=DEPENDENCY_KIND,
+            # No file declares it. It is what the project's code talks to, stated in several
+            # places at once, and naming one of them would make that one look authoritative.
+            path="",
+            complete=True,
+            exports=(),
+            missing=(),
+            reason="",
+            parent="",
+            children=(),
+            files=(),
+            # Nothing to land on. An edge to a table would be an edge to a row in a panel.
+            ports=(),
+        )
+    ]
+
+
 def _mcp_nodes(root: Path) -> list[Node]:
     """One node per configured server. Never coloured, and never incomplete.
 
@@ -920,11 +968,31 @@ def _tool_server_edges(root: Path, tools: list[Node], servers: list[Node]) -> li
     return out
 
 
+def _storage_modules(database: Database) -> set[str]:
+    """The module paths that mean "this is where the database is touched".
+
+    The `repositories/` package, which is the storage boundary this plan names, and every
+    module that actually declares a table. Both are read rather than configured: one is a
+    directory the plan states, the other is a file with a `__tablename__` in it.
+    """
+    if not database.present:
+        return set()
+    found = {STORAGE_PACKAGE}
+    for table in database.tables:
+        parts = table.file.removesuffix(".py").split("/")
+        if parts and parts[-1] == "__init__":
+            parts.pop()
+        if parts:
+            found.add(".".join(parts))
+    return found
+
+
 def _import_edges(
     root: Path,
     systems: list[Node],
     packages: dict[str, Path],
     walk: dict[str, list[Path]],
+    storage: set[str],
 ) -> list[Edge]:
     """Edges between system packages, read from the import statements between them.
 
@@ -963,6 +1031,13 @@ def _import_edges(
     for node in systems:
         for file in walk[node.id]:
             for module, symbol in _imports_of(file, _module_path(file.parent, root)):
+                # Storage first: a module that declares a table belongs to the database, not
+                # to whatever package happens to be its longest prefix. `repositories/` is
+                # nobody's node, and a model inside a system would otherwise be read as that
+                # system importing itself.
+                if any(module == where or module.startswith(f"{where}.") for where in storage):
+                    seen.add((node.id, DATABASE_NODE, ""))
+                    continue
                 target = owner(module)
                 # A self-import is a package's own internals -- `agent/__init__.py` reading
                 # `agent.tools` -- and an edge from a node to itself states nothing.
@@ -1081,11 +1156,13 @@ def read_graph(project: Path | str) -> Graph:
 
     servers = _mcp_nodes(root)
     files = _file_nodes(root)
+    database = read_database(root)
+    stores = _database_node(database)
     coded = [*systems, *tools]
-    nodes = [*coded, *files, *servers]
+    nodes = [*coded, *files, *servers, *stores]
     by_id = {node.id: node for node in nodes}
     edges = [
-        *_import_edges(root, coded, packages, walk),
+        *_import_edges(root, coded, packages, walk, _storage_modules(database)),
         *_mcp_edges(by_id),
         *_tool_server_edges(root, tools, servers),
     ]
@@ -1094,7 +1171,8 @@ def read_graph(project: Path | str) -> Graph:
         ok=True,
         detail=(
             f"{len(systems)} system(s), {len(tools)} tool(s), "
-            f"{len(files)} file(s), {len(servers)} server(s)"
+            f"{len(files)} file(s), {len(servers)} server(s), "
+            f"{len(stores)} dependency(s)"
         ),
         root=str(root),
         nodes=tuple(nodes),

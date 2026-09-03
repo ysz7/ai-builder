@@ -88,7 +88,8 @@ const ORIGIN = 60;
  */
 export function cardHeight(node: GraphNode): number {
   if (node.kind === "file") return 44;
-  if (node.kind === "mcp") return CONTAINER_HEIGHT;
+  // A server and a database are the same card: a name and one quiet line under it.
+  if (node.kind === "mcp" || node.kind === "dependency") return CONTAINER_HEIGHT;
   return (
     22 + // the category tab, above the card and overlapping it
     44 + // the header row and the card's own padding
@@ -109,7 +110,7 @@ export function cardHeight(node: GraphNode): number {
 
 export function cardWidth(node: GraphNode): number {
   if (node.kind === "file") return FILE_WIDTH;
-  if (node.kind === "mcp") return CONTAINER_WIDTH;
+  if (node.kind === "mcp" || node.kind === "dependency") return CONTAINER_WIDTH;
   return NODE_WIDTH;
 }
 
@@ -188,6 +189,9 @@ export function placeAll(
   const systems = shown.filter((node) => isSystem(node.kind) && node.parent === "");
   const files = shown.filter((node) => node.kind === "file");
   const servers = shown.filter((node) => node.kind === "mcp");
+  // The database sits on the systems' row, to the right of them: it is what their code
+  // talks to, and the import edges into it read left to right like every other one.
+  const stores = shown.filter((node) => node.kind === "dependency");
 
   let column = 0;
   let deepest = 0;
@@ -206,6 +210,11 @@ export function placeAll(
     deepest = Math.max(deepest, cursor);
     column += 1;
   }
+
+  stores.forEach((store, index) => {
+    placed[store.id] =
+      saved(store.id) ?? { x: ORIGIN + (column + index) * COLUMN, y: ORIGIN };
+  });
 
   // The files sit under everything, on one row. They are never coloured and they depend on
   // nothing, so they are the one part of the canvas with no relation to arrange around.

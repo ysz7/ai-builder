@@ -32,6 +32,7 @@ from framestack_core.api import (
     chat_choices,
     chat_send,
     create_new_project,
+    database_read,
     deploy_down,
     deploy_poll,
     deploy_status,
@@ -429,6 +430,11 @@ def settings_write(params: dict[str, Any]) -> dict[str, Any]:
     )
 
 
+def database_read_method(params: dict[str, Any]) -> dict[str, Any]:
+    """What the project's storage is. A read: it opens no connection and asks no server."""
+    return database_read(_project_of(params))
+
+
 def routes_read_method(params: dict[str, Any]) -> dict[str, Any]:
     """The routes one service declares. Asked when a panel opens, never on every parse."""
     return routes_read(_project_of(params), _required_str(params, "node"))
@@ -550,6 +556,7 @@ HANDLERS: dict[str, Handler] = {
     "chat.choices": chat_choices_method,
     "settings.read": settings_read,
     "settings.write": settings_write,
+    "database.read": database_read_method,
     "routes.read": routes_read_method,
     "mcp.read": mcp_read_method,
     "mcp.connect": mcp_connect_method,

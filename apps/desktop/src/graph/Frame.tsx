@@ -22,14 +22,28 @@ export type FrameData = {
   system: string;
   name: string;
   kind: string;
-  count: number;
+  /**
+   * What is actually inside, counted by kind.
+   *
+   * Derived rather than named after the parent. The bar used to read "agent · agents", the
+   * plural of the parent's own kind, which was true only while a child could only be another
+   * system — an agent that contains two sub-agents and a tool is not holding three agents,
+   * and a label that says so misreports the one thing a folded frame is for.
+   */
+  parts: { kind: string; count: number }[];
   /** The parent's aggregate, repeated on the bar so a folded-open card still says it. */
   verdict: string;
   onToggle: (id: string) => void;
 };
 
 export function Frame({ data }: NodeProps) {
-  const { system, name, kind, count, verdict, onToggle } = data as unknown as FrameData;
+  const { system, name, kind, parts, verdict, onToggle } = data as unknown as FrameData;
+  const inside = parts
+    .map(
+      (part) =>
+        `${part.count} ${labelOf(part.kind).toLowerCase()}${part.count === 1 ? "" : "s"}`,
+    )
+    .join(" · ");
 
   return (
     <div
@@ -45,8 +59,8 @@ export function Frame({ data }: NodeProps) {
         title="Collapse"
       >
         <span className="bp-chev">▾</span>
-        {name} · {labelOf(kind).toLowerCase()}s
-        <span className="bp-count">{count}</span>
+        {name}
+        <span className="bp-count">{inside}</span>
         {known(verdict) ? (
           <span className={`bp-mark is-${verdict}`} title={wordsFor(verdict)}>
             {markOf(verdict)}

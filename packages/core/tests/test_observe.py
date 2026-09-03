@@ -313,6 +313,53 @@ def test_reaching_the_last_child_turns_the_parent_green_in_the_same_run(tmp_path
     assert found["agent"] == "green"
 
 
+def test_a_parent_whose_own_code_is_unreached_is_amber_though_every_child_is_green(
+    tmp_path: Path,
+) -> None:
+    """The other half of the rule: green needs every child **and the parent's own code**.
+
+    Delegating everything downward must not make a package green by association. The children
+    here are all reached and all pass, and the agent's own `run` is never called -- so the
+    honest colour is amber, and a design that rolled up only the children would print green
+    over code nobody has run.
+    """
+    root = project(tmp_path)
+    for name in ("researcher", "writer"):
+        child(root, name)
+    only_this_test(
+        root,
+        "test_children.py",
+        "import sys\nfrom pathlib import Path\n\n"
+        "sys.path.insert(0, str(Path(__file__).parents[1]))\n\n"
+        "from agent.agents.researcher import run as researcher\n"
+        "from agent.agents.writer import run as writer\n\n\n"
+        "def test_both_children_answer() -> None:\n"
+        "    assert [researcher('a'), writer('a')] == ['A', 'A']\n",
+    )
+
+    found = colours(observe(root))
+
+    assert found["agent.researcher"] == "green"
+    assert found["agent.writer"] == "green"
+    assert found["agent"] == "amber"
+
+
+def test_a_tool_cannot_move_its_agent_s_colour(tmp_path: Path) -> None:
+    """A child that carries no verdict must not be able to roll one up.
+
+    The reference's agent has a tool and no sub-agents. Amber means "something was never
+    checked"; a tool can never be checked on its own -- its lines are the agent's -- so an
+    agent that grew one must not turn amber for having it. This is the regression that
+    arrived with Phase 4 and it is asserted here rather than left to be noticed.
+    """
+    root = project(tmp_path)
+    observation = observe(root)
+
+    assert colours(observation)["agent"] == "green"
+    # And the tool itself is given no verdict at all -- not grey, not green, none.
+    assert "agent.tools.look_up" not in colours(observation)
+
+
 def test_one_red_child_makes_the_parent_red(tmp_path: Path) -> None:
     root = project(tmp_path)
     child(root, "researcher", works=False)

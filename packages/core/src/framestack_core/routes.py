@@ -43,6 +43,7 @@ from typing import Any
 
 import libcst as cst
 
+from framestack_core.database import DATABASE_NODE, STORAGE_PACKAGE
 from framestack_core.parser import import_map, is_system, read_graph
 
 __all__ = ["Route", "Routes", "read_routes"]
@@ -54,14 +55,13 @@ __all__ = ["Route", "Routes", "read_routes"]
 #: names, and both forms are the same fact about the same function.
 METHODS: tuple[str, ...] = ("get", "post", "put", "patch", "delete", "websocket")
 
-#: Where the project keeps the code that talks to storage, and what that storage is called.
+#: The storage boundary, and what it is called on the canvas -- both from `database.py`.
 #:
-#: A convention this plan states rather than something read out of the code: a repository is
-#: the boundary in front of a database, so a handler whose only calls go there is a handler
-#: whose downstream is the database. It is named `postgres` because that is the name the
-#: database node carries; nothing here opens a connection or reads a URL to find out.
-STORAGE_PACKAGE = "repositories"
-STORAGE_NODE = "postgres"
+#: Imported rather than restated: a route's arrow and a graph edge must not be able to
+#: disagree about what storage is, and two copies of the word `repositories` is exactly how
+#: they would. A handler whose only calls go there is a handler whose downstream is the
+#: database; nothing here opens a connection or reads a URL to find out.
+STORAGE_NODE = DATABASE_NODE
 
 
 @dataclass(frozen=True)

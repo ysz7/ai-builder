@@ -136,6 +136,34 @@ export type RoutesResult = {
   routes: Route[];
 };
 
+/** One table the project declares, and the file that declares it. */
+export type Table = {
+  name: string;
+  /** Project-relative. "Who touches it", which is where it is written down. */
+  file: string;
+  /** A vector column. What makes the backend `postgres + pgvector`. */
+  vector: boolean;
+};
+
+/**
+ * `database.read`: what the project's storage is, never whether it is running.
+ *
+ * **Beside the graph, as the verdict set is.** The graph holds the node — one per backend,
+ * never one per table — and this holds the reading of it. There is no status field, and the
+ * absence is the contract: a status comes from a connection check, and that arrives with the
+ * thing that can make one.
+ */
+export type DatabaseResult = {
+  api_version: number;
+  present: boolean;
+  /** A literal out of the project's own settings. Never an environment, never a connection. */
+  target: string;
+  vector: boolean;
+  /** `postgres`, or `postgres + pgvector` where a model declares a vector column. */
+  label: string;
+  tables: Table[];
+};
+
 /** `graph.read`: the project as it is on disk. A refusal is a result, as everywhere else. */
 export type Graph = {
   api_version: number;

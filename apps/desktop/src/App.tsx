@@ -36,6 +36,7 @@ import { Rail } from "./shell/Rail";
 import { Sheet } from "./shell/Sheet";
 import { TopBar } from "./shell/TopBar";
 import {
+  databaseRead,
   deployRead,
   deployStart,
   deployStatus,
@@ -47,7 +48,7 @@ import {
   observeRead,
   observeStart,
 } from "./core/client";
-import type { Graph, Layout, Observation } from "./core/types";
+import type { DatabaseResult, Graph, Layout, Observation } from "./core/types";
 
 /**
  * The last project, remembered per machine.
@@ -107,6 +108,14 @@ export default function App() {
    */
   const [services, setServices] = useState<string[]>([]);
   const [dockerless, setDockerless] = useState("");
+  /**
+   * What the project's storage is, held beside the graph like the verdict set.
+   *
+   * The node itself is in the graph — its facts come from the project's own Python. This is
+   * the reading of it, which goes stale at a different moment and costs a walk of the
+   * project, so it is asked for once beside the parse rather than on every render.
+   */
+  const [database, setDatabase] = useState<DatabaseResult | null>(null);
   const [layout, setLayout] = useState<Layout>({});
   const [selected, setSelected] = useState("");
   /**
@@ -168,7 +177,7 @@ export default function App() {
       // from one another: the graph says what exists, the cache says where it was put, and
       // the observation says what a run proved. **None of these runs anything** — opening a
       // window must never execute a stranger's code.
-      const [read, stored, proof, stack] = await Promise.all([
+      const [read, stored, proof, stack, store] = await Promise.all([
         graphRead(path),
         layoutRead(path),
         observeLast(path),
@@ -176,12 +185,16 @@ export default function App() {
         // nothing up — asking a file what it says is not starting anything, and it is the
         // only way to answer without this codebase learning YAML.
         deployStatus(path),
+        // What the project's own code says it stores things in. A read of Python, not a
+        // connection: whether it is up is a different question with a different mechanism.
+        databaseRead(path),
       ]);
       setGraph(read);
       setLayout(stored.layout);
       setObservation(proof.observation);
       setObserving(proof.running);
       setServices(stack.services);
+      setDatabase(store.present ? store : null);
       setDeploying(stack.running);
       // Only where there is a compose file to have services from: "no docker on this machine"
       // is worth saying, "this project has no compose file" is not a problem to report.
@@ -490,6 +503,7 @@ export default function App() {
             pending={pending}
             services={services}
             dockerless={dockerless}
+            database={database}
           />
 
           {/* Said as a fact about the convention rather than as a verdict on the code: an

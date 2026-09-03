@@ -41,7 +41,7 @@ import {
 
 import "@xyflow/react/dist/style.css";
 
-import type { Graph, Layout, Observation } from "../core/types";
+import type { DatabaseResult, Graph, Layout, Observation } from "../core/types";
 import { ContainerCard } from "./ContainerCard";
 import { FileCard } from "./FileCard";
 import { Frame } from "./Frame";
@@ -96,6 +96,7 @@ export function GraphCanvas({
   pending,
   services,
   dockerless,
+  database,
 }: {
   graph: Graph | null;
   layout: Layout;
@@ -141,6 +142,15 @@ export function GraphCanvas({
   services: string[];
   /** Why the container list is empty, when it is empty for a reason. `""` otherwise. */
   dockerless: string;
+  /**
+   * What the project's storage is, or null where it has none.
+   *
+   * The **node** is in the graph, because the facts come from the project's own Python which
+   * the parser already reads. This is the reading of it — how many tables, what it points at
+   * — held beside the graph like the verdict set, because it goes stale at a different
+   * moment and costs a walk of the project to produce.
+   */
+  database: DatabaseResult | null;
 }) {
   const { nodes, edges } = useMemo(() => {
     if (!graph || !graph.ok) return { nodes: [] as Node[], edges: [] as Edge[] };
@@ -176,6 +186,14 @@ export function GraphCanvas({
       if (system.parent !== "" || !isExpanded(layout, system.id)) continue;
       const box = frameBox(system, shown, placed);
       if (!box) continue;
+      // Counted by kind rather than named after the parent: an agent that contains two
+      // sub-agents and a tool is not holding three agents, and the bar has to say what is
+      // actually in it or it is a label that disagrees with the cards under it.
+      const tally = new Map<string, number>();
+      for (const member of shown) {
+        if (member.parent !== system.id) continue;
+        tally.set(member.kind, (tally.get(member.kind) ?? 0) + 1);
+      }
       flow.push({
         id: `frame:${system.id}`,
         type: "frame",
@@ -187,7 +205,9 @@ export function GraphCanvas({
           system: system.id,
           name: system.name,
           kind: system.kind,
-          count: system.children.length,
+          parts: [...tally.entries()]
+            .sort(([a], [b]) => a.localeCompare(b))
+            .map(([kind, count]) => ({ kind, count })),
           verdict: found.get(system.id)?.verdict ?? "",
           onToggle,
         },
@@ -199,17 +219,39 @@ export function GraphCanvas({
         id: node.id,
         // A server is not a package: it is drawn as the declared thing it is, beside the
         // containers, rather than as a card with its contract and its verdict left blank.
-        type: node.kind === "file" ? "file" : node.kind === "mcp" ? "container" : "system",
+        type:
+          node.kind === "file"
+            ? "file"
+            : node.kind === "mcp" || node.kind === "dependency"
+            ? "container"
+            : "system",
         position: placed[node.id] ?? { x: 0, y: 0 },
         ...sized(cardWidth(node), cardHeight(node)),
         selected: node.id === selected,
         data:
-          node.kind === "mcp"
+          node.kind === "dependency"
+            ? {
+                name: node.name,
+                kind: "dependency",
+                // No file declares it, so the line under the name is the reading instead.
+                // The count first: it is what a person came to the node to know, and the
+                // connection string is what there is to say when there are no tables.
+                where:
+                  database && database.tables.length > 0
+                    ? `${database.tables.length} table${
+                        database.tables.length === 1 ? "" : "s"
+                      }`
+                    : database?.target ?? "",
+                pinned: false,
+                inbound: pinned.in.has(node.id),
+              }
+            : node.kind === "mcp"
             ? {
                 name: node.name,
                 kind: "mcp",
                 where: node.path,
                 pinned: pinned.up.has(node.id),
+                inbound: false,
               }
             : node.kind === "file"
             ? {
@@ -256,7 +298,7 @@ export function GraphCanvas({
         ...sized(CONTAINER_WIDTH, CONTAINER_HEIGHT),
         // A container is declared and nothing points at it: no import can, and compose's own
         // `depends_on` is a fact inside a file this codebase does not read.
-        data: { name, kind: "container", where: "compose.yaml", pinned: false },
+        data: { name, kind: "container", where: "compose.yaml", pinned: false, inbound: false },
       });
     }
 
@@ -303,7 +345,19 @@ export function GraphCanvas({
     }));
 
     return { nodes: flow, edges: wires };
-  }, [graph, layout, observation, selected, onSelect, onToggle, onTalk, pending, services, dockerless]);
+  }, [
+    graph,
+    layout,
+    observation,
+    selected,
+    onSelect,
+    onToggle,
+    onTalk,
+    pending,
+    services,
+    dockerless,
+    database,
+  ]);
 
   /**
    * Which ids are real nodes.

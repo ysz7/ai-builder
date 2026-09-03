@@ -15,6 +15,7 @@ from typing import Any
 
 from framestack_core.chat import COMMANDS as CHAT_COMMANDS
 from framestack_core.chat import STACKS, blocks, changes, send
+from framestack_core.database import read_database
 from framestack_core.deploy import deploy_status as read_deploy_status
 from framestack_core.deploy import (
     read_deploy,
@@ -304,6 +305,30 @@ ROUTES_SCHEMA = {
             "unsure": "bool",
         }
     ],
+}
+
+
+#: The `database.read` payload: what the project's storage is, never whether it is running.
+#:
+#: **Beside the graph, as the verdict set is.** The graph holds the node -- one per backend,
+#: never one per table -- and this holds the reading of it: the connection string the project
+#: states and the tables it declares. They go stale at different moments and one of them
+#: costs a walk of the project, so a caller that only wants to draw the canvas does not pay
+#: for the panel.
+#:
+#: There is no status field here and its absence is deliberate. A dependency has a status
+#: rather than a verdict, and a status comes from a connection check -- which arrives with the
+#: thing that can make one. A field reading "unknown" on every read would be a control whose
+#: only possible answer is that it has no answer.
+DATABASE_SCHEMA = {
+    "api_version": "int",
+    "present": "bool",
+    # A literal out of the project's own settings. Never an environment, never a connection.
+    "target": "str",
+    "vector": "bool",
+    # `postgres`, or `postgres + pgvector` where a model declares a vector column.
+    "label": "str",
+    "tables": [{"name": "str", "file": "str", "vector": "bool"}],
 }
 
 
@@ -689,6 +714,11 @@ def mcp_connect(project: Path | str, node: str) -> dict[str, Any]:
     """Run the server's own command in a terminal, so it can authorise itself. Never
     implicit (P11), and it stores no credential -- there is nowhere here that one would go."""
     return {"api_version": GRAPH_API_VERSION, **connect_server(project, node).as_dict()}
+
+
+def database_read(project: Path | str) -> dict[str, Any]:
+    """The project's storage, as its own Python states it. Connects to nothing."""
+    return {"api_version": GRAPH_API_VERSION, **read_database(project).as_dict()}
 
 
 def routes_read(project: Path | str, node: str) -> dict[str, Any]:
