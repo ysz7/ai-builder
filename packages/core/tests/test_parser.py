@@ -837,3 +837,68 @@ def test_reading_the_reference_is_under_500ms() -> None:
     elapsed = time.perf_counter() - started
 
     assert elapsed < 0.5, f"{elapsed:.3f}s"
+
+
+# -- the chat route (Phase 12) ---------------------------------------------------------------
+
+
+def test_the_reference_has_no_chat_node() -> None:
+    """No `api/routes/chat.py`, no node. The rule stated as its absence, which is the half
+    that keeps a panel from existing without code behind it."""
+    assert [node for node in read_graph(EXAMPLE).nodes if node.kind == "chat"] == []
+
+
+def test_a_chat_route_is_a_node_because_the_file_is_there(tmp_path: Path) -> None:
+    """Existence is the whole rule — the same one `agent/tools/` follows. Nothing inside is
+    inspected, and there is no contract for it to fail."""
+    root = project(tmp_path)
+    routes = root / "api" / "routes"
+    routes.mkdir()
+    (routes / "__init__.py").write_text("", encoding="utf-8")
+    (routes / "chat.py").write_text(
+        "from agent import run\n\n\ndef talk(message: str) -> str:\n    return run(message)\n",
+        encoding="utf-8",
+    )
+
+    graph = read_graph(root)
+    found = [node for node in graph.nodes if node.kind == "chat"]
+
+    assert len(found) == 1
+    chat = found[0]
+    assert chat.id == "api.routes.chat"
+    assert chat.parent == "api"
+    assert chat.path == "api/routes/chat.py"
+    # No export to be missing, so it can never be incomplete.
+    assert (chat.complete, chat.exports, chat.missing) == (True, (), ())
+    assert chat.ports == ("talk",)
+    service = next(node for node in graph.nodes if node.id == "api")
+    assert "api.routes.chat" in service.children
+
+
+def test_the_edge_to_the_agent_is_the_route_s_own_import(tmp_path: Path) -> None:
+    """Derived like every other edge: the route imports `run`, so the line is drawn. It
+    leaves the *chat* rather than the service, which is what makes the flow readable."""
+    root = project(tmp_path)
+    routes = root / "api" / "routes"
+    routes.mkdir()
+    (routes / "__init__.py").write_text("", encoding="utf-8")
+    (routes / "chat.py").write_text("from agent import run\n", encoding="utf-8")
+
+    edges = read_graph(root).edges
+    assert any(edge.source == "api.routes.chat" and edge.target == "agent" for edge in edges)
+
+
+def test_a_chat_carries_no_verdict_because_its_lines_belong_to_the_service(
+    tmp_path: Path,
+) -> None:
+    """Two owners for one run is how one node goes green while another goes grey for the
+    same lines. A chat is not a system, and `is_system` is the question that says so."""
+    root = project(tmp_path)
+    routes = root / "api" / "routes"
+    routes.mkdir()
+    (routes / "__init__.py").write_text("", encoding="utf-8")
+    (routes / "chat.py").write_text("def talk() -> str:\n    return 'hi'\n", encoding="utf-8")
+
+    chat = next(node for node in read_graph(root).nodes if node.kind == "chat")
+
+    assert is_system(chat) is False

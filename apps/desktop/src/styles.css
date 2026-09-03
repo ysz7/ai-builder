@@ -5037,3 +5037,116 @@ textarea {
   line-height: 1.4;
   color: var(--muted-3);
 }
+
+/* ---------------------------------------------------------------------------------------
+   The stack, on the `docker` node.
+
+   A container's state is drawn with the dependency palette because both are claims about
+   something outside the project — but it is a *different* claim from a status, so the dot
+   stands alone here rather than inheriting from a `.bp-status` row: running is what the
+   daemon says, reachable is a connection this application made, and green on the canvas is
+   what a test proved. Three mechanisms, and no two of them share a scale.
+--------------------------------------------------------------------------------------- */
+.bp-status-dot.is-reachable {
+  border-color: var(--status-up);
+  background: var(--status-up);
+}
+.bp-status-dot.is-unreachable {
+  border-color: var(--status-down);
+  background: none;
+}
+.bp-status-dot.is-unknown {
+  border-color: var(--muted-3);
+  background: none;
+}
+
+.bp-compose-verbs {
+  display: flex;
+  gap: 6px;
+  margin: 6px 0 8px;
+}
+.bp-compose-verbs .bp-btn {
+  flex: 0 0 auto;
+}
+.bp-compose-verbs .bp-btn:first-child {
+  flex: 1 1 auto;
+}
+
+/* The five fields, under the service they belong to. Indented so the list stays readable as
+   a list: what is open is a detail of one row, never a second panel. */
+.bp-compose-edit {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 4px 0 10px 14px;
+  padding-left: 10px;
+  border-left: 1px solid var(--line);
+}
+.bp-compose-field {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.bp-compose-key {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted-3);
+}
+textarea.bp-compose-lines {
+  resize: vertical;
+  min-height: 26px;
+  font-family: var(--mono);
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+/* The line between a container and the dependency it is. Quieter than an import, because it
+   is not a call: it says two boxes are one thing. */
+.bp-edge-same {
+  opacity: 0.75;
+}
+
+/* ---------------------------------------------------------------------------------------
+   What a run cost.
+
+   Quiet type, in the card's own muted colour and never in a verdict's palette: money spent
+   is not evidence of anything, and a cost that borrowed green would be the flow-document
+   defect wearing a dollar sign.
+--------------------------------------------------------------------------------------- */
+.bp-card-cost {
+  padding: 0 12px;
+  font-family: var(--mono);
+  font-size: 10px;
+  line-height: 18px;
+  color: var(--muted-3);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.bp-usage-total {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 4px;
+  padding: 4px 5px 0;
+  border-top: 1px solid var(--line);
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--fg-2);
+}
+
+/* A file that would not parse, on the node that owns it. Amber rather than red: nothing has
+   failed — a file is mid-edit, or broken, and the rest of what the card says still stands. */
+.bp-card-broken {
+  padding: 0 12px;
+  font-family: var(--mono);
+  font-size: 10px;
+  line-height: 18px;
+  color: var(--status-warn, var(--k-worker));
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}

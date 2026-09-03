@@ -41,8 +41,17 @@ import {
 
 import "@xyflow/react/dist/style.css";
 
-import type { DatabaseResult, Graph, Layout, Observation, StatusResult } from "../core/types";
+import type {
+  ComposeService,
+  McpProbe,
+  DatabaseResult,
+  Graph,
+  Layout,
+  Observation,
+  StatusResult,
+} from "../core/types";
 import { ContainerCard } from "./ContainerCard";
+import { dependencyOf } from "./services";
 import { FileCard } from "./FileCard";
 import { Frame } from "./Frame";
 import { PendingCard } from "./PendingCard";
@@ -95,11 +104,14 @@ export function GraphCanvas({
   onTalk,
   pending,
   services,
+  composed,
   dockerless,
   database,
   statuses,
   checking,
   onRecheck,
+  probes,
+  costs,
 }: {
   graph: Graph | null;
   layout: Layout;
@@ -143,6 +155,14 @@ export function GraphCanvas({
    * a test run proves a container.
    */
   services: string[];
+  /**
+   * What the compose file declares about each of them, or `[]` where it could not be read.
+   *
+   * Only two things on the canvas use it: the state on a container's card, and the line
+   * between a container and the dependency it **is**. The names still come from
+   * `docker compose config --services`, asked of the program that owns the format.
+   */
+  composed: ComposeService[];
   /** Why the container list is empty, when it is empty for a reason. `""` otherwise. */
   dockerless: string;
   /**
@@ -164,6 +184,23 @@ export function GraphCanvas({
   statuses: Record<string, StatusResult>;
   checking: string[];
   onRecheck: (node: string) => void;
+  /**
+   * What each MCP server last answered, where one has been asked.
+   *
+   * **Only a probe puts an entry here.** A server nobody asked has none, and the card draws
+   * nothing rather than "not connected" — a state nobody checked and a state that was checked
+   * and came back negative are different claims, and merging them would be a tick nobody
+   * verified wearing the other's clothes.
+   */
+  probes: Record<string, McpProbe>;
+  /**
+   * What each node's last run cost, already worded, for the nodes where one was measured.
+   *
+   * Held beside the graph like the verdict set and the statuses, and for the same reason: it
+   * comes from a different mechanism and goes stale at a different moment. A node with no
+   * entry has no cost — never a zero, which would be a claim.
+   */
+  costs: Record<string, string>;
 }) {
   const { nodes, edges } = useMemo(() => {
     if (!graph || !graph.ok) return { nodes: [] as Node[], edges: [] as Edge[] };
@@ -172,8 +209,30 @@ export function GraphCanvas({
       (observation?.verdicts ?? []).map((verdict) => [verdict.node, verdict]),
     );
     const shown = visible(graph, layout);
-    const placed = placeAll(graph, layout, services);
+    // The cards that carry a cost line are taller by that line, so the layout has to know
+    // which ones they are — the same arithmetic in both places or the frames would sit
+    // wrong the first time somebody ran something.
+    const costed = new Set(Object.keys(costs).filter((id) => costs[id]));
+    const placed = placeAll(graph, layout, services, costed);
     const drawn = foldEdges(graph, shown);
+
+    // A container and the dependency it *is*, joined.
+    //
+    // Not an import and never drawn as one: nothing in the project's Python points at a
+    // container, and this line says "these two boxes are one thing" rather than "this calls
+    // that". So it is dotted, unlabelled and carries no arrow — and it exists only where the
+    // match is a literal fact about the entry, an image repository or a container port. A
+    // container the project does not talk to stays unattached.
+    const dependencies = shown
+      .filter((node) => node.kind === "dependency")
+      .map((node) => node.id);
+    const sameAs = composed
+      .filter((service) => services.includes(service.name))
+      .map((service) => ({
+        service: service.name,
+        dependency: dependencyOf(service, dependencies),
+      }))
+      .filter((link) => link.dependency !== "");
 
     // A pin is drawn only where an edge lands on it. Four pins on every card would be a
     // picture of what *could* be connected, and nothing here can be connected.
@@ -183,9 +242,12 @@ export function GraphCanvas({
     // decoration this rule exists to prevent. `foldEdges` has already cleared the port of
     // any edge whose target does not draw rows, so the test here is the port alone.
     const pinned = {
-      in: new Set(
-        drawn.filter((e) => e.kind === "import" && !e.port).map((e) => e.target),
-      ),
+      in: new Set([
+        ...drawn.filter((e) => e.kind === "import" && !e.port).map((e) => e.target),
+        // A pin an edge *does* use and that is not drawn is worse than a decorative one:
+        // React Flow cannot place the line at all, and the relation silently disappears.
+        ...sameAs.map((link) => link.dependency),
+      ]),
       out: new Set(drawn.filter((e) => e.kind === "import").map((e) => e.source)),
       up: new Set(drawn.filter((e) => e.kind === "mcp").map((e) => e.target)),
       down: new Set(drawn.filter((e) => e.kind === "mcp").map((e) => e.source)),
@@ -197,7 +259,7 @@ export function GraphCanvas({
     // order and a region drawn over its own members would swallow every click on them.
     for (const system of shown) {
       if (system.parent !== "" || !isExpanded(layout, system.id)) continue;
-      const box = frameBox(system, shown, placed);
+      const box = frameBox(system, shown, placed, costed);
       if (!box) continue;
       // Counted by kind rather than named after the parent: an agent that contains two
       // sub-agents and a tool is not holding three agents, and the bar has to say what is
@@ -239,7 +301,7 @@ export function GraphCanvas({
             ? "container"
             : "system",
         position: placed[node.id] ?? { x: 0, y: 0 },
-        ...sized(cardWidth(node), cardHeight(node)),
+        ...sized(cardWidth(node), cardHeight(node, costed)),
         selected: node.id === selected,
         data:
           node.kind === "dependency"
@@ -267,13 +329,31 @@ export function GraphCanvas({
             ? {
                 name: node.name,
                 kind: "mcp",
-                where: node.path,
+                // The tool count, where a probe earned it: `8 tools` is the evidence that
+                // the connection works, and it replaces the file's name because it is the
+                // more useful of the two once there is one.
+                where: probes[node.id]?.connected
+                  ? `${probes[node.id].tools.length} tool${
+                      probes[node.id].tools.length === 1 ? "" : "s"
+                    }`
+                  : node.path,
                 pinned: pinned.up.has(node.id),
                 inbound: false,
-                // Only the server knows whether it is connected, and asking means speaking
-                // the protocol to it. Nothing here claims one way or the other.
-                status: "",
-                statusDetail: "",
+                // Only the server knows whether it is connected — so this is empty until
+                // one has been asked, and what it says then is what the server answered.
+                status: probes[node.id]
+                  ? probes[node.id].connected
+                    ? "reachable"
+                    : "unreachable"
+                  : "",
+                statusDetail: probes[node.id]?.detail ?? "",
+                // `connected`, not `reachable`: a server that answered `tools/list` said
+                // something a Postgres accepting a socket never did.
+                statusLabel: probes[node.id]
+                  ? probes[node.id].connected
+                    ? "connected"
+                    : "not connected"
+                  : "",
               }
             : node.kind === "file"
             ? {
@@ -297,6 +377,9 @@ export function GraphCanvas({
                 // them, so nothing can prove them.
                 verdict: found.get(node.id)?.verdict ?? "",
                 reason: found.get(node.id)?.reason ?? "",
+                // Never folded into the verdict, and never coloured: a run that cost money
+                // is not a run that proved anything.
+                cost: costs[node.id] ?? "",
                 pins: {
                   in: pinned.in.has(node.id),
                   out: pinned.out.has(node.id),
@@ -326,6 +409,8 @@ export function GraphCanvas({
           where: "compose.yaml",
           pinned: false,
           inbound: false,
+          // Drawn only where the line to a dependency actually leaves this card.
+          outbound: sameAs.some((link) => link.service === name),
           // A container's state belongs to the `docker` node, which is the one thing that
           // can be asked. A dot on each service would be the same claim drawn many times.
           status: "",
@@ -376,6 +461,19 @@ export function GraphCanvas({
       },
     }));
 
+    for (const link of sameAs) {
+      wires.push({
+        id: `same:${link.service}:${link.dependency}`,
+        source: serviceId(link.service),
+        target: link.dependency,
+        sourceHandle: "same",
+        targetHandle: "in",
+        type: "smoothstep",
+        className: "bp-edge-same",
+        style: { stroke: "var(--line-strong)", strokeWidth: 1.5, strokeDasharray: "2 5" },
+      });
+    }
+
     return { nodes: flow, edges: wires };
   }, [
     graph,
@@ -387,11 +485,14 @@ export function GraphCanvas({
     onTalk,
     pending,
     services,
+    composed,
     dockerless,
     database,
     statuses,
     checking,
     onRecheck,
+    probes,
+    costs,
   ]);
 
   /**

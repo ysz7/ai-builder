@@ -470,9 +470,14 @@ def test_every_declared_block_names_a_command_that_ships_with_a_prompt() -> None
     for block in declared:
         assert block.command in COMMANDS, block.command
         assert prompt_for(block.command).strip(), block.command
-        # A kind block is drawn as the node it will become, so its argument has to be a kind.
+        # A block is drawn as the node it will become, so its kind is one the parser can
+        # actually produce. A **system** block also names that kind in the message it sends,
+        # which is what `argument` is; a chat names none, because there is exactly one place
+        # a chat route can go and nothing for the message to choose.
         if block.kind:
-            assert block.kind in STACKS, block.kind
+            assert block.kind in {*STACKS, "chat"}, block.kind
+        if block.argument:
+            assert block.argument in STACKS, block.argument
             assert block.argument == block.kind
         else:
             assert block.label, block.command
@@ -500,5 +505,25 @@ def test_a_block_press_parses_as_the_command_the_block_named() -> None:
         typed = TYPED.match(" ".join(parts))
         assert typed is not None, block.command
         assert typed.group(1) == block.command, block.command
-        if block.kind:
+        # Only where the message names a kind. A block may become a node without naming one
+        # — a chat goes in the one place a chat route goes — and asserting on `kind` here
+        # would be asserting that every block is a system block.
+        if block.argument:
             assert _kind_in(" ".join(parts)) == block.kind
+
+
+def test_the_chat_block_is_offered_once_and_needs_an_agent_to_talk_to() -> None:
+    """Phase 12's block. It writes a route that calls `run`, so there has to be a `run`.
+
+    `once` because the node is `api/routes/chat.py` and there is one of those; the palette
+    reads that off the block's kind, since a chat sits inside the api rather than at the root
+    where the other `once` blocks are counted.
+    """
+    chat = next(block for block in blocks() if block.command == "add-chat")
+
+    assert chat.kind == "chat"
+    assert chat.requires == "agent"
+    assert chat.once is True
+    assert chat.takes == ""
+    # And the prompt ships, which is the half that would otherwise fail in the built app.
+    assert "api/routes/chat.py" in prompt_for("add-chat")

@@ -21,8 +21,15 @@ a = Analysis(
     # given no instructions rather than as a missing file.
     datas=[(str(ROOT / "prompts"), "prompts")],
     # libcst pulls its grammar and native parser in dynamically; coverage's data layer is
-    # imported inside a function, so neither is found by following imports from `__main__`.
-    hiddenimports=["libcst", "libcst.native", "coverage", "coverage.sqldata"],
+    # imported inside a function; ruamel picks its parser plugins by name at load time. None
+    # of the three is found by following imports from `__main__`.
+    hiddenimports=[
+        "libcst",
+        "libcst.native",
+        "coverage",
+        "coverage.sqldata",
+        "ruamel.yaml",
+    ],
     hookspath=[],
     runtime_hooks=[],
     excludes=["tkinter", "unittest", "pydoc_data"],

@@ -100,6 +100,7 @@ COMMANDS = (
     "add-tool",
     "add-service",
     "add-mcp",
+    "add-chat",
     "connect",
     "repair",
     "question",
@@ -225,6 +226,26 @@ def blocks() -> tuple[Block, ...]:
             choices=(),
             once=False,
             requires="",
+        )
+    )
+    made.append(
+        Block(
+            command="add-chat",
+            argument="",
+            # It becomes a node, so the block is drawn as one — and the palette knows there
+            # is already a chat here by that kind, which is how `once` is enforced for a
+            # block whose node is not at the root.
+            kind="chat",
+            label="Chat",
+            hint="a chat route and page in the api",
+            takes="",
+            choices=(),
+            # One per project: the node is `api/routes/chat.py`, and there is one of those.
+            once=True,
+            # It calls the agent's `run`, so there has to be an agent to call. The prompt
+            # refuses just as plainly when the `api/` package is the missing half -- one
+            # kind is all a block can require, and the agent is the one being talked to.
+            requires="agent",
         )
     )
     made.append(

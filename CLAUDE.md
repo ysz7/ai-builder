@@ -73,6 +73,16 @@ node named `agent.tools.<file>`. Its public functions are its **ports**. A modul
 helper and is not a node. Read on the top-level `agent/` only: a sub-agent's tools would be a second
 level of nesting.
 
+**Chat.** An `api/` may contain `routes/chat.py`, and that file being there is the whole of
+what makes a **chat** node. It is the second named exception beside `agent/tools/`, and it is
+one for the same reason: a place a person can see in their own file tree, never a claim about
+code. It carries no verdict — its lines are inside the `api/` package and already owned by
+whatever test reached them — and its edge to the agent is nothing special, just the route's own
+`from agent import run`. The point of tying the chat to a real route is that one implementation
+serves both cases: the person building locally opens it from the panel, and the same route
+deploys with the project and serves their colleagues. A panel with no code behind it would be a
+node outside the convention.
+
 **Settings.** A system may contain `settings.py` with a single `BaseSettings` subclass. The node panel
 edits exactly that class and nothing else. A system with no `settings.py` shows no knobs, which is
 allowed and normal.
@@ -231,13 +241,32 @@ entry, no verdict, no settings, no Run, gone when the turn ends. Each of those a
 it could otherwise outlive its turn, and a marker that outlives its turn is a node the code does
 not have.
 
-**`Connect` stores nothing.** An MCP server in `mcp.json` is a stdio server; the MCP
-authorization spec covers the HTTP transports, so there is no flow here to drive. The ones that
-need an account open a browser themselves, so `Connect` runs the entry's own command in the
-terminal and the token stays wherever that server keeps it. Only the **names** of an entry's
-`env` ever leave the file — a value in a payload is one console log from being permanent — and
-nothing ever claims a server is connected, because only the server knows and asking means
-becoming an MCP client.
+**`Connect` means two things, because `mcp.json` holds two kinds of entry.** A `command`
+entry is a **stdio** server: the MCP authorization spec does not describe it, the ones that need
+an account open a browser themselves, and `Connect` runs the entry's own command in the terminal
+where a person can watch it — the token stays wherever that server keeps it. A `url` entry is an
+**HTTP** server, where the spec does apply, and `Connect` runs Phase 10's path one: the person
+registers an OAuth app in the provider's own console, pastes the client id and secret, the system
+browser opens on the consent screen, and the token lands in `.env` under a name derived from the
+server's. `oauth.py` is that flow; PKCE always, one loopback listener per exchange, torn down
+after it. **There is no Framestack OAuth app and there will not be one** — every user under one
+registration is one revocation away from everybody stopping at once. Dynamic client registration
+is path two and is *later*; the manual path is what it falls back to, so the manual path ships.
+
+**A server is connected because it answered, never because it is configured.** `mcpwire.py` is
+the smallest MCP client that can exist: `initialize`, `tools/list`, hang up. **The tool count is
+the evidence** — the same rule the verdicts follow, applied to somebody else's program — so
+`connected · 8 tools` means a server said so at a time, and a server nobody asked has *no* state
+rather than a hopeful one. `mcp.probe` is the only thing that may make the claim, because it is
+the only thing that asked; `mcp.read` and `mcp.connect` still say only what this application did.
+Nothing is stored: an answer about a live process goes stale the moment the process does. And
+nothing in this codebase can call a tool — `tools/list` is a question, `tools/call` is somebody's
+mailbox.
+
+Only the **names** of an entry's `env`, and of the `.env` keys a server's authorisation uses,
+ever leave the file: a value in a payload is one console log from being permanent. `envfile.py`
+is where a secret is written and read, line-wise, so everything the edit was not about stays as
+the person left it — and what it reads goes into a request header, never into an answer.
 
 ## Out of scope
 
@@ -302,12 +331,26 @@ agent's process; `shell.py` is the terminal the person types into; `layout.py` i
 things; `observe.py` runs the project's tests and turns what happened into colour;
 `settings.py` reads and writes the one `BaseSettings` class a system may declare;
 `database.py` reads what the project stores things in, `dependencies.py` what else its code
-talks to, `status.py` whether any of that can be reached, and `routes.py` what one service serves;
+talks to, `status.py` whether any of that can be reached, `compose.py` what the stack is made of and
+what of it is running, and `routes.py` what one service serves;
 `editor.py`
 is `Open`; `chat.py` dispatches a message to exactly one command and declares the **blocks** a
-palette may offer; `mcp.py` reads one server's entry and runs it; `run.py` calls one system's
+palette may offer; `mcp.py` reads one server's entry, runs or authorises it and asks it what it
+offers, with `mcpwire.py` speaking the protocol and `oauth.py` driving the browser, and
+`envfile.py` is the one place a secret is written; `run.py` calls one system's
 export in the project's own interpreter and `deploy.py` brings the compose stack up;
+`usage.py` is what a run cost;
 `environment.py` is the one place that answers "which Python does this project's own code run in".
+
+**What a run cost is measured, and it is never a verdict.** `usage.py` stores what a provider
+answered — a model, an input count, an output count — in `.framestack/usage.db`, and prices it
+**on read** from a table in that file, so a corrected table corrects the history it is applied
+to. A model the table does not have shows its tokens and no dollar figure; `$0.00` for a run
+nobody has a price for is a false statement where "we do not know" is the true one. The
+counting is a wrapper installed in the child process `Run` already spawns, written into the
+run's own driver: **no import, no decorator and no dependency in the user's project** (I-6).
+Delete `.framestack/` and history is lost, nothing else. Langfuse is linked out to where a
+project's `.env` names it, never read from and never fallen back to.
 
 **`Run` calls one export and colours nothing.** It is `Run`, not run-the-graph: one node, one of
 the exports the convention already requires, no traversal and no order — a child process driven by
@@ -354,6 +397,21 @@ verbatim. **stdout carries the wire and nothing else**; every log line goes to s
 is corrupted (there is a test asserting this). A handler that raises is turned into an error
 response, never a crash.
 
+**The graph follows the code, and it does so by being asked.** `watch.py` holds a revision per
+project and moves it when a file the parser reads has changed *and stopped changing* — the
+plan's 300ms settle, so a file an editor is halfway through writing never reaches the parser.
+The window keeps the number and asks; **nothing is pushed**, which is why live re-parse needed
+no second message type. It does not ask while a chat turn is running: the agent writes several
+files per task, and the turn's own end already re-parses once. A `stat` scan rather than a
+file-system event API — no dependency, no platform backends, and a project cheap to parse is
+cheap to watch.
+
+**A file that does not parse marks one node and blanks none.** `Node.broken` is
+`"chunker.py line 42"`, and nothing else about the node moves for it: the exports still come
+from `__init__.py`, the path is still the directory's. That is what "keep the last good
+version" means here, and it needs no cache to hold — a cache of a previous parse would be
+state outside the code, which is the one thing this application does not keep.
+
 **Nothing is pushed over the wire.** One request, one answer with `id` echoed; logs are polled with
 an offset the caller keeps. Adding a second message shape is a protocol version decision, available
 later and additive — do not reach for it as a convenience.
@@ -364,9 +422,18 @@ bring a container up.
 
 **Outside Python, ask rather than read.** The parser learns no library and no file format, ever. A
 compose file is asked of `docker compose config`, a service of the port it publishes, a database of a
-connection. Never add a YAML reader, a Dockerfile reader or a migration reader to this codebase: a
+connection. Never add a Dockerfile reader or a migration reader to this codebase: a
 parser for someone else's format is a second opinion about a thing that already has a first one, and
 it is wrong in ways that look right.
+
+**`compose.py` is the one exception, and its shape is the reason it is allowed.** A panel that
+edits `image`, `ports`, `environment`, `volumes` and `depends_on` has to show what is there first,
+and it has to put back what it changed without touching the rest — so that file is opened, through
+a round-trip loader that preserves comments, key order and quoting, exactly as `settings.py` does
+for Python. It is a **writer that reads what it is about to write**, not a second opinion about the
+stack: which services exist is still `docker compose config --services`, whether one is up is still
+`docker compose ps`, and `deploy.py` still reads not one line of the file. Five fields, named in
+`EDITABLE`; a sixth is refused by name rather than quietly ignored.
 
 **Observe is the only thing that executes a project, and it earns every colour it draws.** A node
 is green because a passing test ran code inside it — the join of coverage.py's dynamic contexts and
@@ -381,12 +448,14 @@ collection has been proven by nobody.
 stranger's code; a project that hangs or crashes must cost a subprocess rather than the core the UI
 is talking to.
 
-**Six things spawn a process** and they are one shape: the chat agent (`agent.*`, in
+**Seven things spawn a process** and they are one shape: the chat agent (`agent.*`, in
 `session.py`), the terminal (`shell.*`), Observe (`observe.*`), `Run` (`run.*`), `Deploy`
-(`deploy.*`) and `Connect` (`mcp.connect`, which opens a terminal and runs the server's own
-command). All of them follow the same rules:
+(`deploy.*`), `Connect` (`mcp.connect`, which opens a terminal and runs the server's own command,
+or opens a browser on a provider's consent screen) and the probe (`mcp.probe`, which starts a
+stdio server, asks it for its tools and stops it again). All of them follow the same rules:
 nothing is pushed, output is polled with an offset the caller keeps, a record on disk survives a
-crash, and nothing starts implicitly. For Observe, *running* means the run table still holds it —
+crash, and nothing starts implicitly. The probe is the one that keeps nothing — its whole answer
+is one short synchronous ask, like `status.read`, because what it is about does not outlive it. For Observe, *running* means the run table still holds it —
 the suite exiting is not the end of the run, because the coverage database and the test report
 still have to be read, and a caller told "idle" in that window would take the previous verdict set
 for the new one. The agent is denied writes to `.framestack/`, because an agent

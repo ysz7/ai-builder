@@ -1,13 +1,13 @@
-"""One MCP server: what the file says, and what `Connect` does (Phase 11).
+"""One MCP server: what the file says, and what `Connect` does for a stdio entry.
 
 Two of these matter more than the rest, and both are about what must **not** happen:
 
 * **No credential ever leaves the file it is in.** An entry's `env` block may hold a secret
   inline, and the payload it would land in crosses into a webview — one console log away from
   somewhere permanent. Only the names are sent.
-* **Nothing claims the server is connected.** Only the server knows, and finding out means
-  speaking the protocol to it. What is reported is what this application *did*. A tick nobody
-  verified is the same defect as a green node nobody ran a test for.
+* **Neither of these verbs claims the server is connected.** Running a command is not being
+  told anything back. The verb that may claim it is `mcp.probe`, which asks — see
+  `test_mcp_connect.py`, where Phase 10's half of this lives.
 """
 
 from __future__ import annotations
@@ -101,12 +101,13 @@ def test_connecting_runs_the_server_s_own_command_in_a_terminal(tmp_path: Path) 
         close_everything_opened_here()
 
 
-def test_nothing_ever_claims_the_server_is_connected(tmp_path: Path) -> None:
+def test_reading_or_connecting_never_claims_the_server_is_connected(tmp_path: Path) -> None:
     """I-3's argument, applied to somebody else's program.
 
-    Only the server knows whether it is authorised. A `connected` field would be a claim this
-    application cannot support, and an unsupported claim on a canvas is the defect the whole
-    product is arranged against.
+    Only the server knows whether it is authorised, so neither of these verbs says. Since
+    Phase 10 there *is* something that says — `mcp.probe`, which asks the server and carries
+    the tool count as its evidence — and the separation is the point: a claim comes from the
+    thing that asked, never from a command having been run or an entry existing.
     """
     root = project(tmp_path)
     declare(root, {"greeter": {"command": "echo", "args": ["hi"]}})

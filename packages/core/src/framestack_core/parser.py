@@ -95,6 +95,21 @@ MCP_KIND = "mcp"
 TOOLS_DIR = "tools"
 TOOL_KIND = "tool"
 
+#: The one route that is a node of its own: `api/routes/chat.py`.
+#:
+#: **A chat node exists because that file exists, and for no other reason** (Phase 12). It is
+#: the same rule `agent/tools/` follows -- a place a person can see in their own file tree,
+#: never a claim about code -- and it is what stops the chat being a panel with nothing
+#: behind it. A panel with no carrier would be a node outside the convention; a route is
+#: ordinary Python that deploys with the project and serves the same page to a colleague.
+#:
+#: It carries **no verdict**, like a tool and for the same reason: its lines are inside the
+#: `api/` package, already owned by whatever test reached them, and two owners for one run
+#: is how one node goes green while another goes grey for the same lines.
+ROUTES_DIR = "routes"
+CHAT_FILE = "chat.py"
+CHAT_KIND = "chat"
+
 #: The second class of node in the taxonomy: something the project's code **talks to**.
 #:
 #: A dependency is not a package and never carries a verdict -- no test executes a Postgres,
@@ -172,6 +187,15 @@ class Node:
     #: already said in `missing` and `reason`, and a port for a name nothing binds would be
     #: an attachment point for an import that cannot be written.
     ports: tuple[str, ...]
+    #: Where one of this node's own files stops parsing: `"chunker.py line 42"`, or `""`.
+    #:
+    #: **A broken file marks a node; it never blanks one** (Phase 13). A file mid-write is
+    #: the ordinary case for a graph that re-reads itself on save, and a parser that dropped
+    #: a node for it would make the canvas flicker every time somebody typed. Nothing about
+    #: the node changes because of it: the exports come from `__init__.py`, the path is the
+    #: directory's, and one unreadable file leaves both exactly as they were -- which is what
+    #: "keep the last good version" means here, with no cache to hold it in.
+    broken: str = ""
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -187,6 +211,7 @@ class Node:
             "children": list(self.children),
             "files": list(self.files),
             "ports": list(self.ports),
+            "broken": self.broken,
         }
 
 
@@ -259,14 +284,25 @@ def _parse(path: Path) -> cst.Module | None:
     cannot be shown to export anything", which is a statement about the node rather than an
     error about the run -- a project with one broken file still has a graph.
     """
+    return _parse_or_why(path)[0]
+
+
+def _parse_or_why(path: Path) -> tuple[cst.Module | None, str]:
+    """The file as a tree, and where it stopped if it did not become one.
+
+    The reason exists for one thing: **marking a node rather than dropping it** when a file
+    is mid-edit. It is the file's own name and the line the parser gave up on, which is the
+    sentence a person needs and the whole of what this codebase claims to know about it --
+    never an interpretation of what the code was trying to say.
+    """
     try:
         source = path.read_text(encoding="utf-8")
     except OSError:
-        return None
+        return None, f"{path.name} could not be read"
     try:
-        return cst.parse_module(source)
-    except cst.ParserSyntaxError:
-        return None
+        return cst.parse_module(source), ""
+    except cst.ParserSyntaxError as exc:
+        return None, f"{path.name} line {exc.raw_line}"
 
 
 def _bindings(statement: cst.BaseStatement, names: set[str]) -> None:
@@ -559,7 +595,45 @@ def _tools_of(package: Path, root: Path, node_id: str) -> list[Node]:
     return out
 
 
-def _imports_of(path: Path, package: str) -> set[tuple[str, str]]:
+def _chat_of(package: Path, root: Path, node_id: str) -> list[Node]:
+    """The chat route this service carries, if it has one: `api/routes/chat.py`.
+
+    Existence is the whole rule. There is nothing to satisfy, nothing to fail, and nothing
+    inspected inside it -- which is what makes the chat a thing a person can see in their own
+    file tree rather than a claim this toolchain makes about their code.
+
+    Its public functions are its **ports**, exactly as a tool's are: a port is somewhere an
+    edge may land, and `from api.routes.chat import router` lands on one. The edge to the
+    agent is not special either -- the route imports `run`, and the import builder draws it
+    the way it draws every other.
+    """
+    where = package / ROUTES_DIR / CHAT_FILE
+    if not where.is_file():
+        return []
+
+    module = _parse(where)
+    return [
+        Node(
+            id=f"{node_id}.{ROUTES_DIR}.{where.stem}",
+            name=CHAT_KIND,
+            kind=CHAT_KIND,
+            path=where.relative_to(root).as_posix(),
+            # No contract, so nothing for it to fail. The file being there is the node.
+            complete=True,
+            exports=(),
+            missing=(),
+            reason="",
+            parent=node_id,
+            children=(),
+            files=(),
+            ports=_callables_in(module) if module is not None else (),
+        )
+    ]
+
+
+def _imports_of(
+    path: Path, package: str, broken: dict[Path, str] | None = None
+) -> set[tuple[str, str]]:
     """What one file imports: `(module, name)`, relatives resolved against `package`.
 
     Relative imports are resolved here rather than left alone because an edge is a fact
@@ -572,8 +646,13 @@ def _imports_of(path: Path, package: str) -> set[tuple[str, str]]:
     about `rag.search`, and the alias is this file's private business. `import rag` names
     nothing, so it carries `""` and lands on the package -- which is exactly what it says.
     """
-    module = _parse(path)
+    module, why = _parse_or_why(path)
     if module is None:
+        # Recorded rather than swallowed. The walk already reads every file a node owns, so
+        # this is where a syntax error is *known* -- finding it again in a second pass would
+        # be parsing the project twice to learn what one pass already had.
+        if broken is not None and why:
+            broken[path] = why
         return set()
 
     found: set[tuple[str, str]] = set()
@@ -1007,12 +1086,26 @@ def _storage_modules(database: Database) -> set[str]:
     return found
 
 
+def _first_broken(node_id: str, walk: dict[str, list[Path]], broken: dict[Path, str]) -> str:
+    """The first of this node's files that would not parse, in the walk's own order.
+
+    One, not all: the panel's job is to point at where to look, and a node listing six
+    syntax errors is a node whose first one is the only interesting fact about it.
+    """
+    for file in walk.get(node_id, ()):
+        found = broken.get(file)
+        if found:
+            return found
+    return ""
+
+
 def _import_edges(
     root: Path,
     systems: list[Node],
     packages: dict[str, Path],
     walk: dict[str, list[Path]],
     storage: set[str],
+    broken: dict[Path, str] | None = None,
 ) -> list[Edge]:
     """Edges between system packages, read from the import statements between them.
 
@@ -1050,7 +1143,7 @@ def _import_edges(
     seen: set[tuple[str, str, str]] = set()
     for node in systems:
         for file in walk[node.id]:
-            for module, symbol in _imports_of(file, _module_path(file.parent, root)):
+            for module, symbol in _imports_of(file, _module_path(file.parent, root), broken):
                 # Storage first: a module that declares a table belongs to the database, not
                 # to whatever package happens to be its longest prefix. `repositories/` is
                 # nobody's node, and a model inside a system would otherwise be read as that
@@ -1126,6 +1219,9 @@ def read_graph(project: Path | str) -> Graph:
 
     systems: list[Node] = []
     tools: list[Node] = []
+    #: The chat route, where there is one. A list because the walk is written once for every
+    #: kind; the convention allows exactly one.
+    routes: list[Node] = []
     packages: dict[str, Path] = {}
     #: Whose imports each node answers for. Kept apart from `files` on purpose: a tool's
     #: **imports** belong to the tool, and its **coverage** belongs to the agent that
@@ -1144,19 +1240,26 @@ def read_graph(project: Path | str) -> Graph:
         # Only the top-level agent. A sub-agent's tools would be a second level of nesting,
         # which is out of scope, and one level is the rule everywhere else here.
         own_tools = _tools_of(directory, root, kind) if kind == "agent" else []
+        # Only the top-level `api`, for the reason tools are read only on the top-level
+        # agent: a nested service's chat would be a second level of nesting.
+        own_chat = _chat_of(directory, root, kind) if kind == "api" else []
+        # The two behave alike from here on -- a module inside a package that is a node of
+        # its own -- but they are kept apart, because a chat is not a tool: only a tool can
+        # reach an MCP server, and a list that blurred them would draw an edge nobody wrote.
+        own_parts = [*own_tools, *own_chat]
         parent = _node_for(directory, root, kind, kind, "")
         # Frozen, so the children are attached by rebuilding rather than by mutating: a node
         # that could be edited after it was read is a node two callers could disagree about.
         systems.append(
             replace(
                 parent,
-                children=tuple(child.id for child in [*children, *own_tools]),
+                children=tuple(child.id for child in [*children, *own_parts]),
             )
         )
         packages[kind] = directory
 
         nest = directory / _plural(kind)
-        taken = {root / tool.path for tool in own_tools}
+        taken = {root / part.path for part in own_parts}
         walk[kind] = [
             file
             for file in _python_files(directory, nest if nest.is_dir() else None)
@@ -1169,33 +1272,51 @@ def read_graph(project: Path | str) -> Graph:
             nested = (root / child.path) / _plural(child.kind)
             walk[child.id] = _python_files(root / child.path, nested if nested.is_dir() else None)
 
-        for tool in own_tools:
-            tools.append(tool)
-            packages[tool.id] = root / tool.path
-            walk[tool.id] = [root / tool.path]
+        for part in own_parts:
+            packages[part.id] = root / part.path
+            # Its **imports** are its own; its **coverage** is the package's. The same split
+            # a tool has, for the same reason: an edge says who depends on what, a verdict
+            # says whose code a test ran, and these lines are inside `api/`.
+            walk[part.id] = [root / part.path]
+        tools.extend(own_tools)
+        routes.extend(own_chat)
 
     servers = _mcp_nodes(root)
     files = _file_nodes(root)
     database = read_database(root)
-    coded = [*systems, *tools]
+    coded = [*systems, *tools, *routes]
     # The same mapping the edge builder uses, so a dependency says which node named it by
     # exactly the rule an import edge is drawn by. Built once and handed to both.
     by_module = {_module_path(packages[node.id], root): node.id for node in coded}
     outside = read_dependencies(root, by_module, database)
     stores = _dependency_nodes(outside)
+    #: Where a file stopped parsing, filled in by the walk below. A dict rather than a
+    #: return value because the walk is about edges and this is about nodes: one pass, two
+    #: answers, and neither costs the other a second read of the project.
+    broken: dict[Path, str] = {}
     nodes = [*coded, *files, *servers, *stores]
     by_id = {node.id: node for node in nodes}
     edges = [
-        *_import_edges(root, coded, packages, walk, _storage_modules(database)),
+        *_import_edges(root, coded, packages, walk, _storage_modules(database), broken),
         *_dependency_edges(outside),
         *_mcp_edges(by_id),
         *_tool_server_edges(root, tools, servers),
     ]
 
+    if broken:
+        # **The mark goes on the node; nothing else about it moves.** A file mid-write is
+        # ordinary in a graph that re-reads itself on save, and a node that vanished for it
+        # would make the canvas flicker while somebody typed.
+        nodes = [
+            replace(node, broken=_first_broken(node.id, walk, broken)) if node.id in walk else node
+            for node in nodes
+        ]
+
     return Graph(
         ok=True,
         detail=(
             f"{len(systems)} system(s), {len(tools)} tool(s), "
+            f"{len(routes)} chat(s), "
             f"{len(files)} file(s), {len(servers)} server(s), "
             f"{len(stores)} dependency(s)"
         ),

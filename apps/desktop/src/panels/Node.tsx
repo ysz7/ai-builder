@@ -33,6 +33,7 @@ import {
 } from "../core/client";
 import type {
   DatabaseResult,
+  McpProbe,
   Graph,
   GraphNode,
   Observation,
@@ -44,10 +45,13 @@ import { Flyout } from "../shell/Flyout";
 import { isSystem, labelOf } from "../graph/kinds";
 import { known, markOf, wordsFor } from "../graph/verdicts";
 import { Deploy } from "./Deploy";
+import { Docker } from "./Docker";
 import { Knob } from "./Knob";
 import { Ollama } from "./Ollama";
 import { McpPanel } from "./McpPanel";
 import { Run } from "./Run";
+import { Usage } from "./Usage";
+import { ChatRoute } from "./ChatRoute";
 
 function Row({ label, children }: { label: string; children: React.ReactNode }) {
   return (
@@ -69,8 +73,10 @@ export function NodePanel({
   deploying,
   onDeploy,
   onUndeploy,
+  onLogs,
   onTalk,
   onConnected,
+  onProbed,
 }: {
   project: string;
   graph: Graph;
@@ -84,10 +90,19 @@ export function NodePanel({
   deploying: boolean;
   onDeploy: () => void;
   onUndeploy: () => void;
+  /** Show the stack's log. It lives in the bottom sheet, which the workspace owns. */
+  onLogs: () => void;
   /** Open the agent's own chat. The other half of the split this panel is one side of. */
   onTalk: (id: string) => void;
   /** A server is authorising itself in this terminal. The workspace shows the drawer. */
   onConnected: (shell: string) => void;
+  /**
+   * A server answered a probe. Handed up so the card on the canvas can say the same thing.
+   *
+   * One probe, two places: the panel has the reason, the card has the word. Neither can say
+   * something the other does not, because there is only one answer behind both.
+   */
+  onProbed: (probe: McpProbe) => void;
 }) {
   /**
    * The knobs, asked for when the panel opens on a node and never before.
@@ -351,6 +366,20 @@ export function NodePanel({
           </Row>
         ) : null}
 
+        {/* The stack, on the node that is about it: what each service is, what of it the
+            daemon is running, and the five fields a person changes while building. The dot
+            beside a service is a container's state and is never a verdict — nothing in a
+            test run proves a Postgres. */}
+        {node.id === "docker" ? (
+          <Docker
+            project={project}
+            running={deploying}
+            onUp={onDeploy}
+            onDown={onUndeploy}
+            onLogs={onLogs}
+          />
+        ) : null}
+
         {/* The one dependency with panel content of its own, and the plan says why: local
             models are the reason some people will pick this tool, and that claim is answered
             by a list a person can look at. It is not a catalogue — nothing here suggests a
@@ -475,12 +504,27 @@ export function NodePanel({
           <Run project={project} node={node} />
         )}
 
+        {/* A route the project serves, and the page behind it. Not a panel this window
+            draws: the chat is `api/routes/chat.py`, ordinary Python that deploys with the
+            project, and `Open` sends the person's own browser to their own service. */}
+        {node.kind === "chat" ? <ChatRoute project={project} node={node} /> : null}
+
+        {/* What the last run cost. Under `Run` because that is what it is about, and drawn
+            only where something was measured — a node nobody has run has no cost rather
+            than a zero one. It colours nothing: money spent is not a proof of anything. */}
+        {isSystem(node.kind) ? <Usage project={project} node={node.id} /> : null}
+
         {/* A server is somebody else's program. What the project knows about it is one entry
             in one file — shown here — and the one thing worth pressing is `Connect`, which
             runs that entry's own command where a person can watch it. Adding or changing a
             server is a code edit, which is the chat's job. */}
         {node.kind === "mcp" ? (
-          <McpPanel project={project} node={node} onConnected={onConnected} />
+          <McpPanel
+            project={project}
+            node={node}
+            onConnected={onConnected}
+            onProbed={onProbed}
+          />
         ) : null}
 
         {/* The one file node that can be asked to do something, and the only deployment

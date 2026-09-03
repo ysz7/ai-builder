@@ -16,6 +16,13 @@ configuration implies, and reports what it did.
 
 **Only inside the project.** A path that climbs out of the project directory is refused. This
 verb takes a path from a caller and hands it to a program, and the caller is a webview.
+
+`open_url` is the same idea pointed at a page the project itself serves — the chat route,
+opened in the person's own browser. It is the browser and not a view of ours on purpose: the
+claim of the chat node is that the page is *the project's*, and one served inside this
+application would be a panel again. Only `http://` and `https://` are opened, because this
+too takes a string from a webview and hands it to a program, and a `file:` or a `javascript:`
+is not a page a project serves.
 """
 
 from __future__ import annotations
@@ -28,7 +35,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-__all__ = ["Opened", "open_in_editor"]
+__all__ = ["Opened", "open_in_editor", "open_url"]
 
 #: Editors that can be told a line, and how they want to be told.
 #:
@@ -145,3 +152,31 @@ def _run(line: list[str], editor: str) -> Opened:
     except OSError as exc:
         return Opened(False, f"{editor} could not be started: {exc}", editor)
     return Opened(True, f"opened in {editor}", editor)
+
+
+#: The only two schemes a page can arrive on. Anything else is not a page this project
+#: serves, and this verb hands what it is given to the operating system.
+SCHEMES = ("http://", "https://")
+
+
+def open_url(url: str) -> Opened:
+    """Open a page the project serves, in the person's own browser. Never implicit (P11).
+
+    The browser rather than a view of ours, and the reason is the chat node's whole claim:
+    the page belongs to the project and deploys with it. A page rendered inside this
+    application would be a panel with code behind it, which is one step from a panel with
+    nothing behind it.
+    """
+    address = url.strip()
+    if not address.startswith(SCHEMES):
+        return Opened(False, "only an http or https address can be opened")
+
+    import webbrowser
+
+    try:
+        opened = webbrowser.open(address)
+    except OSError as exc:
+        return Opened(False, f"the browser could not be started: {exc}")
+    if not opened:
+        return Opened(False, "no browser could be started on this machine")
+    return Opened(True, f"opened {address}", editor="browser")

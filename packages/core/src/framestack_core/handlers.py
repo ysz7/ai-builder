@@ -31,18 +31,25 @@ from framestack_core.api import (
     chat_changes,
     chat_choices,
     chat_send,
+    compose_read,
+    compose_write,
     create_new_project,
     database_read,
     deploy_down,
     deploy_poll,
     deploy_status,
     deploy_up,
+    editor_browse,
     editor_open,
     graph_get,
     layout_get,
     layout_put,
+    mcp_authorized,
+    mcp_cancel,
     mcp_connect,
+    mcp_probe,
     mcp_read,
+    mcp_secret,
     observe_last,
     observe_read,
     observe_start,
@@ -64,6 +71,9 @@ from framestack_core.api import (
     shell_resize,
     shell_write,
     status_read,
+    usage_read,
+    watch_read,
+    watch_stop,
 )
 from framestack_core.protocol import PROTOCOL_VERSION, ProtocolError
 
@@ -386,6 +396,32 @@ def run_stop_method(params: dict[str, Any]) -> dict[str, Any]:
     return run_stop(_project_of(params), _required_str(params, "node"))
 
 
+def watch_read_method(params: dict[str, Any]) -> dict[str, Any]:
+    """Whether the project has changed since the revision the caller holds.
+
+    The live re-parse, as a question rather than a push: one request, one answer, the caller
+    keeping the number -- the same shape as every log offset here. A second message type on
+    the wire is a protocol version decision, and this phase did not need one.
+    """
+    revision = params.get("revision", 0)
+    if not isinstance(revision, int) or isinstance(revision, bool):
+        raise ProtocolError("invalid_params", "'revision' must be a number")
+    return watch_read(_project_of(params), revision)
+
+
+def watch_stop_method(params: dict[str, Any]) -> dict[str, Any]:
+    return watch_stop(_project_of(params))
+
+
+def usage_read_method(params: dict[str, Any]) -> dict[str, Any]:
+    """What one node's last run cost. A read: it starts nothing and asks no provider.
+
+    One node per request, as `status.read` is: the ledger is per node because a run is, and
+    a verb that answered for everything at once would be answering a question nobody asked.
+    """
+    return usage_read(_project_of(params), _required_str(params, "node"))
+
+
 def deploy_status_method(params: dict[str, Any]) -> dict[str, Any]:
     """Whether this project can be deployed, and whether it already is.
 
@@ -409,6 +445,36 @@ def deploy_read_method(params: dict[str, Any]) -> dict[str, Any]:
 def deploy_down_method(params: dict[str, Any]) -> dict[str, Any]:
     """Take the stack down -- the client and the containers both, or stopping means detaching."""
     return deploy_down(_project_of(params))
+
+
+def compose_read_method(params: dict[str, Any]) -> dict[str, Any]:
+    """What the stack declares and what of it is up. A read: it brings nothing up.
+
+    It spawns `docker compose ps`, which starts nothing -- asking the daemon what it already
+    holds is the same restraint `deploy.status` shows when it asks compose for the services.
+    """
+    return compose_read(_project_of(params))
+
+
+def compose_write_method(params: dict[str, Any]) -> dict[str, Any]:
+    """Change one field of one service.
+
+    `image` carries a string and the other four carry a list of strings, which is checked
+    here only for being one of those two things. *Which* fields exist and what each may hold
+    is `compose.py`'s decision, because that is where the file is -- and a rule enforced in
+    two places is a rule that will one day disagree with itself.
+    """
+    value = params.get("value")
+    if not isinstance(value, str) and not (
+        isinstance(value, list) and all(isinstance(item, str) for item in value)
+    ):
+        raise ProtocolError("invalid_params", "'value' must be a string or a list of strings")
+    return compose_write(
+        _project_of(params),
+        _required_str(params, "service"),
+        _required_str(params, "field"),
+        value,
+    )
 
 
 def settings_read(params: dict[str, Any]) -> dict[str, Any]:
@@ -496,6 +562,44 @@ def mcp_connect_method(params: dict[str, Any]) -> dict[str, Any]:
     return mcp_connect(_project_of(params), _required_str(params, "node"))
 
 
+def mcp_probe_method(params: dict[str, Any]) -> dict[str, Any]:
+    """Ask one server what it offers, and let it be the thing that says so.
+
+    A method of its own for the reason `run.start` is one: it starts a process, or makes a
+    request to somebody else's machine (P11). What it produces is the only thing in this
+    codebase that may claim a server is connected -- because it is the only thing that asked.
+    """
+    return mcp_probe(_project_of(params), _required_str(params, "node"))
+
+
+def mcp_secret_method(params: dict[str, Any]) -> dict[str, Any]:
+    """Store a client id or secret in `.env`.
+
+    `value` may be empty -- clearing a credential a person pasted by mistake is a thing they
+    are owed -- so it is checked for being a string and not for having content. Which fields
+    exist is `mcp.py`'s decision, where the naming lives.
+    """
+    value = params.get("value")
+    if not isinstance(value, str):
+        raise ProtocolError("invalid_params", "'value' must be a string")
+    return mcp_secret(
+        _project_of(params),
+        _required_str(params, "node"),
+        _required_str(params, "field"),
+        value,
+    )
+
+
+def mcp_authorized_method(params: dict[str, Any]) -> dict[str, Any]:
+    """How the browser exchange is going. Polled, because a person may be signing in
+    elsewhere; a verb that waited would hold the window for five minutes."""
+    return mcp_authorized(_project_of(params), _required_str(params, "node"))
+
+
+def mcp_cancel_method(params: dict[str, Any]) -> dict[str, Any]:
+    return mcp_cancel(_project_of(params), _required_str(params, "node"))
+
+
 def editor_open_method(params: dict[str, Any]) -> dict[str, Any]:
     """Open one of the project's files in the person's own editor.
 
@@ -506,6 +610,13 @@ def editor_open_method(params: dict[str, Any]) -> dict[str, Any]:
     if not isinstance(line, int) or isinstance(line, bool) or line < 0:
         raise ProtocolError("invalid_params", "'line' must be a number, zero or more")
     return editor_open(_project_of(params), _required_str(params, "path"), line)
+
+
+def editor_browse_method(params: dict[str, Any]) -> dict[str, Any]:
+    """Open a page the project serves. A method of its own because it starts a program (P11),
+    and it takes an address rather than a path: what it points at is the project's own
+    service, not a file in the project."""
+    return editor_browse(_required_str(params, "url"))
 
 
 def layout_read(params: dict[str, Any]) -> dict[str, Any]:
@@ -585,10 +696,15 @@ HANDLERS: dict[str, Handler] = {
     "run.read": run_read_method,
     "run.last": run_last_method,
     "run.stop": run_stop_method,
+    "usage.read": usage_read_method,
+    "watch.read": watch_read_method,
+    "watch.stop": watch_stop_method,
     "deploy.status": deploy_status_method,
     "deploy.start": deploy_up_method,
     "deploy.read": deploy_read_method,
     "deploy.stop": deploy_down_method,
+    "compose.read": compose_read_method,
+    "compose.write": compose_write_method,
     "chat.send": chat_send_method,
     "chat.changes": chat_changes_method,
     "chat.choices": chat_choices_method,
@@ -603,7 +719,12 @@ HANDLERS: dict[str, Handler] = {
     "routes.read": routes_read_method,
     "mcp.read": mcp_read_method,
     "mcp.connect": mcp_connect_method,
+    "mcp.probe": mcp_probe_method,
+    "mcp.secret": mcp_secret_method,
+    "mcp.authorized": mcp_authorized_method,
+    "mcp.cancel": mcp_cancel_method,
     "editor.open": editor_open_method,
+    "editor.browse": editor_browse_method,
     "layout.read": layout_read,
     "layout.write": layout_write,
     "agent.session": agent_session_method,

@@ -15,6 +15,7 @@ from typing import Any
 
 from framestack_core.chat import COMMANDS as CHAT_COMMANDS
 from framestack_core.chat import STACKS, blocks, changes, send
+from framestack_core.compose import EDITABLE, read_compose, write_compose
 from framestack_core.database import read_database
 from framestack_core.deploy import deploy_status as read_deploy_status
 from framestack_core.deploy import (
@@ -22,9 +23,16 @@ from framestack_core.deploy import (
     start_deploy,
     stop_deploy,
 )
-from framestack_core.editor import open_in_editor
+from framestack_core.editor import open_in_editor, open_url
 from framestack_core.layout import create_project, read_layout, write_layout
-from framestack_core.mcp import connect_server, read_server
+from framestack_core.mcp import (
+    authorisation,
+    connect_server,
+    give_up,
+    probe_server,
+    read_server,
+    write_secret,
+)
 from framestack_core.observe import last_observation, read_observation, start_observation
 from framestack_core.ollama import pull_model, read_models, read_pull, stop_pull
 from framestack_core.parser import read_graph
@@ -58,6 +66,8 @@ from framestack_core.shell import (
     write_shell,
 )
 from framestack_core.status import read_status
+from framestack_core.usage import read_usage
+from framestack_core.watch import forget_watch, read_watch
 
 #: Bumped when the payload's shape changes in a way a client would notice. Additive fields
 #: do not bump it; removing or retyping one does.
@@ -147,6 +157,10 @@ GRAPH_SCHEMA = {
             # `missing`, and a port for a name nothing binds would be an attachment point
             # for an import that cannot be written.
             "ports": ["str"],
+            # Where one of this node's own files stops parsing, or `""`. A broken file
+            # **marks** a node and never blanks one: a file mid-write is ordinary in a graph
+            # that re-reads itself on save, and nothing else about the node moves for it.
+            "broken": "str",
         }
     ],
     # Read from imports and from `mcp.json`, never declared. Nothing in the UI creates one.
@@ -259,11 +273,11 @@ SETTINGS_SCHEMA = {
 #: console log away from somewhere permanent. The names are what a person needs to see; the
 #: values stay in the file they are already in.
 #:
-#: There is **no `connected` field, and its absence is deliberate**. Only the server knows
-#: whether it is authorised, and finding out means speaking the protocol to it. What is
-#: reported here is what this application *did* — a command was run, in a terminal — never a
-#: claim about the far side. A tick nobody verified is the same defect as a green node
-#: nobody ran a test for.
+#: There is **no `connected` field here, and its absence is still deliberate**: this payload
+#: says what the file declares and what `Connect` did, and whether a server answers is a
+#: different question with a different mechanism. That question is `mcp.probe`, which speaks
+#: the protocol and carries the tool count as its evidence — a tick nobody verified is the
+#: same defect as a green node nobody ran a test for.
 MCP_SCHEMA = {
     "api_version": "int",
     "ok": "bool",
@@ -277,6 +291,67 @@ MCP_SCHEMA = {
     "env": ["str"],
     # Which terminal `Connect` started it in, so the caller can show what it is printing.
     "shell": "str",
+    # `stdio` for a `command` entry, `http` for a `url` one, `""` for an entry a person has
+    # yet to finish. It decides what `Connect` means, so it is stated rather than inferred.
+    "transport": "str",
+    "url": "str",
+    # The three variables this server's authorisation uses, and which of them `.env` sets --
+    # **by name, both of them**. That a key is set is worth sending; what it is set to is one
+    # console log from being permanent.
+    "keys": ["str"],
+    "given": ["str"],
+}
+
+
+#: The `mcp.probe` payload: what a server answered when it was asked what it offers.
+#:
+#: **`connected` is earned and nothing else produces it.** It means this server answered
+#: `tools/list` at `at` — not that an entry exists, not that a command is on `PATH`, not that
+#: a token is in `.env`. A server nobody has asked has no probe at all, and the absence is
+#: drawn as absence rather than as a hopeful default.
+#:
+#: `ok` and `connected` are different claims. `ok` is "the question was asked"; `connected`
+#: is "it was answered". A probe that reached a server which refused is a successful probe
+#: with a negative answer, and merging the two would throw away the sentence saying why.
+#:
+#: Nothing here is stored. An answer about a live process goes stale the moment the process
+#: does, and a remembered one would be a claim outliving the thing it was about.
+MCP_PROBE_SCHEMA = {
+    "api_version": "int",
+    "ok": "bool",
+    "detail": "str",
+    "node": "str",
+    "name": "str",
+    "connected": "bool",
+    # In the server's own order. The count is the proof; the names are what a person
+    # recognises it by. **Nothing in this codebase can call one of them.**
+    "tools": ["str"],
+    "server": "str",
+    "transport": "str",
+    "at": "str",
+}
+
+
+#: The `mcp.authorize` / `mcp.authorized` / `mcp.cancel` payload: how one browser exchange went.
+#:
+#: **No token is in it, and there is no field one could be put in.** The flow writes the token
+#: to `.env` and reports the variable's *name*; a payload carrying the value would be a secret
+#: crossing into a webview, which is the one thing this whole area is arranged to prevent.
+#:
+#: `url` is the consent screen the browser was sent to — it carries a client id and a PKCE
+#: challenge, both public — and `redirect` is the loopback address the person has to register
+#: in the provider's console, which is why it is shown before anything can work.
+MCP_AUTH_SCHEMA = {
+    "api_version": "int",
+    "ok": "bool",
+    "detail": "str",
+    "node": "str",
+    "running": "bool",
+    "url": "str",
+    "redirect": "str",
+    # The **name** of the variable the token was written to. Never the value.
+    "stored": "str",
+    "at": "str",
 }
 
 
@@ -636,6 +711,99 @@ DEPLOY_SCHEMA = {
 }
 
 
+#: The `compose.*` payload: what the stack is made of, and what of it is up.
+#:
+#: **Two mechanisms, kept apart in the fields themselves.** `state` and `published` come from
+#: `docker compose ps` -- what the daemon is actually doing -- and everything beside them is
+#: what the file declares. A `ports:` line is what somebody asked for; a published port is what
+#: happened, and merging the two would let a stopped stack look like a running one.
+#:
+#: `state` is `""` where the daemon holds no container for the service, which is a different
+#: claim from `exited` and is never merged with one. `image` is `""` for a service that builds
+#: its own, which is ordinary rather than a failure.
+#:
+#: **A status is not here.** A container's state is what the daemon reports; whether the thing
+#: inside it answers is the dependency's question, asked by `status.read` with a connection.
+COMPOSE_SCHEMA = {
+    "api_version": "int",
+    "ok": "bool",
+    "detail": "str",
+    "present": "bool",
+    "available": "bool",
+    "path": "str",
+    # The five fields a panel may change. Declared in the payload so a client draws exactly
+    # those controls and never a sixth it invented -- the limit is a decision of this build's,
+    # and a control the core cannot answer for is a button whose only outcome is an error.
+    "fields": ["str"],
+    "services": [
+        {
+            "name": "str",
+            "image": "str",
+            "ports": ["str"],
+            "environment": ["str"],
+            "volumes": ["str"],
+            "depends_on": ["str"],
+            "state": "str",
+            "published": ["str"],
+        }
+    ],
+}
+
+
+#: The `usage.read` payload: what one node's last run cost.
+#:
+#: **Tokens are measured and dollars are arithmetic**, which is why `cost` is nullable in two
+#: places rather than defaulted to zero. A step whose model this build has no price for shows
+#: its tokens and `null`; a run where none of the steps could be priced has a `null` total.
+#: `$0.00` would be a false statement where "we do not know" is the true one, and the
+#: `unpriced` names say which models are the reason.
+#:
+#: Nothing here is instrumentation in somebody's project: the measurement is a wrapper in the
+#: child process `Run` already spawns, written into `.framestack/` and deleted with it (I-6).
+USAGE_SCHEMA = {
+    "api_version": "int",
+    "ok": "bool",
+    "detail": "str",
+    "node": "str",
+    "calls": [
+        {
+            "at": "str",
+            "model": "str",
+            "input": "int",
+            "output": "int",
+            # Null where the model is not in the price table. Never a guess.
+            "cost": "number?",
+        }
+    ],
+    "tokens": "int",
+    "cost": "number?",
+    "unpriced": ["str"],
+    # Where this project's traces go, if its `.env` says it sends any. A link and never a
+    # fetch: Langfuse is linked out to, never read from and never fallen back to.
+    "langfuse": "str",
+}
+
+
+#: The `watch.*` payload: whether anything the parser reads has changed.
+#:
+#: **A question, never a push.** The caller holds `revision` and sends it back; a graph it
+#: has just read is not stale, so the first ask answers `changed: false`. That is the same
+#: shape every log offset in this codebase has, and it is why live re-parse needs no second
+#: message type on the wire.
+#:
+#: `files` is a hint for a person and is capped. Whatever it says, the answer is the same:
+#: read the graph again. A change *set* would be a second description of the project, which
+#: is the thing this whole application refuses to keep.
+WATCH_SCHEMA = {
+    "api_version": "int",
+    "ok": "bool",
+    "detail": "str",
+    "revision": "int",
+    "changed": "bool",
+    "files": ["str"],
+}
+
+
 def create_new_project(parent: Path | str, name: str) -> dict[str, Any]:
     """Make an empty directory for a project. `detail` is the path when it worked."""
     return {"api_version": GRAPH_API_VERSION, **create_project(parent, name).as_dict()}
@@ -683,6 +851,21 @@ def run_stop(project: Path | str, node: str) -> dict[str, Any]:
     return {"api_version": GRAPH_API_VERSION, **stop_run(project, node).as_dict()}
 
 
+def watch_read(project: Path | str, revision: int = 0) -> dict[str, Any]:
+    """Has the project changed since `revision`? A read: it parses nothing and runs nothing."""
+    return {"api_version": GRAPH_API_VERSION, **read_watch(project, revision).as_dict()}
+
+
+def watch_stop(project: Path | str) -> dict[str, Any]:
+    """Stop watching one project."""
+    return {"api_version": GRAPH_API_VERSION, **forget_watch(project).as_dict()}
+
+
+def usage_read(project: Path | str, node: str) -> dict[str, Any]:
+    """What this node's last run cost. A read: it starts nothing and calls no provider."""
+    return {"api_version": GRAPH_API_VERSION, **read_usage(project, node).as_dict()}
+
+
 def deploy_status(project: Path | str) -> dict[str, Any]:
     """Whether this project can be deployed, and whether it already is."""
     return {"api_version": GRAPH_API_VERSION, **read_deploy_status(project).as_dict()}
@@ -701,6 +884,24 @@ def deploy_poll(project: Path | str, offset: int = 0) -> dict[str, Any]:
 def deploy_down(project: Path | str) -> dict[str, Any]:
     """Take the stack down -- the client and the containers both."""
     return {"api_version": GRAPH_API_VERSION, **stop_deploy(project).as_dict()}
+
+
+def compose_read(project: Path | str) -> dict[str, Any]:
+    """What the stack declares and what of it is up. A read: it brings nothing up."""
+    return {
+        "api_version": GRAPH_API_VERSION,
+        "fields": list(EDITABLE),
+        **read_compose(project).as_dict(),
+    }
+
+
+def compose_write(project: Path | str, service: str, field: str, value: Any) -> dict[str, Any]:
+    """Change one of the five fields, through a round-trip that keeps the rest byte-identical."""
+    return {
+        "api_version": GRAPH_API_VERSION,
+        "fields": list(EDITABLE),
+        **write_compose(project, service, field, value).as_dict(),
+    }
 
 
 def chat_send(
@@ -756,6 +957,26 @@ def mcp_read(project: Path | str, node: str) -> dict[str, Any]:
     return {"api_version": GRAPH_API_VERSION, **read_server(project, node).as_dict()}
 
 
+def mcp_probe(project: Path | str, node: str) -> dict[str, Any]:
+    """Ask one server what it offers. Never implicit -- it starts a process or a request."""
+    return {"api_version": GRAPH_API_VERSION, **probe_server(project, node).as_dict()}
+
+
+def mcp_secret(project: Path | str, node: str, field: str, value: str) -> dict[str, Any]:
+    """Put a client id or secret in `.env`. The answer is the entry re-read, values absent."""
+    return {"api_version": GRAPH_API_VERSION, **write_secret(project, node, field, value).as_dict()}
+
+
+def mcp_authorized(project: Path | str, node: str) -> dict[str, Any]:
+    """How a browser exchange is going. A read: it opens nothing and asks no provider."""
+    return {"api_version": GRAPH_API_VERSION, **authorisation(project, node).as_dict()}
+
+
+def mcp_cancel(project: Path | str, node: str) -> dict[str, Any]:
+    """Stop waiting for a browser. The listener goes; nothing was written."""
+    return {"api_version": GRAPH_API_VERSION, **give_up(project, node).as_dict()}
+
+
 def mcp_connect(project: Path | str, node: str) -> dict[str, Any]:
     """Run the server's own command in a terminal, so it can authorise itself. Never
     implicit (P11), and it stores no credential -- there is nowhere here that one would go."""
@@ -800,6 +1021,11 @@ def routes_read(project: Path | str, node: str) -> dict[str, Any]:
 def editor_open(project: Path | str, path: str, line: int = 0) -> dict[str, Any]:
     """Open one of the project's files in the person's own editor, at the line."""
     return {"api_version": GRAPH_API_VERSION, **open_in_editor(project, path, line).as_dict()}
+
+
+def editor_browse(url: str) -> dict[str, Any]:
+    """Open a page the project serves, in the person's own browser."""
+    return {"api_version": GRAPH_API_VERSION, **open_url(url).as_dict()}
 
 
 def layout_get(project: Path | str) -> dict[str, Any]:

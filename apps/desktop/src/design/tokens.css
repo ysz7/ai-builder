@@ -90,6 +90,10 @@
      MCP edge is a real thing in the graph and not a kind. */
   --k-api: #2c4fa8;
   --k-api-bg: #d9e3fb;
+  /* The chat route: the service's own code, one file of it, so it takes the service's hue a
+     step quieter -- the same relation a tool has to its agent. It is not a sixth kind. */
+  --k-chat: #4b6ec4;
+  --k-chat-bg: #dfe7fa;
   --k-mcp: #3b4a9c;
   --k-mcp-bg: #e2e5f3;
   --k-agent: #6d3ce4;
@@ -196,6 +200,8 @@
 
   --k-api: #8fb0f0;
   --k-api-bg: rgba(143, 176, 240, 0.15);
+  --k-chat: #9db8f2;
+  --k-chat-bg: rgba(157, 184, 242, 0.13);
   --k-mcp: #98a6e8;
   --k-mcp-bg: rgba(152, 166, 232, 0.15);
   --k-agent: #b79bf5;

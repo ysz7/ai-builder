@@ -86,7 +86,10 @@ const ORIGIN = 60;
  * stylesheet is a layout that overlaps rather than a layout that self-corrects. Every term
  * matches a rule in `styles.css`; change one there and change it here.
  */
-export function cardHeight(node: GraphNode): number {
+/** Nothing measured. The default, and the shape of a first look at a project. */
+const EMPTY: ReadonlySet<string> = new Set<string>();
+
+export function cardHeight(node: GraphNode, costed: ReadonlySet<string> = EMPTY): number {
   if (node.kind === "file") return 44;
   if (node.kind === "mcp") return CONTAINER_HEIGHT;
   // A dependency is the server's card plus its status row: the dot, the word and the
@@ -97,6 +100,14 @@ export function cardHeight(node: GraphNode): number {
     44 + // the header row and the card's own padding
     20 + // the path line
     (node.reason ? 34 : 0) +
+    // The syntax-error line. Its own row rather than sharing the reason's: they are
+    // different claims — one is "this package does not export what its kind requires", the
+    // other is "this file did not parse just now" — and a node can be in both states.
+    (node.broken ? 18 : 0) +
+    // What the last run cost, where a run has been measured. Drawn only then: a row that
+    // always existed would invite a default to be put in it, and a node nobody has run has
+    // no cost rather than a zero one.
+    (costed.has(node.id) ? 18 : 0) +
     // The `Chat` action, drawn only on an agent that has the export to call.
     (node.kind === "agent" && node.missing.length === 0 ? 27 : 0) +
     // The ports, or the contract pill — never both. They would say the same thing twice on
@@ -175,6 +186,7 @@ export function placeAll(
   graph: Graph,
   layout: Layout,
   services: string[] = [],
+  costed: ReadonlySet<string> = EMPTY,
 ): Record<string, Point> {
   const shown = visible(graph, layout);
   const placed: Record<string, Point> = {};
@@ -201,11 +213,11 @@ export function placeAll(
     const x = ORIGIN + column * COLUMN;
     placed[system.id] = saved(system.id) ?? { x, y: ORIGIN };
 
-    let cursor = ORIGIN + cardHeight(system) + GUTTER + FRAME_TOP;
+    let cursor = ORIGIN + cardHeight(system, costed) + GUTTER + FRAME_TOP;
     if (isExpanded(layout, system.id)) {
       for (const child of shown.filter((node) => node.parent === system.id)) {
         placed[child.id] = saved(child.id) ?? { x: x + INDENT, y: cursor };
-        cursor += cardHeight(child) + GUTTER;
+        cursor += cardHeight(child, costed) + GUTTER;
       }
       cursor += FRAME_PAD;
     }
@@ -293,6 +305,7 @@ export function frameBox(
   system: GraphNode,
   shown: GraphNode[],
   placed: Record<string, Point>,
+  costed: ReadonlySet<string> = EMPTY,
 ): Box | null {
   const members = shown
     .filter((node) => node.parent === system.id)
@@ -303,7 +316,7 @@ export function frameBox(
   const left = Math.min(...members.map((m) => m.at.x));
   const top = Math.min(...members.map((m) => m.at.y));
   const right = Math.max(...members.map((m) => m.at.x + cardWidth(m.node)));
-  const bottom = Math.max(...members.map((m) => m.at.y + cardHeight(m.node)));
+  const bottom = Math.max(...members.map((m) => m.at.y + cardHeight(m.node, costed)));
 
   return {
     x: left - FRAME_PAD,

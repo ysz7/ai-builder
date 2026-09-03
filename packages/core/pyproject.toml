@@ -10,6 +10,7 @@ dependencies = [
     # database it leaves behind is read back through this rather than out of its SQLite --
     # nothing here parses somebody else's file format.
     "coverage>=7.6",
+    "ruamel-yaml>=0.18",
 ]
 
 [project.optional-dependencies]

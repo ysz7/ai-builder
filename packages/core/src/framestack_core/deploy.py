@@ -39,6 +39,7 @@ __all__ = [
     "DeployResult",
     "close_everything_deployed_here",
     "deploy_status",
+    "docker_program",
     "read_deploy",
     "start_deploy",
     "stop_deploy",
@@ -100,7 +101,7 @@ class _Stack:
 _STACKS: dict[str, _Stack] = {}
 
 
-def _docker() -> tuple[str, str]:
+def docker_program() -> tuple[str, str]:
     """`(the docker on this machine, its version)`, or `("", why not)`.
 
     Asked of the program itself. A `docker` on `PATH` that cannot talk to a daemon is a
@@ -160,7 +161,7 @@ def _read_log(root: Path, offset: int) -> tuple[str, int]:
 def _down(root: Path, docker: str) -> None:
     """Take the stack down. What makes stopping mean stopped, rather than detached."""
     with contextlib.suppress(OSError, subprocess.SubprocessError):
-        subprocess.run(  # noqa: S603 -- docker, located by `_docker`
+        subprocess.run(  # noqa: S603 -- docker, located by `docker_program`
             [docker, "compose", "-f", COMPOSE_FILE, "down"],
             cwd=root,
             capture_output=True,
@@ -192,7 +193,7 @@ def deploy_status(project: Path | str) -> DeployResult:
     if not (root / COMPOSE_FILE).is_file():
         return DeployResult(False, f"there is no {COMPOSE_FILE} here to bring up")
 
-    docker, version = _docker()
+    docker, version = docker_program()
     if not docker:
         return DeployResult(False, version, running=_running(root))
 
@@ -219,7 +220,7 @@ def start_deploy(project: Path | str) -> DeployResult:
     if _running(root):
         return DeployResult(True, "this stack is already up", running=True, available=True)
 
-    docker, version = _docker()
+    docker, version = docker_program()
     if not docker:
         return DeployResult(False, version)
 
@@ -229,7 +230,7 @@ def start_deploy(project: Path | str) -> DeployResult:
 
     try:
         sink = log.open("wb")
-        process = subprocess.Popen(  # noqa: S603 -- docker, located by `_docker`
+        process = subprocess.Popen(  # noqa: S603 -- docker, located by `docker_program`
             [docker, "compose", "-f", COMPOSE_FILE, "up"],
             cwd=root,
             stdin=subprocess.DEVNULL,
@@ -280,7 +281,7 @@ def stop_deploy(project: Path | str) -> DeployResult:
     if stack is not None:
         _kill(stack)
 
-    docker, version = _docker()
+    docker, version = docker_program()
     if not docker:
         return DeployResult(False, version)
     _down(root, docker)
@@ -293,7 +294,7 @@ def _take_down(root: str) -> None:
     if stack is None:
         return
     _kill(stack)
-    docker, _ = _docker()
+    docker, _ = docker_program()
     if docker:
         _down(Path(root), docker)
 

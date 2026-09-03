@@ -42,6 +42,14 @@ export type CardData = {
   verdict: string;
   /** Why, in the run's own words. Shown on hover rather than on the card: a card is not a log. */
   reason: string;
+  /**
+   * What the last run cost, already worded — `"7,700 tok · $0.023"` — or `""`.
+   *
+   * **Not a verdict and never coloured.** Money spent proves nothing; it sits in the card's
+   * quiet type beside the path, and a node nobody has run carries nothing at all rather than
+   * a zero.
+   */
+  cost: string;
   /** Whether an edge actually lands on each side. A pin nothing uses is decoration. */
   pins: { in: boolean; out: boolean; up: boolean; down: boolean };
   /** Showing its children rather than a count. View state; it changes nothing in the project. */
@@ -53,7 +61,7 @@ export type CardData = {
 };
 
 export function SystemCard({ data, selected }: NodeProps) {
-  const { node, verdict, reason, pins, expanded, onOpen, onToggle, onTalk } =
+  const { node, verdict, reason, cost, pins, expanded, onOpen, onToggle, onTalk } =
     data as unknown as CardData;
   const ports = hasPorts(node) ? node.ports : [];
 
@@ -154,6 +162,22 @@ export function SystemCard({ data, selected }: NodeProps) {
           {node.path}
           {isSystem(node.kind) ? "/" : ""}
         </div>
+
+        {/* What the last run cost, where one was measured. **Never coloured and never a
+            verdict**: money spent proves nothing, and a card that dressed it as evidence
+            would be the flow-document defect wearing a dollar sign. Absent where nothing
+            has been run — a row that always existed would invite a default in it. */}
+        {/* A file that would not parse, named with the line it stopped on. **It marks the
+            node and blanks nothing**: everything else here is still what the last good read
+            said, because one unreadable file changes none of it. Drawn apart from the
+            verdict mark, which is about a test run rather than about right now. */}
+        {node.broken ? (
+          <div className="bp-card-broken" title={`${node.broken} — the graph is unchanged`}>
+            ⚠ {node.broken}
+          </div>
+        ) : null}
+
+        {cost ? <div className="bp-card-cost">{cost}</div> : null}
 
         {/* On the card rather than only in the panel, because talking to the thing is what a
             person came to the canvas to do. Drawn only where the export exists: a button

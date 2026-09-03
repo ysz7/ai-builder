@@ -58,9 +58,11 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+from uuid import uuid4
 
 from framestack_core.environment import interpreter_for
 from framestack_core.parser import Node, is_system, read_graph
+from framestack_core.usage import METER, record_ledger
 
 __all__ = [
     "DOCUMENTS_PATH",
@@ -285,9 +287,6 @@ def main():
 
     with open(_ANSWER, "w", encoding="utf-8") as handle:
         json.dump(answer, handle)
-
-
-main()
 '''
 
 
@@ -365,6 +364,10 @@ class _Call:
     workspace: Path
     log: Path
     started: float
+    #: What the ledger files this run's calls under. Unique per press rather than a
+    #: timestamp: two runs in the same second are two runs, and a panel showing "the last
+    #: run" has to be able to tell them apart.
+    ticket: str = ""
     watcher: threading.Thread | None = None
 
 
@@ -512,6 +515,17 @@ def _running(root: Path, node: str) -> bool:
 # -- running one --------------------------------------------------------------------------
 
 
+def _bank(root: Path, call: _Call) -> None:
+    """Move the meter's lines into the ledger. Never a reason a run reports failure."""
+    ledger = call.workspace / "usage.jsonl"
+    try:
+        lines = ledger.read_text(encoding="utf-8") if ledger.is_file() else ""
+    except OSError:
+        return
+    if lines.strip():
+        record_ledger(root, call.node, call.ticket, lines)
+
+
 def _watch(call: _Call) -> None:
     """Wait for the child and write down what it left.
 
@@ -525,6 +539,10 @@ def _watch(call: _Call) -> None:
             call.process.wait(timeout=LIMIT_SECONDS)
         except subprocess.TimeoutExpired:
             _end(call)
+            # Measured all the same: a call that ran for five minutes and was abandoned
+            # spent whatever it spent, and a ledger that only recorded successes would
+            # understate the bill in exactly the case a person is looking it up for.
+            _bank(root, call)
             _store(
                 root,
                 RunOutcome(
@@ -561,6 +579,12 @@ def _watch(call: _Call) -> None:
                 None,
                 f"the call left no answer (the process exited {call.process.returncode})",
             )
+
+        # What the meter counted, taken into the ledger here rather than in `read_run`, for
+        # the reason the outcome is: the record has to exist whether or not anybody is
+        # looking. A failed run is measured too — a call that cost money and then raised
+        # cost money.
+        _bank(root, call)
 
         if outcome.ok and call.action == "index":
             given = outcome.value
@@ -643,7 +667,11 @@ def start_run(
     workspace = _workspace(root, node)
     shutil.rmtree(workspace, ignore_errors=True)
     workspace.mkdir(parents=True, exist_ok=True)
-    (workspace / "driver.py").write_text(_DRIVER, encoding="utf-8")
+    # The driver, then the meter, then the call. In that order for a reason: the meter
+    # patches a provider's client class, and a class patched after the project has already
+    # imported and used it would count nothing. Neither half is in the project -- both are
+    # written into `.framestack/` and deleted on the next run (I-6).
+    (workspace / "driver.py").write_text(_DRIVER + METER + "\nmain()\n", encoding="utf-8")
     (workspace / "request.json").write_text(
         json.dumps({"module": _module_of(found), "action": action, "input": given or {}}),
         encoding="utf-8",
@@ -655,7 +683,13 @@ def start_run(
     # The person's own environment, inherited whole. **No network guard, unlike Observe**:
     # a run proves nothing and colours nothing, so there is no reproducibility to protect,
     # and an agent that cannot reach a model is one nobody can try.
-    env = {**os.environ, "PYTHONDONTWRITEBYTECODE": "1"}
+    env = {
+        **os.environ,
+        "PYTHONDONTWRITEBYTECODE": "1",
+        # Where the meter writes what a provider answered. One JSON line per call, taken
+        # into the ledger by the watcher once the run is over.
+        "FRAMESTACK_USAGE": str(workspace / "usage.jsonl"),
+    }
     env.pop("PYTHONHOME", None)
 
     line = [
@@ -692,6 +726,7 @@ def start_run(
         workspace=workspace,
         log=log,
         started=time.monotonic(),
+        ticket=f"{_now()}-{uuid4().hex[:8]}",
     )
     call.watcher = threading.Thread(target=_watch, args=(call,), daemon=True)
     _CALLS[(str(root), node)] = call

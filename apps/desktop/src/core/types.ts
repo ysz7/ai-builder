@@ -74,6 +74,14 @@ export type GraphNode = {
    * binds would be an attachment point for an import that cannot be written.
    */
   ports: string[];
+  /**
+   * Where one of this node's own files stops parsing — `"chunker.py line 42"` — or `""`.
+   *
+   * **A broken file marks a node; it never blanks one.** A file mid-write is ordinary in a
+   * graph that re-reads itself on save, and nothing else about the node moves for it: the
+   * exports still come from `__init__.py`, and the path is still the directory's.
+   */
+  broken: string;
 };
 
 /**
@@ -329,6 +337,82 @@ export type McpServer = {
   env: string[];
   /** Which terminal `Connect` started it in. `""` from a read. */
   shell: string;
+  /**
+   * `stdio` for a `command` entry, `http` for a `url` one, `""` for one still unfinished.
+   *
+   * It decides what `Connect` means — running the server's own program, or authorising it in
+   * a browser — so it is stated by the core rather than inferred from which fields are set.
+   */
+  transport: string;
+  url: string;
+  /**
+   * The three variables this server's authorisation uses, and which of them `.env` sets —
+   * **both by name**. That a key is set is a fact worth sending; what it is set to is one
+   * console log from being somewhere permanent, and never crosses this boundary.
+   */
+  keys: string[];
+  given: string[];
+};
+
+/**
+ * `mcp.probe`: what a server answered when it was asked what it offers.
+ *
+ * **`connected` is earned.** It means this server answered `tools/list` at `at` — not that an
+ * entry exists, not that a command is on `PATH`, not that a token is in `.env`. A server
+ * nobody has asked has no probe at all, and the absence is drawn as absence.
+ *
+ * `ok` and `connected` are different claims: `ok` is "the question was asked", `connected` is
+ * "it was answered". A probe that reached a server which refused is a successful probe with a
+ * negative answer, and `detail` is the server's own words about why.
+ */
+export type McpProbe = {
+  api_version: number;
+  ok: boolean;
+  detail: string;
+  node: string;
+  name: string;
+  connected: boolean;
+  tools: string[];
+  server: string;
+  transport: string;
+  at: string;
+};
+
+/**
+ * `mcp.connect` on an HTTP server, then `mcp.authorized` / `mcp.cancel`: one browser exchange.
+ *
+ * **No token is in it and there is no field one could be put in.** The flow writes the token
+ * to `.env` and reports the variable's *name*. `redirect` is the loopback address the person
+ * has to register in the provider's console, which is why it is shown before anything works.
+ */
+export type McpAuth = {
+  api_version: number;
+  ok: boolean;
+  detail: string;
+  node: string;
+  running: boolean;
+  url: string;
+  redirect: string;
+  /** The **name** of the variable the token was written to. Never the value. */
+  stored: string;
+  at: string;
+};
+
+/**
+ * `watch.read`: whether anything the parser reads has changed since `revision`.
+ *
+ * **A question, never a push.** The window holds the revision and sends it back; a graph it
+ * has just read is not stale, so the first ask always answers `changed: false`. `files` is a
+ * hint for a person and is capped — whatever it names, the answer is the same: read the graph
+ * again.
+ */
+export type Watched = {
+  api_version: number;
+  ok: boolean;
+  detail: string;
+  revision: number;
+  changed: boolean;
+  files: string[];
 };
 
 /** `editor.open`: which program was started, so the answer says what happened. */
@@ -463,4 +547,83 @@ export type DeployResult = {
   available: boolean;
   version: string;
   services: string[];
+};
+
+/**
+ * One compose service: what the file declares about it, and what the daemon is doing.
+ *
+ * **Two mechanisms, kept apart in the fields.** `state` and `published` come from
+ * `docker compose ps`; everything beside them is what `compose.yaml` says. A `ports:` line is
+ * what somebody asked for and a published port is what happened, and a panel that merged the
+ * two would let a stopped stack look like a running one.
+ *
+ * `state` is `""` where the daemon holds no container for the service — a different claim
+ * from `exited`, and never drawn as one. `image` is `""` for a service that builds its own.
+ */
+export type ComposeService = {
+  name: string;
+  image: string;
+  ports: string[];
+  environment: string[];
+  volumes: string[];
+  depends_on: string[];
+  state: string;
+  published: string[];
+};
+
+/** `compose.read` / `compose.write`: the stack as written, and what of it is up. */
+export type ComposeResult = {
+  api_version: number;
+  ok: boolean;
+  detail: string;
+  /** Whether there is a `compose.yaml` at all. Most projects have none; that is not a fault. */
+  present: boolean;
+  /** Whether there is a docker to ask. Without one the file still says what it says. */
+  available: boolean;
+  path: string;
+  /**
+   * The fields the core will write, declared by the core.
+   *
+   * The panel draws exactly these controls and never a sixth it invented: a control the core
+   * cannot answer for is a button whose only possible outcome is an error.
+   */
+  fields: string[];
+  services: ComposeService[];
+};
+
+/**
+ * One request to a model, as the provider's own answer reported it.
+ *
+ * `cost` is `null` where this build has no price for the model. **Never a guess**: the tokens
+ * are shown either way, and the absence is what says which of the two it is.
+ */
+export type UsageCall = {
+  at: string;
+  model: string;
+  input: number;
+  output: number;
+  cost: number | null;
+};
+
+/**
+ * `usage.read`: what one node's last run cost.
+ *
+ * **Tokens are measured; dollars are arithmetic done on read**, so a corrected price table
+ * corrects the history it is applied to. A run where nothing could be priced has a `null`
+ * total rather than `$0.00` — a zero would be a false statement where "we do not know" is
+ * the true one, and `unpriced` names the models that are the reason.
+ *
+ * `langfuse` is a link and never a fetch: where a project says it sends traces, the panel
+ * offers the way there, and nothing here reads them or falls back to them.
+ */
+export type UsageResult = {
+  api_version: number;
+  ok: boolean;
+  detail: string;
+  node: string;
+  calls: UsageCall[];
+  tokens: number;
+  cost: number | null;
+  unpriced: string[];
+  langfuse: string;
 };

@@ -28,6 +28,7 @@ from framestack_core.protocol import (
 from framestack_core.run import close_everything_run_here
 from framestack_core.session import close_everything_started_here
 from framestack_core.shell import close_everything_opened_here
+from framestack_core.watch import stop_watching_everything
 
 
 def log(message: str) -> None:
@@ -99,6 +100,10 @@ def main() -> int:
         # is not ending the stack. This runs `down`, because "closing the app stops what it
         # started" has to be true of the thing a person is most likely to leave running.
         close_everything_deployed_here()
+        # And the watchers. They start nothing and hold nothing, but a thread per project
+        # scanning a directory forever is still a thread per project, and this process is
+        # about to stop having anybody to answer.
+        stop_watching_everything()
     log("stdin closed, exiting")
     return 0
 

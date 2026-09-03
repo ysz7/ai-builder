@@ -50,6 +50,14 @@ export type ContainerData = {
   /** Whether an import edge lands on the left. A database has these; the other two do not. */
   inbound: boolean;
   /**
+   * Whether the line to the dependency this container **is** leaves here.
+   *
+   * Only a container has one, and only where the match was a literal fact about its compose
+   * entry. It is not an import and is not drawn as one — nothing in the project's Python
+   * points at a container; the line says the two boxes are one thing.
+   */
+  outbound?: boolean;
+  /**
    * What a connection last answered, `"checking"` while one is in flight, or `""`.
    *
    * **Never a verdict, and drawn in its own palette so it cannot be read as one.** A
@@ -59,13 +67,31 @@ export type ContainerData = {
   status: string;
   /** Why, in the check's own words. On hover: a card is not a log. */
   statusDetail: string;
+  /**
+   * The word to draw instead of the state's own name, where the two differ.
+   *
+   * A dependency is `reachable`; a server that answered `tools/list` is `connected`. They
+   * share a palette because both are claims about something outside the project, and they do
+   * **not** share a word: reached is not the same sentence as answered.
+   */
+  statusLabel?: string;
   /** Ask again, now. Every dependency carries one; the plan asks for it by name. */
   onRefresh?: () => void;
 };
 
 export function ContainerCard({ data, selected }: NodeProps) {
-  const { name, kind, where, pinned, inbound, status, statusDetail, onRefresh } =
-    data as unknown as ContainerData;
+  const {
+    name,
+    kind,
+    where,
+    pinned,
+    inbound,
+    outbound,
+    status,
+    statusDetail,
+    statusLabel,
+    onRefresh,
+  } = data as unknown as ContainerData;
 
   return (
     <div
@@ -99,6 +125,9 @@ export function ContainerCard({ data, selected }: NodeProps) {
         {inbound ? (
           <Handle type="target" position={Position.Left} className="pin pin-data" id="in" />
         ) : null}
+        {outbound ? (
+          <Handle type="source" position={Position.Right} className="pin pin-data" id="same" />
+        ) : null}
         <div className="bp-card-head">
           <svg
             className="bp-card-glyph"
@@ -125,7 +154,7 @@ export function ContainerCard({ data, selected }: NodeProps) {
         {status ? (
           <div className={`bp-status is-${status}`} title={statusDetail}>
             <span className="bp-status-dot" />
-            {status === "checking" ? "checking…" : status}
+            {status === "checking" ? "checking…" : statusLabel || status}
             {onRefresh ? (
               <button
                 className="bp-status-refresh nodrag"

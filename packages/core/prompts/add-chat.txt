@@ -1,0 +1,33 @@
+Add a chat route and page to the project's api.
+
+A chat is a real route in the project's own service, not a panel this builder draws.
+That is the point: the person building locally opens it from the interface, and the
+same route deploys with the project and serves their colleagues. If it were a panel,
+it would exist only while the builder was running.
+
+There must already be an api/ package and an agent/ package. If either is missing,
+say which one and stop -- writing one is /add-system, and this task is not that.
+
+Produce exactly two files:
+
+  api/routes/chat.py
+    POST /chat, streaming its reply over server-sent events.
+    It calls the agent's run export -- an ordinary `from agent import run` -- and
+    nothing else. No agent logic lives here; the route is transport.
+    Register it wherever the api's other routes are registered, in the way that
+    file already does it. If api/routes/ does not exist yet, create it as an
+    ordinary package.
+    Serve api/static/chat.html at GET /chat, so the page and the route are one
+    thing a person can open.
+
+  api/static/chat.html
+    A message list, an input box, and streaming. One file, no framework, no
+    bundler, no build step, no CDN: it must open in a browser with nothing
+    installed and with this builder not running.
+
+Also write a test that posts to the route with the agent's run faked, and asserts
+the reply reaches the client. It must pass with no network and no model.
+
+Nothing in either file may mention Framestack, and neither may read anything from
+.framestack/. Delete this builder and the chat still works -- that is the whole
+reason it is a route.

@@ -20,9 +20,10 @@
  * that pruned itself on sight would forget where it was every time.
  */
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import { GraphCanvas } from "./graph/GraphCanvas";
+import { isSystem } from "./graph/kinds";
 import { useStatuses } from "./graph/statuses";
 import { AgentChat } from "./panels/AgentChat";
 import { Chat, type HandOver } from "./panels/Chat";
@@ -37,6 +38,7 @@ import { Rail } from "./shell/Rail";
 import { Sheet } from "./shell/Sheet";
 import { TopBar } from "./shell/TopBar";
 import {
+  composeRead,
   databaseRead,
   deployRead,
   deployStart,
@@ -48,8 +50,18 @@ import {
   observeLast,
   observeRead,
   observeStart,
+  usageRead,
+  watchRead,
+  watchStop,
 } from "./core/client";
-import type { DatabaseResult, Graph, Layout, Observation } from "./core/types";
+import type {
+  ComposeService,
+  McpProbe,
+  DatabaseResult,
+  Graph,
+  Layout,
+  Observation,
+} from "./core/types";
 
 /**
  * The last project, remembered per machine.
@@ -108,6 +120,15 @@ export default function App() {
    * cannot tell me".
    */
   const [services, setServices] = useState<string[]>([]);
+  /**
+   * What the compose file declares about each service.
+   *
+   * Beside the graph like everything else that costs a subprocess. The canvas uses it for
+   * one thing only — the line between a container and the dependency it **is** — and the
+   * `docker` panel reads it again for itself when it opens, because by then a person may
+   * have changed the file.
+   */
+  const [composed, setComposed] = useState<ComposeService[]>([]);
   const [dockerless, setDockerless] = useState("");
   /**
    * What the project's storage is, held beside the graph like the verdict set.
@@ -130,6 +151,24 @@ export default function App() {
     project,
     outside.map((node) => node.id),
   );
+  /**
+   * What each MCP server last answered, held beside the graph like the verdict set.
+   *
+   * **Only a probe puts anything here**, and a probe happens because somebody pressed
+   * `Check` — asking a server means starting its process, and nothing starts implicitly. A
+   * server with no entry has no state at all, which is drawn as nothing rather than as "not
+   * connected": those are different claims, and only one of them has been established.
+   */
+  const [probes, setProbes] = useState<Record<string, McpProbe>>({});
+  /**
+   * What each node's last run cost, already worded for the card.
+   *
+   * Beside the graph, like the verdict set: it comes from a different mechanism — Framestack's
+   * own ledger of runs it started — and goes stale at a different moment. **Never folded into
+   * a verdict**: money spent proves nothing, and a node nobody has run has no entry rather
+   * than a zero.
+   */
+  const [costs, setCosts] = useState<Record<string, string>>({});
   const [layout, setLayout] = useState<Layout>({});
   const [selected, setSelected] = useState("");
   /**
@@ -191,7 +230,7 @@ export default function App() {
       // from one another: the graph says what exists, the cache says where it was put, and
       // the observation says what a run proved. **None of these runs anything** — opening a
       // window must never execute a stranger's code.
-      const [read, stored, proof, stack, store] = await Promise.all([
+      const [read, stored, proof, stack, store, file] = await Promise.all([
         graphRead(path),
         layoutRead(path),
         observeLast(path),
@@ -202,14 +241,41 @@ export default function App() {
         // What the project's own code says it stores things in. A read of Python, not a
         // connection: whether it is up is a different question with a different mechanism.
         databaseRead(path),
+        // What the file says about each service. Read rather than asked, because this is
+        // the one question `docker compose config` cannot answer for a machine without
+        // docker — and because the panel that edits those fields has to show them first.
+        composeRead(path),
       ]);
       setGraph(read);
       setLayout(stored.layout);
       setObservation(proof.observation);
       setObserving(proof.running);
       setServices(stack.services);
+      setComposed(file.services);
       setDatabase(store.present ? store : null);
       setDeploying(stack.running);
+      // A read of a local ledger — no process, no provider, no money. Asked beside the parse
+      // because the card draws it, and re-asked whenever the project is read again.
+      void Promise.all(
+        read.nodes
+          .filter((node) => isSystem(node.kind))
+          .map(async (node) => [node.id, await usageRead(path, node.id)] as const),
+      )
+        .then((answers) =>
+          setCosts(
+            Object.fromEntries(
+              answers
+                .filter(([, usage]) => usage.calls.length > 0)
+                .map(([id, usage]) => [
+                  id,
+                  `${usage.tokens.toLocaleString("en-US")} tok${
+                    usage.cost === null ? "" : ` · $${usage.cost.toFixed(3)}`
+                  }`,
+                ]),
+            ),
+          ),
+        )
+        .catch(() => undefined);
       // Only where there is a compose file to have services from: "no docker on this machine"
       // is worth saying, "this project has no compose file" is not a problem to report.
       //
@@ -232,6 +298,12 @@ export default function App() {
     setLog("");
     setDeployLog("");
     setServices([]);
+    setComposed([]);
+    setProbes({});
+    setCosts({});
+    // A revision belongs to the project it counts. Carrying one across would compare this
+    // project's tree against another's number.
+    revision.current = 0;
     void open(project);
   }, [project, open]);
 
@@ -362,6 +434,48 @@ export default function App() {
     };
   }, [deploying, project]);
 
+  /**
+   * The graph follows the code, without a button.
+   *
+   * **Polled, never pushed** — the wire has one shape and this phase did not earn a second
+   * one. The core holds a revision, this holds the last one it saw, and a change is a
+   * re-read of everything the open already reads.
+   *
+   * **Not while a turn is running.** The agent writes several files per task, and re-parsing
+   * between them would show half-written intermediate states; the turn's own end already
+   * re-reads the project once, which is the one re-parse that press deserves. The rule lives
+   * here because this is the only place that knows a turn exists.
+   */
+  const revision = useRef(0);
+  useEffect(() => {
+    if (!project || turning) return;
+    let live = true;
+    const tick = window.setInterval(async () => {
+      if (!live || document.hidden) return;
+      try {
+        const answer = await watchRead(project, revision.current);
+        revision.current = answer.revision;
+        if (answer.changed) void open(project);
+      } catch {
+        // A watch that cannot be asked is a graph that stops following the code, which is
+        // a lost convenience rather than a broken window. The `Observe` and re-open paths
+        // are both still there, and interrupting somebody to say so would be noise.
+      }
+    }, 500);
+    return () => {
+      live = false;
+      window.clearInterval(tick);
+    };
+  }, [project, turning, open]);
+
+  // The watcher is about a directory this window is looking at. When it stops looking, the
+  // thread on the other side has no reason to keep scanning.
+  useEffect(() => {
+    return () => {
+      if (project) void watchStop(project).catch(() => undefined);
+    };
+  }, [project]);
+
   const talkTo = useCallback((id: string) => {
     setSelected("");
     setTalking(id);
@@ -398,7 +512,13 @@ export default function App() {
    */
   const onTurn = useCallback((running: boolean) => {
     setTurning(running);
-    if (!running) setPending("");
+    if (!running) {
+      setPending("");
+      // The turn's own end re-reads the project, so the watcher must not report the same
+      // writes a second time. Zero means "adopt whatever the revision is now" — one
+      // re-parse for a command that wrote eight files, which is the point of the rule.
+      revision.current = 0;
+    }
   }, []);
 
   /**
@@ -516,6 +636,9 @@ export default function App() {
             onTalk={talkTo}
             pending={pending}
             services={services}
+            composed={composed}
+            probes={probes}
+            costs={costs}
             dockerless={dockerless}
             database={database}
             statuses={known}
@@ -634,11 +757,17 @@ export default function App() {
           deploying={deploying}
           onDeploy={() => void runDeploy()}
           onUndeploy={() => void endDeploy()}
+          // The log is one long stream from a process somebody started, so it goes to the
+          // sheet beside the suite's output rather than into a flyout that is the wrong
+          // shape for one.
+          onLogs={() => setSheet("deploy")}
           onTalk={talkTo}
           // It is running where the person can read every line of it and stop it themselves,
           // which is the only honest place to start somebody else's program with their own
           // account on the other end.
           onConnected={() => setSheet("terminal")}
+          // One answer, two places: the panel keeps the reason, the card gets the word.
+          onProbed={(probe) => setProbes((held) => ({ ...held, [probe.node]: probe }))}
         />
       ) : null}
 

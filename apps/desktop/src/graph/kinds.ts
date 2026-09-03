@@ -30,6 +30,10 @@ const LABELS: Record<string, string> = {
   // One module in `agent/tools/`. Not a fifth convention: it has no required export, and
   // being in that one directory is the whole of what makes it a node.
   tool: "Tool",
+  // `api/routes/chat.py`. A node because that file exists and for no other reason — the
+  // same rule a tool follows, and it carries no verdict for the same reason: its lines are
+  // inside the `api/` package, already owned by whatever test reached them.
+  chat: "Chat",
   // The second class in the taxonomy: something the project's code talks to. It has a
   // status rather than a verdict, and the two never share a colour scale.
   dependency: "Database",
@@ -57,6 +61,8 @@ const GLYPHS: Record<string, string> = {
   // A stack of platters. What the project talks to, not what it contains.
   dependency: "M4 6c0-1.4 3.6-2.5 8-2.5s8 1.1 8 2.5-3.6 2.5-8 2.5S4 7.4 4 6zM4 6v12c0 1.4 3.6 2.5 8 2.5s8-1.1 8-2.5V6M4 12c0 1.4 3.6 2.5 8 2.5s8-1.1 8-2.5",
   // A wrench. One thing the agent can do, rather than the agent itself.
+  // A speech bubble. What a person types into, served by the project itself.
+  chat: "M21 12a8 8 0 0 1-8 8H8l-4 3v-5.5A8 8 0 1 1 21 12z",
   tool: "M20 5.5a4.5 4.5 0 0 1-5.9 4.3L6 18a2.1 2.1 0 0 1-3-3l8.2-8.1A4.5 4.5 0 0 1 15.5 1c.8 0 1.5.2 2.1.5l-3.1 3.1 1.9 1.9 3.1-3.1c.3.6.5 1.3.5 2.1z",
 };
 

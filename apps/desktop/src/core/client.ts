@@ -70,12 +70,15 @@ export function ping(echo?: string): Promise<PingResult> {
 import type {
   Changes,
   ChatChoices,
+  ComposeResult,
   DatabaseResult,
   DeployResult,
   Dispatch,
   Graph,
   Layout,
   LayoutRead,
+  McpAuth,
+  McpProbe,
   McpServer,
   Opened,
   ObserveResult,
@@ -84,6 +87,8 @@ import type {
   RunResult,
   StatusResult,
   SettingsResult,
+  UsageResult,
+  Watched,
   WriteResult,
 } from "./types";
 
@@ -871,4 +876,106 @@ export function agentConfigure(
   },
 ): Promise<AgentSession> {
   return coreRequest<AgentSession>("agent.configure", { project, ...change });
+}
+
+/**
+ * What the compose stack declares, and what of it the daemon is running.
+ *
+ * A read: it spawns `docker compose ps`, which starts nothing. Asked when the `docker` panel
+ * opens rather than on every parse — it costs a process, and it answers a different question
+ * from the graph.
+ */
+export function composeRead(project: string): Promise<ComposeResult> {
+  return coreRequest<ComposeResult>("compose.read", { project });
+}
+
+/**
+ * Change one field of one service, through a round-trip that keeps the rest byte-identical.
+ *
+ * `image` carries a string; the other four carry a list. What comes back is the file
+ * **re-read**, including when the write was refused — never a description of what the writer
+ * believes it did.
+ */
+export function composeWrite(
+  project: string,
+  service: string,
+  field: string,
+  value: string | string[],
+): Promise<ComposeResult> {
+  return coreRequest<ComposeResult>("compose.write", { project, service, field, value });
+}
+
+/**
+ * Ask one server what it offers.
+ *
+ * Never implicit: it starts the server's own process, or makes a request to somebody else's
+ * machine. What it produces is the only thing in this application that may say a server is
+ * connected — because it is the only thing that asked.
+ */
+export function mcpProbe(project: string, node: string): Promise<McpProbe> {
+  return coreRequest<McpProbe>("mcp.probe", { project, node });
+}
+
+/**
+ * Store a client id or secret in the project's `.env`.
+ *
+ * The value goes one way only. What comes back is the entry re-read, saying which keys are
+ * now set — by name, as everything about a credential is here.
+ */
+export function mcpSecret(
+  project: string,
+  node: string,
+  field: string,
+  value: string,
+): Promise<McpServer> {
+  return coreRequest<McpServer>("mcp.secret", { project, node, field, value });
+}
+
+/** How the browser exchange is going. Polled: a person may be signing in on their phone. */
+export function mcpAuthorized(project: string, node: string): Promise<McpAuth> {
+  return coreRequest<McpAuth>("mcp.authorized", { project, node });
+}
+
+/** Give up waiting for the browser. The listener goes; nothing was written. */
+export function mcpCancel(project: string, node: string): Promise<McpAuth> {
+  return coreRequest<McpAuth>("mcp.cancel", { project, node });
+}
+
+/**
+ * What this node's last run cost.
+ *
+ * A read of Framestack's own ledger — it starts nothing, calls no provider and costs no
+ * money. The measurement itself happened inside the child process `Run` already spawned.
+ */
+export function usageRead(project: string, node: string): Promise<UsageResult> {
+  return coreRequest<UsageResult>("usage.read", { project, node });
+}
+
+
+/**
+ * Open a page the project serves, in the person's own browser.
+ *
+ * An address rather than a path, and only `http`/`https`: what it points at is the project's
+ * own service. The browser and not a view of ours — the chat page belongs to the project and
+ * deploys with it, and one rendered inside this window would be a panel again.
+ */
+export function editorBrowse(url: string): Promise<Opened> {
+  return coreRequest<Opened>("editor.browse", { url });
+}
+
+
+/**
+ * Has the project changed since the revision this window holds?
+ *
+ * The live re-parse, as a question: nothing is pushed over the wire, so the window asks and
+ * the core answers with a number it keeps. A first ask starts the watch and reports no
+ * change — a graph just read is not stale.
+ */
+export function watchRead(project: string, revision = 0): Promise<Watched> {
+  return coreRequest<Watched>("watch.read", { project, revision });
+}
+
+/** Stop watching one project. Its scanning thread ends. */
+export function watchStop(project: string): Promise<Watched> {
+  return coreRequest<Watched>("watch.stop", { project });
 }

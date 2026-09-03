@@ -176,12 +176,24 @@ export function Palette({
     (graph?.nodes ?? []).filter((node) => node.parent === "").map((node) => node.kind),
   );
 
+  /**
+   * Every kind in the graph, wherever it sits.
+   *
+   * A chat lives inside the api rather than at the root, so "there is already one" cannot be
+   * asked of `rooted` — and a block that stayed pressable after its node existed would ask
+   * the agent to write a file that is already there.
+   */
+  const anywhere = new Set((graph?.nodes ?? []).map((node) => node.kind));
+
   /** Why this block cannot be pressed, in the convention's words, or `""`. */
   const why = (spec: BlockSpec): string => {
     // The core's own sentence for the same situation, so the two agree.
     if (busy) return "a turn is already running — wait for it rather than starting a second";
     if (spec.once && spec.argument && rooted.has(spec.argument)) {
       return `there is already a ${spec.argument}/ here — one of each kind per level`;
+    }
+    if (spec.once && !spec.argument && spec.kind && anywhere.has(spec.kind)) {
+      return `there is already a ${spec.kind} in this project — one per project`;
     }
     if (spec.requires && !rooted.has(spec.requires)) {
       return `it goes inside ${spec.requires}/, and there is not one here yet`;
