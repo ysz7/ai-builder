@@ -45,6 +45,7 @@ from framestack_core.api import (
     observe_last,
     observe_read,
     observe_start,
+    routes_read,
     run_last,
     run_read,
     run_start,
@@ -428,6 +429,11 @@ def settings_write(params: dict[str, Any]) -> dict[str, Any]:
     )
 
 
+def routes_read_method(params: dict[str, Any]) -> dict[str, Any]:
+    """The routes one service declares. Asked when a panel opens, never on every parse."""
+    return routes_read(_project_of(params), _required_str(params, "node"))
+
+
 def mcp_read_method(params: dict[str, Any]) -> dict[str, Any]:
     """What the file declares about one server. A read: it starts nothing and asks nobody."""
     return mcp_read(_project_of(params), _required_str(params, "node"))
@@ -544,6 +550,7 @@ HANDLERS: dict[str, Handler] = {
     "chat.choices": chat_choices_method,
     "settings.read": settings_read,
     "settings.write": settings_write,
+    "routes.read": routes_read_method,
     "mcp.read": mcp_read_method,
     "mcp.connect": mcp_connect_method,
     "editor.open": editor_open_method,

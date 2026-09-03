@@ -101,6 +101,41 @@ export type GraphEdge = {
   port: string;
 };
 
+/**
+ * One request a service answers, and where it goes next.
+ *
+ * **A route is not a node.** Forty routes on a canvas would be forty boxes; they are contents
+ * of the api node, read when its panel opens and held nowhere else.
+ */
+export type Route = {
+  /** `GET`, `POST`, … `WEBSOCKET`. The decorator's own verb and nothing else. */
+  method: string;
+  /** The path literal exactly as written, placeholders included: `/documents/{id}`. */
+  path: string;
+  handler: string;
+  /** Project-relative. Five route modules need to say which one this row is from. */
+  file: string;
+  /** Node ids, or `postgres` where the handler's calls go through `repositories/`. */
+  targets: string[];
+  /**
+   * The handler called something and none of it resolved. Drawn as `?`.
+   *
+   * **Empty targets with this false is a different claim**: the handler calls nothing, so it
+   * has no downstream rather than an unknown one. Merging the two would manufacture doubt
+   * about a function that plainly does none.
+   */
+  unsure: boolean;
+};
+
+/** `routes.read`: what one service serves. A refusal is a result, as everywhere else. */
+export type RoutesResult = {
+  api_version: number;
+  ok: boolean;
+  detail: string;
+  node: string;
+  routes: Route[];
+};
+
 /** `graph.read`: the project as it is on disk. A refusal is a result, as everywhere else. */
 export type Graph = {
   api_version: number;

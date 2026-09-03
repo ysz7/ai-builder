@@ -78,6 +78,7 @@ import type {
   McpServer,
   Opened,
   ObserveResult,
+  RoutesResult,
   RunResult,
   SettingsResult,
   WriteResult,
@@ -242,6 +243,20 @@ export function chatChanges(project: string): Promise<Changes> {
 /** The commands, and the stacks each kind may be generated on. */
 export function chatChoices(): Promise<ChatChoices> {
   return coreRequest<ChatChoices>("chat.choices", {});
+}
+
+/**
+ * The routes one service declares, and where each request goes next.
+ *
+ * Asked when the panel opens on an `api` node and never on a parse: a route list and a graph
+ * answer different questions and go stale at different moments, so reading five route modules
+ * on every re-parse would be paying for an answer nobody asked for.
+ */
+export function routesRead(
+  project: string,
+  node: string,
+): Promise<RoutesResult> {
+  return coreRequest<RoutesResult>("routes.read", { project, node });
 }
 
 /** One system's knobs, read from its own `settings.py`. Imports nothing, creates nothing. */

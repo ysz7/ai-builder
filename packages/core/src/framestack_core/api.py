@@ -26,6 +26,7 @@ from framestack_core.layout import create_project, read_layout, write_layout
 from framestack_core.mcp import connect_server, read_server
 from framestack_core.observe import last_observation, read_observation, start_observation
 from framestack_core.parser import read_graph
+from framestack_core.routes import read_routes
 from framestack_core.run import last_run, read_run, start_run, stop_run
 from framestack_core.session import (
     COMMANDS,
@@ -273,6 +274,36 @@ MCP_SCHEMA = {
     "env": ["str"],
     # Which terminal `Connect` started it in, so the caller can show what it is printing.
     "shell": "str",
+}
+
+
+#: The `routes.read` payload: what one service serves, and where each request goes next.
+#:
+#: **Beside the graph, never in it.** A route is contents of the api node -- forty routes must
+#: not become forty nodes -- and a route list goes stale at a different moment than the graph
+#: does, exactly as a verdict set does. A caller that never opens the panel never pays for it.
+#:
+#: `targets` is where the request goes: node ids, or `postgres` for a handler whose calls go
+#: through `repositories/`. Empty with `unsure` false means the handler calls nothing at all;
+#: empty with `unsure` true means it called something that resolved to nothing, which the
+#: panel draws as `?`. **The two are different claims and are never merged** -- doubt
+#: manufactured about a function that plainly has no downstream is the same defect as a green
+#: node nobody ran a test for, pointed the other way.
+ROUTES_SCHEMA = {
+    "api_version": "int",
+    "ok": "bool",
+    "detail": "str",
+    "node": "str",
+    "routes": [
+        {
+            "method": "str",
+            "path": "str",
+            "handler": "str",
+            "file": "str",
+            "targets": ["str"],
+            "unsure": "bool",
+        }
+    ],
 }
 
 
@@ -658,6 +689,11 @@ def mcp_connect(project: Path | str, node: str) -> dict[str, Any]:
     """Run the server's own command in a terminal, so it can authorise itself. Never
     implicit (P11), and it stores no credential -- there is nowhere here that one would go."""
     return {"api_version": GRAPH_API_VERSION, **connect_server(project, node).as_dict()}
+
+
+def routes_read(project: Path | str, node: str) -> dict[str, Any]:
+    """What one service serves. A read: nothing is imported, nothing is started."""
+    return {"api_version": GRAPH_API_VERSION, **read_routes(project, node).as_dict()}
 
 
 def editor_open(project: Path | str, path: str, line: int = 0) -> dict[str, Any]:

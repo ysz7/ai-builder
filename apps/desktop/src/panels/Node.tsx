@@ -23,11 +23,12 @@
 
 import { useCallback, useEffect, useState } from "react";
 
-import { editorOpen, settingsRead, settingsWrite } from "../core/client";
+import { editorOpen, routesRead, settingsRead, settingsWrite } from "../core/client";
 import type {
   Graph,
   GraphNode,
   Observation,
+  RoutesResult,
   SettingsResult,
 } from "../core/types";
 import { Flyout } from "../shell/Flyout";
@@ -90,6 +91,15 @@ export function NodePanel({
   const [busy, setBusy] = useState(false);
   const [refused, setRefused] = useState("");
 
+  /**
+   * What this service serves, asked only of a service and only when its panel is open.
+   *
+   * Held here for the reason the knobs are: it answers a different question than the graph
+   * and goes stale at a different moment. **Routes are not nodes** — forty of them would be
+   * forty boxes on a canvas — so this is the only place they exist in the interface.
+   */
+  const [routes, setRoutes] = useState<RoutesResult | null>(null);
+
   useEffect(() => {
     let live = true;
     setSettings(null);
@@ -104,6 +114,24 @@ export function NodePanel({
       .catch((error: unknown) =>
         live && setRefused(error instanceof Error ? error.message : String(error)),
       );
+    return () => {
+      live = false;
+    };
+  }, [project, id, graph]);
+
+  useEffect(() => {
+    let live = true;
+    setRoutes(null);
+    // Only an `api/` package declares routes, and the core refuses every other node rather
+    // than answering with an empty list. Asking anyway would put that refusal in front of
+    // somebody who opened a rag.
+    const node = graph.nodes.find((item) => item.id === id);
+    if (!node || node.kind !== "api") return;
+    void routesRead(project, id)
+      .then((answer) => live && setRoutes(answer))
+      // A route list is an extra reading, not the panel. If it cannot be had, the rest of
+      // the node is still worth showing — so this failure is quiet rather than fatal.
+      .catch(() => undefined);
     return () => {
       live = false;
     };
@@ -219,6 +247,36 @@ export function NodePanel({
                   {edge.source === node.id ? edge.target : edge.source}
                   {edge.label ? ` (${edge.label})` : ""}
                 </span>
+              ))}
+            </div>
+          </Row>
+        ) : null}
+
+        {/* Where each request goes next, and never a node for any of it. The arrow is read
+            from the handler's own calls; `?` is a real answer and is never guessed away,
+            because a person can read the handler but cannot un-read a target this asserted.
+            A handler that calls nothing shows no arrow at all — that is no downstream rather
+            than an unknown one, and the two are different claims. */}
+        {routes && routes.ok && routes.routes.length > 0 ? (
+          <Row label={`Routes (${routes.routes.length})`}>
+            <div className="bp-routes">
+              {routes.routes.map((route) => (
+                <button
+                  key={`${route.method} ${route.path} ${route.handler}`}
+                  className="bp-route"
+                  title={`${route.handler} in ${route.file}`}
+                  onClick={() => void editorOpen(project, route.file, 1)}
+                >
+                  <span className="bp-route-verb">{route.method}</span>
+                  <span className="bp-route-path">{route.path}</span>
+                  <span className="bp-route-to">
+                    {route.unsure
+                      ? "→ ?"
+                      : route.targets.length > 0
+                      ? `→ ${route.targets.join(", ")}`
+                      : ""}
+                  </span>
+                </button>
               ))}
             </div>
           </Row>

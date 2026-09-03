@@ -48,6 +48,7 @@ __all__ = [
     "Edge",
     "Graph",
     "Node",
+    "import_map",
     "read_graph",
 ]
 
@@ -399,6 +400,72 @@ def _ports_of(kind: str, init: Path, names: frozenset[str]) -> tuple[str, ...]:
     return tuple(name for name in REQUIRED[kind] if name in names)
 
 
+def _resolve(depth: int, parts: list[str], named: str) -> str:
+    """A relative import as the absolute module it names, or `""` if it walks off the top.
+
+    One dot is "this package", two is its parent, and so on -- the same arithmetic Python
+    does. It lives here, in one function, because two readers need it: the edge builder and
+    `import_map`, which `routes.py` uses to say where a handler's calls come from. Two copies
+    of this would be two answers about the same import the day one of them was fixed.
+    """
+    base = parts[: len(parts) - (depth - 1)]
+    if len(base) != len(parts) - (depth - 1):
+        return ""
+    return ".".join([*base, named]) if named else ".".join(base)
+
+
+def import_map(path: Path, package: str) -> dict[str, str]:
+    """Every name this file binds by importing it, and the module it came from.
+
+    The *local* name is the key -- `from rag import search as look` maps `look` to `rag` --
+    because the caller of this is reading a function body, where the local name is the only
+    one written down. `_imports_of` answers the other question, what was taken out of which
+    package, and the two are kept apart rather than folded into one shape that answers
+    neither well.
+
+    Module level only, like every other read here: a name bound inside an `if` or a `try` is
+    a name whose existence only running the code can settle.
+    """
+    module = _parse(path)
+    if module is None:
+        return {}
+
+    found: dict[str, str] = {}
+    parts = package.split(".") if package else []
+
+    for statement in module.body:
+        if not isinstance(statement, cst.SimpleStatementLine):
+            continue
+        for small in statement.body:
+            if isinstance(small, cst.Import):
+                for alias in small.names:
+                    dotted = _dotted(alias.name)
+                    if not dotted:
+                        continue
+                    if alias.asname is not None and isinstance(alias.asname.name, cst.Name):
+                        found[alias.asname.name.value] = dotted
+                    else:
+                        # `import a.b.c` binds `a`, and `a` is the module a call would start
+                        # with. The rest of the path is written at the call site.
+                        found[dotted.split(".")[0]] = dotted.split(".")[0]
+            elif isinstance(small, cst.ImportFrom):
+                if isinstance(small.names, cst.ImportStar):
+                    continue
+                depth = len(small.relative)
+                named = _dotted(small.module) if small.module is not None else ""
+                where = named if depth == 0 else _resolve(depth, parts, named)
+                if not where:
+                    continue
+                for alias in small.names:
+                    if not isinstance(alias.name, cst.Name):
+                        continue
+                    local = alias.name.value
+                    if alias.asname is not None and isinstance(alias.asname.name, cst.Name):
+                        local = alias.asname.name.value
+                    found[local] = where
+    return found
+
+
 def _imports_of(path: Path, package: str) -> set[tuple[str, str]]:
     """What one file imports: `(module, name)`, relatives resolved against `package`.
 
@@ -446,13 +513,9 @@ def _imports_of(path: Path, package: str) -> set[tuple[str, str]]:
                 if depth == 0:
                     take(named, small.names)
                     continue
-                # One dot is "this package", two is its parent, and so on. A depth that
-                # walks off the top of the project is a broken import; it names nothing
-                # here, and an edge is not the place to report it.
-                base = parts[: len(parts) - (depth - 1)]
-                if len(base) != len(parts) - (depth - 1):
-                    continue
-                take(".".join([*base, named]) if named else ".".join(base), small.names)
+                # A depth that walks off the top of the project is a broken import; it
+                # names nothing here, and an edge is not the place to report it.
+                take(_resolve(depth, parts, named), small.names)
     return found
 
 

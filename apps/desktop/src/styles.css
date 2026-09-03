@@ -4236,6 +4236,51 @@ textarea {
   color: var(--muted-2);
 }
 .bp-node-list,
+/* The routes. A table read down the verb column, so the verb is fixed-width and the path is
+   what the eye lands on; the target sits right and quiet, because it is the answer to a
+   question about the path rather than a second subject. Each row opens its own file. */
+.bp-routes {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.bp-route {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  width: 100%;
+  border: none;
+  border-radius: 5px;
+  background: none;
+  padding: 3px 5px;
+  margin-left: -5px;
+  font-family: var(--mono);
+  font-size: 11px;
+  text-align: left;
+  cursor: pointer;
+}
+.bp-route:hover {
+  background: var(--bg-3);
+}
+.bp-route-verb {
+  flex: 0 0 auto;
+  width: 58px;
+  color: var(--muted-2);
+  letter-spacing: 0.02em;
+}
+.bp-route-path {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--fg-2);
+}
+.bp-route-to {
+  flex: 0 0 auto;
+  color: var(--muted-2);
+}
+
 .bp-node-files {
   display: flex;
   flex-direction: column;
