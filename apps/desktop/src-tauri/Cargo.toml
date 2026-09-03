@@ -5,6 +5,14 @@ description = "Tauri shell for Framestack AI Builder. Transport only -- all logi
 edition = "2021"
 rust-version = "1.77.2"
 
+# The Dock shows the *binary's* name, and in dev there is no bundle to correct it: `tauri dev`
+# runs this file directly, so `framestack-desktop` was what a person read under the icon. One
+# word rather than the product's three because `cargo` refuses a space in a target name -- the
+# full name is the bundle's, and the bundle only exists after `npm run build`.
+[[bin]]
+name = "Framestack"
+path = "src/main.rs"
+
 [lib]
 name = "framestack_desktop_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
