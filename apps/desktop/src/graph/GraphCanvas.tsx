@@ -198,7 +198,12 @@ export function GraphCanvas({
         selected: node.id === selected,
         data:
           node.kind === "mcp"
-            ? { name: node.name, kind: "mcp", where: node.path }
+            ? {
+                name: node.name,
+                kind: "mcp",
+                where: node.path,
+                pinned: pinned.up.has(node.id),
+              }
             : node.kind === "file"
             ? {
                 node,
@@ -242,7 +247,9 @@ export function GraphCanvas({
         type: "container",
         position: placed[id] ?? { x: 0, y: 0 },
         ...sized(CONTAINER_WIDTH, CONTAINER_HEIGHT),
-        data: { name, kind: "container", where: "compose.yaml" },
+        // A container is declared and nothing points at it: no import can, and compose's own
+        // `depends_on` is a fact inside a file this codebase does not read.
+        data: { name, kind: "container", where: "compose.yaml", pinned: false },
       });
     }
 

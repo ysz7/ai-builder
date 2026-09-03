@@ -31,9 +31,6 @@ apps/desktop/src-tauri/gen/schemas/
 # per-machine agent settings: permission grants and local overrides, one developer's own
 .claude
 
-# design references, not wired into the build (CLAUDE.md says so) -- kept locally
-/assets
-
 # secrets. Nothing here reads a .env today; the entry exists so that the first thing
 # that does cannot make its first commit the one that leaks a key.
 .env
@@ -56,3 +53,4 @@ apps/desktop/src-tauri/gen/schemas/
 # packages/core/src/framestack_core/prompts/, precisely so `npm run check` does not depend
 # on an ignored directory.
 docs/
+plan/

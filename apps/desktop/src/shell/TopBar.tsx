@@ -36,6 +36,16 @@ export function TopBar({
 }) {
   return (
     <header className="bp-top">
+      {/* The product's own name, in the window as well as on it. The native title is what
+          macOS shows when a person hovers the window in Mission Control or the Dock, and it
+          is hidden in the title bar because the bar is transparent -- so without this the
+          application never says what it is anywhere a person is actually looking. It is a
+          label and never a button: there is nothing above the project to navigate to. */}
+      <span className="bp-top-product" title="Framestack AI Builder">
+        Framestack AI Builder
+      </span>
+      <span className="bp-top-sep" aria-hidden="true" />
+
       <span className="bp-top-name" title={name}>
         {name}
       </span>

@@ -20,7 +20,7 @@
  * with these lives on the `compose.yaml` node, because that is the thing they are written in.
  */
 
-import { type NodeProps } from "@xyflow/react";
+import { Handle, Position, type NodeProps } from "@xyflow/react";
 
 import { glyphOf, labelOf, tintBgOf, tintOf } from "./kinds";
 
@@ -30,10 +30,18 @@ export type ContainerData = {
   kind: string;
   /** The file that declares it. What a person opens to change it. */
   where: string;
+  /**
+   * Whether an edge actually lands here.
+   *
+   * A pin nothing uses is decoration — and a pin an edge *does* use and that is not drawn is
+   * worse: React Flow cannot place the line at all, and the relation silently disappears off
+   * the canvas. A container has no edges; a server has the one from the agent that reaches it.
+   */
+  pinned: boolean;
 };
 
 export function ContainerCard({ data, selected }: NodeProps) {
-  const { name, kind, where } = data as unknown as ContainerData;
+  const { name, kind, where, pinned } = data as unknown as ContainerData;
 
   return (
     <div
@@ -58,6 +66,9 @@ export function ContainerCard({ data, selected }: NodeProps) {
       </div>
 
       <div className="bp-card bp-card-container">
+        {pinned ? (
+          <Handle type="target" position={Position.Top} className="pin pin-data" id="up" />
+        ) : null}
         <div className="bp-card-head">
           <svg
             className="bp-card-glyph"

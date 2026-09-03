@@ -379,8 +379,12 @@ reads as foreign here.
 
 `docs/` is the source of truth for what gets built. **It is gitignored — local only, never
 committed.** Anything the toolchain has to read at runtime therefore does not belong there. Nothing
-in `docs/` may become a test input or a build input. `assets/` holds design references not wired into
-the build, and is gitignored for the same reason.
+in `docs/` may become a test input or a build input.
+
+`assets/` is the opposite case and is **committed**: it holds the brand art — the logo the README
+renders and the light mark the app icon is generated from. A logo a clone does not have is a broken
+image on the project's front page. Nothing there is read at runtime either; `npx tauri icon` turns
+one file in it into `apps/desktop/src-tauri/icons/`, by hand, and it is the *output* that ships.
 
 The product is **Framestack AI Builder**. The toolchain package is `framestack-core` /
 `framestack_core` (the sidecar), and the state directory it writes in a user's project is

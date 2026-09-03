@@ -1,14 +1,16 @@
-<h1 align="center">Framestack AI Builder</h1>
+<p align="center">
+  <img src="assets/framestackai-logo.png" alt="Framestack AI Builder" width="380">
+</p>
 
 <p align="center">
   <b>A visual builder for Python where the code is the source of truth.</b><br>
   Your project stays ordinary Python. The graph is a view of it — and a node is green
-  only when a real run proved it works.
+  only when a real test run entered it.
 </p>
 
 <p align="center">
+  <a href="#the-convention">The convention</a> ·
   <a href="#quickstart">Quickstart</a> ·
-  <a href="#what-you-can-build">What you can build</a> ·
   <a href="#how-it-works">How it works</a> ·
   <a href="#status">Status</a>
 </p>
@@ -21,7 +23,7 @@
 
 In every other visual builder, a node is green **because it exists**.
 
-Here it is green because `test_retrieval.py` entered it and passed.
+Here it is green because a test in your suite entered it and passed.
 
 That is not a feature bolted on top — it is the reason the architecture is what it is. Proving a
 node requires the code to be real, runnable and yours, which is exactly what flow-document builders
@@ -32,109 +34,120 @@ gave away when they made a JSON canvas the source of truth.
 |  | Them | Framestack |
 | --- | --- | --- |
 | Source of truth | a flow document; code is an export | **your Python files** |
-| Adding a node | writes an entry into the document | writes real, annotated code |
+| Adding a node | writes an entry into the document | the agent writes an ordinary Python package |
 | Editing in the UI | edits the document | rewrites the syntax tree with `libcst`, byte-for-byte everywhere else |
+| An edge | drawn by hand on a canvas | **an `import` statement**, read back out of the code |
 | A green node means | it exists | **a test entered it and passed** |
 | If you delete the builder | the app stops being buildable | the project runs, unchanged |
-| Lock-in | the runtime interprets your flow | none — strip the annotations and it is plain Python |
+| Lock-in | the runtime interprets your flow | none — there is no symbol of ours in your project |
 
-The mental model is **Unreal Engine Blueprints for backend work**: a node is an editable surface over
-real code, never a wrapper that changes how it behaves.
+## The convention
+
+There are no decorators, no annotations and no kind registry. A node is a **package that exports
+what its directory name promises**:
+
+| Directory | Required export | Node |
+| --- | --- | --- |
+| `rag/` | `search(query, **kw) -> list` and `index(paths) -> None` | RAG |
+| `agent/` | `run(message, **kw) -> str` | Agent |
+| `api/` | `app` (any ASGI application) | Service |
+| `worker/` | `HANDLERS: dict[str, Callable]` | Worker |
+
+The export has to be reachable from the package's `__init__.py`. Nothing else is inspected — an
+`agent/` is an Agent whether it is built on LangGraph, Pydantic AI or a thirty-line loop. A directory
+that looks like a system but is missing its export is drawn grey, with the reason stated, and is
+never guessed at.
+
+Four files at the project root are nodes with no verdict: `.env`, `compose.yaml`, `Dockerfile`,
+`mcp.json`. Servers listed in `mcp.json` and containers reported by `docker compose config` are nodes
+too — neither can ever be coloured, because nothing in a test run executes a Postgres.
+
+A system may nest others **one level down**, in `agents/`, `rags/`, `workers/` or `apis/`. Colour
+aggregates upward: a parent is green when every child and its own code are green, red if any is red,
+amber if any is grey.
 
 ## How it works
 
-1. **You describe what you want.** A coding agent writes ordinary, production-quality Python — the
-   way the official docs would — and adds an inert annotation layer on top (`@node`, `@editable`,
-   `@generated`, `group_node`, `Param`).
-2. **A parser projects that into a graph.** Nodes come from real classes, functions and modules.
-   Edges are types crossing a boundary, read from the signatures you already wrote.
-3. **You tune it from the canvas.** Change a knob, rename a node, edit a body — every write goes
-   through the concrete syntax tree, so everything the edit was not about comes out identical.
-4. **You press Observe.** Your project's own test suite runs with the nodes instrumented. What a
-   passing test entered turns green. What nothing reached stays grey — never green by default, and
-   never green because a parser was satisfied.
+1. **You press a block, or you type.** The palette sends one command to the chat and nothing else —
+   `add-system`, `add-tool`, `add-service`, `add-mcp`, `connect`, `repair` or a plain question. A
+   coding agent writes ordinary Python that follows the convention; no scaffold ships with the button.
+2. **The parser reads the project back.** Nodes come from directories and their `__init__.py`; edges
+   come from the `import` statements between them, and from `mcp.json`. No model is involved in
+   producing a graph, and the core never imports your code.
+3. **You tune it from the canvas.** A system may declare one `settings.py` with a single
+   `BaseSettings` class; the node panel edits exactly that class, through `libcst`, so `git diff`
+   after a change is one line.
+4. **You press Observe.** Your project's own test suite runs under coverage. A node is green because
+   a *passing* test executed code inside it — the join of coverage.py's dynamic contexts and pytest's
+   JUnit report. What nothing reached stays grey. A run that reached the network is `skipped`, never
+   green.
 
-The annotation layer is **inert**: no-op decorators and `Annotated` metadata. Strip it and the
-application behaves identically — there is a test that runs both copies in separate processes and
-demands the same answers.
+Then `Run` calls one system's export, `Deploy` is `docker compose up`, `Open` hands a file to your
+editor, and `Connect` runs an MCP server's own command in the terminal. Everything runs on your
+machine.
 
-## What you can build
+## The graph is a projection, not an executor
 
-The builder can prove **27 kinds of node** across seven families. That list is the honest boundary of
-what it can make a claim about — anything outside it is still ordinary Python you can write, it just
-gets no verdict.
+The line that separates this from flow-document builders, written into the UI's behaviour:
 
-| Family | Nodes |
-| --- | --- |
-| **FastAPI** | service, router, route, dependency, settings |
-| **LangGraph** | agent, state, node, router, tool, settings |
-| **RAG** | pipeline, chunking, embedding, retrieval, generation |
-| **MCP** | the server you expose, its tools, the servers you consume |
-| **Background work** | queue app, tasks, schedule, workers |
-| **Persistence** | database session, vector store |
-| **Infrastructure** | `Dockerfile`, `compose.yaml` — carried by the file itself |
-
-And you can *use* what you built without leaving the window: talk to an agent from its own node, hand
-a pipeline its documents, call a route, inspect an MCP server, run the project's own npm commands,
-open a real terminal.
-
-Working annotated projects to read: [fastapi-service](examples/fastapi-service/),
-[langgraph-agent](examples/langgraph-agent/), [rag-pipeline](examples/rag-pipeline/),
-[mcp-agent](examples/mcp-agent/) — each with its own test suite, because that suite is the evidence
-its graph is judged by.
+- Node position carries no meaning. Moving a node changes nothing in the project.
+- There is no connect gesture. Connecting two nodes means writing an `import`.
+- There is no run-the-graph button. Execution order lives in Python.
+- Every structural change is a code edit, then a re-parse.
 
 ## Quickstart
 
 You need **Node 20+**, **Python 3.10+** with [uv](https://docs.astral.sh/uv/), and a
-[Rust toolchain](https://rustup.rs) — Tauri will not build without it.
+[Rust toolchain](https://rustup.rs) — Tauri will not build without it. The chat needs the
+[Claude Code](https://claude.com/claude-code) CLI installed and signed in.
 
 ```bash
-git clone <this repo> && cd framestack-ai-builder
+git clone <this repo> && cd "Framestack AI Builder"
 uv sync          # Python workspace
 npm install      # front-end and Tauri CLI
 npm run dev      # the app
 ```
 
-Then open one of the `examples/` projects and press **Observe**.
+Then open [examples/reference/](examples/reference/) — four systems, four file nodes and a suite that
+proves each export does something — and press **Observe**.
 
-### Or try it without the app
+### Or talk to the core by hand
 
-The whole core is a CLI. Read the graph out of a project, run its checks, or prove the annotations
-are inert by stripping them:
+There are no CLI subcommands. The core is a sidecar speaking NDJSON on stdio, one JSON object per
+line:
 
 ```bash
-uv run python -m framestack_core graph examples/fastapi-service
-uv run python -m framestack_core check examples/fastapi-service --observe
-uv run python -m framestack_core strip examples/fastapi-service /tmp/stripped
+echo '{"id":1,"method":"ping"}' | uv run python -m framestack_core
+echo '{"id":2,"method":"graph.read","params":{"project":"examples/reference"}}' \
+  | uv run python -m framestack_core
 ```
 
 ## Status
 
-**Working today:** the parser, the gates, the writer, repair, the observable checks and the evidence
-they produce, the agent integration, the environment and its services, running and stopping things,
-background work, MCP, the rebuilt workspace, the blueprint library and inserting from it, and using
-what you built — talking to an agent or a pipeline, handing it documents, running the project's own
-commands. Seven reference projects, 578 tests, one gate (`npm run check`) that CI runs and nothing
-else.
+Version **0.1.0**, and the rebuild is complete: the read-only graph, Observe, the settings panel, the
+chat, `Run`, `Deploy`, the palette, compose services, MCP nodes and `Connect`. 284 tests and one gate
+(`npm run check`) that CI runs and nothing else.
 
-**Next:** composing the agent's system prompt per project, so a stack you are not using costs you
-no tokens.
+**Honest caveats:** the chat half needs Claude Code installed and signed in. `Deploy` needs Docker.
+Building the desktop app needs a Rust toolchain, and `.app`/`.dmg` can only be built on macOS. There
+is one reference project, and it is the one every acceptance criterion is stated about.
 
-**Honest caveats:** this is version 0.1.0. What can be *proven* is what the kind registry knows —
-FastAPI, LangGraph, RAG, MCP, queues, Docker, databases and vector stores — and a kind outside it
-has no observable check, so a node of it stays unproven. The agent half needs Claude Code installed
-and signed in. Building the desktop app needs a Rust toolchain, and `.app`/`.dmg` can only be built
-on macOS.
+**Deliberately out of scope:** any granularity below a package, more than one level of nesting, any
+kind beyond the four, a gallery of templates we ship, multi-project workspaces, cloud sync, executing
+the graph itself.
 
 ## Contributing
 
-Development setup, the architecture rules, the protocol and the release process are in
-[DEVELOPMENT.md](DEVELOPMENT.md). The short version of the rules that matter:
+The architecture, the protocol and the rules a change has to hold to are in
+[CLAUDE.md](CLAUDE.md). The invariants that matter, and a change that breaks one is reverted:
 
-- **Code is the only source of truth.** No manifest, no graph file.
-- **The annotation layer is inert.** Behaviour never depends on it.
-- **Every node has a carrier** — a class, a function, a module, or a file.
-- **Green is earned by a run**, and a check that could not run reports *skipped*, never *fine*.
+1. **Code is the only source of truth.** No manifest, no graph file, no state that exists only in
+   the UI.
+2. **Recognition is deterministic.** Directory structure and import statements, never a model.
+3. **Green is earned by a run.** A check that could not run reports *skipped*, never green.
+4. **Observe is reproducible.** Three runs on an unchanged project produce an identical verdict set.
+5. **Every edit goes through `libcst`.** Everything the edit was not about stays byte-identical.
+6. **If you delete Framestack, the project still runs.**
 
 ## License
 
