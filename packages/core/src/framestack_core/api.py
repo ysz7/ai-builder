@@ -56,7 +56,7 @@ from framestack_core.session import (
     start_session,
     stop_session,
 )
-from framestack_core.settings import read_settings, write_setting
+from framestack_core.settings import read_settings, read_settings_about, write_setting
 from framestack_core.shell import (
     close_shell,
     list_shells,
@@ -261,6 +261,33 @@ SETTINGS_SCHEMA = {
             "line": "int",
             # Why there is no control, when there is none. Never a repair, never a guess.
             "reason": "str",
+            # The `.env` key that overrides this default when the project runs, or `""`.
+            # **A name, never a value** -- that is `envfile.py`'s rule and it holds here.
+            "shadowed": "str",
+        }
+    ],
+}
+
+
+#: The `settings.about` payload: the knobs that name one **dependency**.
+#:
+#: A dependency has no file of its own, so this is other systems' settings filtered to the
+#: fields that name it -- grouped by the system whose `settings.py` they are, because that is
+#: where a write goes and hiding it would make the panel look like it owned a file it does
+#: not. The field shape is `SETTINGS_SCHEMA`'s, unchanged: one reader, one control table.
+SETTINGS_ABOUT_SCHEMA = {
+    "api_version": "int",
+    "ok": "bool",
+    "detail": "str",
+    "node": "str",
+    "groups": [
+        {
+            # The system that declares them. `settings.write` is called with this, never
+            # with the dependency -- there is nothing behind a dependency to write to.
+            "node": "str",
+            "path": "str",
+            "class_name": "str",
+            "fields": SETTINGS_SCHEMA["fields"],
         }
     ],
 }
@@ -948,6 +975,26 @@ def chat_choices() -> dict[str, Any]:
 def settings_get(project: Path | str, node: str) -> dict[str, Any]:
     """One system's knobs. Reads the file; never imports it and never creates it."""
     return {"api_version": GRAPH_API_VERSION, **read_settings(project, node).as_dict()}
+
+
+def settings_naming(project: Path | str, node: str) -> dict[str, Any]:
+    """The knobs that name one dependency, wherever the project declares them.
+
+    **Ollama is asked what this machine has pulled**, and only Ollama: a field whose value
+    *is* one of those names is about Ollama by the same standard everything else here is
+    recognised by -- a fact, checked, rather than a guess about a string. The daemon is
+    local and free, which is why a read may ask it; a paid provider is never called to
+    decide what a panel shows, and nothing else in this file connects to anything.
+    """
+    exact: tuple[str, ...] = ()
+    if node == "ollama":
+        found = read_models(project)
+        if found.ok:
+            exact = tuple(model.name for model in found.models)
+    return {
+        "api_version": GRAPH_API_VERSION,
+        **read_settings_about(project, node, exact).as_dict(),
+    }
 
 
 def settings_put(project: Path | str, node: str, field: str, value: Any) -> dict[str, Any]:

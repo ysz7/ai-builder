@@ -23,12 +23,23 @@ import type { SettingField } from "../core/types";
 export function Knob({
   field,
   busy,
+  suggest = [],
   onChange,
   onOpen,
 }: {
   field: SettingField;
   /** A write is in flight. The control stays put rather than snapping back and forth. */
   busy: boolean;
+  /**
+   * Values worth offering for a text field, and **never** values it is limited to.
+   *
+   * A `select` is a claim the core made from a `Literal` in the file; this is a list of
+   * facts about the machine the panel is running on — the models Ollama has pulled — put
+   * where a person is typing one. Free text still writes whatever it is given, so nothing
+   * here can refuse a name this application has not heard of, which is the difference
+   * between a suggestion and the catalogue the plan puts out of scope.
+   */
+  suggest?: string[];
   onChange: (value: number | string | boolean) => void;
   onOpen: () => void;
 }) {
@@ -47,6 +58,20 @@ export function Knob({
       </button>
     </span>
   );
+
+  /**
+   * Where the value actually comes from, when it is not this line.
+   *
+   * A `BaseSettings` field reads the environment before its own default, so `.env` setting
+   * the same key means this control writes the file correctly and changes nothing about
+   * what the project does. Said once, under the control, because a knob that is honest
+   * about the write and silent about the effect is the worst of the two.
+   */
+  const overridden = field.shadowed ? (
+    <div className="bp-knob-note">
+      {field.shadowed} in <code>.env</code> wins over this at runtime
+    </div>
+  ) : null;
 
   // Shown and not editable, with the reason said. Hiding it would be worse: a knob nobody
   // can see is one nobody knows they have, and the reason is what makes it fixable.
@@ -73,6 +98,7 @@ export function Knob({
           <span className="bp-switch-knob" />
           <span className="bp-switch-word">{on ? "True" : "False"}</span>
         </button>
+        {overridden}
       </div>
     );
   }
@@ -93,6 +119,7 @@ export function Knob({
             </option>
           ))}
         </select>
+        {overridden}
       </div>
     );
   }
@@ -113,11 +140,14 @@ export function Knob({
     if (parsed !== field.value) onChange(parsed);
   };
 
+  const listed = !numeric && suggest.length > 0 ? `bp-suggest-${field.name}` : undefined;
+
   return (
     <div className="bp-block">
       {head}
       <input
         className="bp-field"
+        list={listed}
         type={numeric ? "number" : "text"}
         step={field.control === "number" ? "any" : 1}
         value={draft}
@@ -129,6 +159,14 @@ export function Knob({
           if (event.key === "Escape") setDraft(String(field.value ?? ""));
         }}
       />
+      {listed ? (
+        <datalist id={listed}>
+          {suggest.map((one) => (
+            <option key={one} value={one} />
+          ))}
+        </datalist>
+      ) : null}
+      {overridden}
     </div>
   );
 }

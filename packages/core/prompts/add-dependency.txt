@@ -30,8 +30,26 @@ For anthropic or openai, the key is read from the environment by name and is nev
 written into a file. A default model belongs in settings.py, where it can be
 changed without editing code.
 
-For ollama, nothing is pulled and no model is chosen for the person: the model name
-is a setting with a value they can change, and a comment is not the place for it.
+For ollama, talk to the daemon over plain HTTP with whatever the project already
+has -- httpx, requests, or the standard library. Ollama is installed on the machine
+as a server; a vendor SDK on top of two endpoints is a package to install and keep
+in step for nothing. Nothing is pulled and no model is invented: run `ollama list`,
+use a name that is actually there, and if the machine has none, say so and stop
+rather than writing a tag that will fail on the first call.
+
+Whatever you import must be installed in the interpreter the project runs in, and
+declared where that project declares its dependencies -- pyproject.toml, or
+requirements.txt, whichever is already there. Code that imports a package nobody
+installed is code that cannot run, and the failure lands minutes later inside a
+call stack rather than here. Install it, and say which interpreter you installed it
+into.
+
+Never write a value into .env that shadows a working default in settings.py.
+A BaseSettings field reads the environment first, so a line in .env silently wins
+over the file a person is editing in the panel -- and a model name there that the
+machine does not have is a project that is broken in the one place nobody looks.
+Put the default in settings.py; put a line in .env only when it is the value that
+has to differ locally, and only when you have checked it is real.
 
 Never write a credential that is not a local development default. Anything real
 belongs in the person's own environment, and you say so rather than inventing one.

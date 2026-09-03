@@ -87,6 +87,24 @@ node outside the convention.
 edits exactly that class and nothing else. A system with no `settings.py` shows no knobs, which is
 allowed and normal.
 
+**A knob says when it is not the thing that decides.** A `BaseSettings` field reads the
+environment before its own default, so a panel that wrote the file correctly and stayed
+silent would be honest about the write and wrong about the effect — the commonest way to
+spend an afternoon is a model name in `.env` shadowing the one being edited. `settings.read`
+reads the class's `env_prefix` (a literal, or nothing) and asks `envfile.py` which **names**
+`.env` sets; a field carries the key that wins. The name only: a value in a payload is one
+console log from being permanent.
+
+A **dependency** has no `settings.py` and never will — it is not a package, and a file invented for
+it would be the toolchain writing into somebody's project so a panel had something to show. What it
+has is the fields other systems spend on it, and `settings.about` gathers those onto its panel:
+selected by **the same evidence that put the node on the canvas** (a name that says `OLLAMA_HOST`,
+a default that starts `ollama/` or `postgresql://`), grouped by the system whose file they are, and
+written through the one writer. Ollama adds one source and only Ollama: a value that *is* the name
+of a model this machine has pulled, asked of the local daemon, because a bare tag like `llama3.1`
+is otherwise unattributable without the catalogue the plan puts out of scope — and the same list is
+offered as **suggestions** under a model field, never as the values it is limited to.
+
 **Nesting.** A system may contain others one level down, in a directory named after the plural of the
 kind (`agents/`, `rags/`, `workers/`). Only one level is recognised; a third produces no nodes and no
 error. Nested nodes are named by path (`agent.researcher`) and are children of their container.
@@ -99,7 +117,11 @@ green.
 that, it is two projects.
 
 **File nodes.** Four files at the project root are nodes with no verdict: `.env`, `compose.yaml`,
-`Dockerfile`, `mcp.json`. They are shown, opened and edited. They are never coloured.
+`Dockerfile`, `mcp.json`. They are shown, opened and edited. They are never coloured. `.env` is the
+one the **canvas does not draw**: nothing imports it, so it was a card at the edge with no line to
+anything, and the one thing a person does with it they do from the dependency that reads it, which
+is where `Open .env` is. It is still a node — reported, opened, edited — and that is a drawing
+decision in `place.ts`, never a node the core withholds.
 
 **Edges.** An edge exists when one system package imports from another, and the direction follows the
 import. An edge to an MCP server is read from `mcp.json`. **No edge is ever created by hand in the
@@ -412,6 +434,15 @@ verbatim. **stdout carries the wire and nothing else**; every log line goes to s
 is corrupted (there is a test asserting this). A handler that raises is turned into an error
 response, never a crash.
 
+**Requests are answered on a thread each, one at a time per method.** A handler that spawns a
+subprocess — classifying a chat message, probing a server, asking `docker compose` — otherwise
+stops the core answering anything, and the window freezes around it. What that must not do is
+let two calls of the *same* method interleave: every long-lived thing here is a dict keyed by
+project, and "start it if it is not already running" read twice at once starts it twice. So
+`serve` serialises by method and by nothing else, and **no meaning may ever be taken from the
+order answers come back in** — `id` is what matches one to its caller, which is why this is a
+fact about the core alone.
+
 **The graph follows the code, and it does so by being asked.** `watch.py` holds a revision per
 project and moves it when a file the parser reads has changed *and stopped changing* — the
 plan's 300ms settle, so a file an editor is halfway through writing never reaches the parser.
@@ -427,8 +458,8 @@ from `__init__.py`, the path is still the directory's. That is what "keep the la
 version" means here, and it needs no cache to hold — a cache of a previous parse would be
 state outside the code, which is the one thing this application does not keep.
 
-**Nothing is pushed over the wire.** One request, one answer with `id` echoed; logs are polled with
-an offset the caller keeps. Adding a second message shape is a protocol version decision, available
+**Nothing is pushed over the wire.** One request, one answer with `id` echoed — in whatever order
+the handlers finish; logs are polled with an offset the caller keeps. Adding a second message shape is a protocol version decision, available
 later and additive — do not reach for it as a convenience.
 
 **Nothing starts implicitly.** No service is brought up, no environment created, no dependency

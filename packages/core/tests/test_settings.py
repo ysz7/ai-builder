@@ -23,16 +23,26 @@ from contract import validate, wire_form
 
 from framestack_core.api import (
     EDITOR_SCHEMA,
+    SETTINGS_ABOUT_SCHEMA,
     SETTINGS_SCHEMA,
     editor_open,
     settings_get,
+    settings_naming,
     settings_put,
 )
 from framestack_core.editor import open_in_editor
 from framestack_core.observe import read_observation, start_observation
-from framestack_core.settings import Settings, read_settings, write_setting
+from framestack_core.settings import (
+    Settings,
+    read_settings,
+    read_settings_about,
+    write_setting,
+)
 
 EXAMPLE = Path(__file__).resolve().parents[3] / "examples" / "full"
+
+#: The one example whose settings name a dependency in a default: `model = "ollama/llama3.1"`.
+OLLAMA_EXAMPLE = Path(__file__).resolve().parents[3] / "examples" / "agent"
 
 
 def project(tmp_path: Path) -> Path:
@@ -436,3 +446,128 @@ def test_opening_uses_the_editor_the_person_named(
 
 def test_the_editor_payload_matches_the_declared_contract(tmp_path: Path) -> None:
     validate(wire_form(editor_open(project(tmp_path), "rag/settings.py", 1)), EDITOR_SCHEMA)
+
+
+# -- the knobs a dependency is named by --------------------------------------------------------
+
+
+def test_a_field_named_after_the_dependency_belongs_to_it(tmp_path: Path) -> None:
+    """`OLLAMA_HOST` is about Ollama because of what it is called. The same evidence that
+    put the node on the canvas, asked of one field instead of one project."""
+    root = project(tmp_path)
+    path = root / "agent" / "settings.py"
+    path.write_text(
+        path.read_text(encoding="utf-8").replace(
+            "    max_steps: int = 3\n",
+            '    max_steps: int = 3\n    ollama_host: str = "http://localhost:11434"\n',
+        ),
+        encoding="utf-8",
+    )
+
+    answer = read_settings_about(root, "ollama")
+
+    assert answer.ok is True
+    assert [(group.node, [one.name for one in group.fields]) for group in answer.groups] == [
+        ("agent", ["ollama_host"])
+    ]
+    # The system, not the dependency: a write goes to the file that declares it.
+    assert answer.groups[0].path == "agent/settings.py"
+
+
+def test_a_default_carrying_the_dependencys_own_literal_belongs_to_it() -> None:
+    """`ollama/llama3.1` is a fact about a string, and it is the same fact the recogniser
+    reads. Nothing here connects to anything to decide it."""
+    answer = read_settings_about(OLLAMA_EXAMPLE, "ollama")
+
+    assert [one.name for group in answer.groups for one in group.fields] == ["model"]
+
+
+def test_a_bare_model_tag_is_not_claimed_without_evidence(tmp_path: Path) -> None:
+    """The rule this whole feature could have got wrong. `llama3.1` names an Ollama model
+    only if this machine has one called that; a toolchain that *knew* would be shipping the
+    catalogue the plan puts out of scope."""
+    root = project(tmp_path)
+    path = root / "agent" / "settings.py"
+    # The host is what puts Ollama on the canvas at all, and it is claimed by its name. The
+    # model beside it is the field under test: same file, same class, no evidence.
+    path.write_text(
+        path.read_text(encoding="utf-8").replace(
+            "    max_steps: int = 3\n",
+            "    max_steps: int = 3\n"
+            '    ollama_host: str = "http://localhost:11434"\n'
+            '    model: str = "llama3.1"\n',
+        ),
+        encoding="utf-8",
+    )
+
+    plain = read_settings_about(root, "ollama")
+    assert [one.name for group in plain.groups for one in group.fields] == ["ollama_host"]
+    # And with the daemon's own answer in hand, it is evidence and the field is claimed.
+    named = read_settings_about(root, "ollama", ("llama3.1",))
+    assert [one.name for group in named.groups for one in group.fields] == [
+        "ollama_host",
+        "model",
+    ]
+
+
+def test_a_dependency_nothing_is_declared_for_is_a_result_and_not_a_failure(
+    tmp_path: Path,
+) -> None:
+    answer = read_settings_about(project(tmp_path), "postgres")
+
+    assert answer.ok is True
+    assert answer.groups == ()
+
+
+def test_something_that_is_not_in_the_graph_is_refused(tmp_path: Path) -> None:
+    assert read_settings_about(project(tmp_path), "nowhere").ok is False
+
+
+def test_the_about_payload_matches_the_contract(tmp_path: Path) -> None:
+    root = project(tmp_path)
+
+    validate(wire_form(settings_naming(root, "ollama")), SETTINGS_ABOUT_SCHEMA)
+    validate(wire_form(settings_naming(OLLAMA_EXAMPLE, "ollama")), SETTINGS_ABOUT_SCHEMA)
+    validate(wire_form(settings_naming(tmp_path / "nowhere", "ollama")), SETTINGS_ABOUT_SCHEMA)
+
+
+# -- what actually decides the value -----------------------------------------------------------
+
+
+def test_a_key_in_env_is_named_on_the_field_it_overrides(tmp_path: Path) -> None:
+    """The one way this panel could be honest and useless at once: write the default
+    correctly, show the file correctly, and change nothing about what the project does."""
+    root = project(tmp_path)
+    path = root / "agent" / "settings.py"
+    path.write_text(
+        path.read_text(encoding="utf-8").replace(
+            "class AgentSettings(BaseSettings):",
+            "class AgentSettings(BaseSettings):\n"
+            '    model_config = SettingsConfigDict(env_prefix="AGENT_")\n',
+        ),
+        encoding="utf-8",
+    )
+    (root / ".env").write_text("AGENT_MAX_STEPS=9\n", encoding="utf-8")
+
+    answer = read_settings(root, "agent")
+
+    assert [one.shadowed for one in answer.fields if one.name == "max_steps"] == ["AGENT_MAX_STEPS"]
+    # And nothing else is claimed: a key that is not there overrides nothing.
+    assert [one.shadowed for one in answer.fields if one.name == "passages"] == [""]
+
+
+def test_a_class_with_no_prefix_is_matched_on_the_bare_name(tmp_path: Path) -> None:
+    root = project(tmp_path)
+    (root / ".env").write_text("passages=4\n", encoding="utf-8")
+
+    answer = read_settings(root, "agent")
+
+    # Case-insensitively, because that is how BaseSettings matches an environment variable.
+    assert [one.shadowed for one in answer.fields if one.name == "passages"] == ["PASSAGES"]
+
+
+def test_a_project_with_no_env_file_shadows_nothing(tmp_path: Path) -> None:
+    root = project(tmp_path)
+    (root / ".env").unlink(missing_ok=True)
+
+    assert all(one.shadowed == "" for one in read_settings(root, "agent").fields)

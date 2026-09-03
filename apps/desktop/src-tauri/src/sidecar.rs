@@ -22,7 +22,13 @@ use tokio::sync::oneshot;
 type Pending = HashMap<u64, oneshot::Sender<serde_json::Value>>;
 
 /// How long a caller waits before giving up on the core.
-const REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
+///
+/// Above the longest budget any handler sets for itself -- classifying a chat message is
+/// allowed 45 seconds -- because this is a transport's last resort, not a second opinion
+/// about how long a handler may take. Below that, the window gave up on work the core was
+/// still doing and would have finished. The core answers on a thread per request, so a slow
+/// handler holds up nothing else while this waits.
+const REQUEST_TIMEOUT: Duration = Duration::from_secs(60);
 
 pub struct Sidecar {
     child: Mutex<Option<CommandChild>>,

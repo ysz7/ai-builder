@@ -35,20 +35,26 @@ code. Guessing is what the annotation layer did.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 
 import libcst as cst
 from libcst.metadata import MetadataWrapper, PositionProvider
 
+from framestack_core.database import DATABASE_NODE, SCHEMES
+from framestack_core.dependencies import SIGNS
+from framestack_core.envfile import names as env_names
 from framestack_core.parser import is_system, read_graph
 
 __all__ = [
+    "About",
     "Field",
+    "Owning",
     "Settings",
     "SETTINGS_FILE",
     "read_settings",
+    "read_settings_about",
     "write_setting",
 ]
 
@@ -91,6 +97,14 @@ class Field:
     line: int
     #: Why there is no control, when there is none. Empty otherwise.
     reason: str
+    #: The `.env` key that **overrides this default at runtime**, or `""`.
+    #:
+    #: A `BaseSettings` field reads the environment first, so a knob can be written
+    #: correctly, show what the file now says, and change nothing about what the project
+    #: does -- which is the one way this panel can be honest and useless at the same time.
+    #: The name is a fact: it is the field's env name and it is set in `.env`. **Only the
+    #: name travels**, never the value; that rule is `envfile.py`'s and it holds here.
+    shadowed: str = ""
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -101,6 +115,7 @@ class Field:
             "choices": list(self.choices),
             "line": self.line,
             "reason": self.reason,
+            "shadowed": self.shadowed,
         }
 
 
@@ -256,16 +271,75 @@ def _field(
     return Field(name, annotation, control, current, (), line, "")
 
 
-def _read(path: Path) -> tuple[str, tuple[Field, ...], str]:
-    """`(class name, fields, refusal)` from one `settings.py`."""
+def _env_prefix(found: cst.ClassDef, module: cst.Module) -> str:
+    """The `env_prefix` this class declares, as a literal or `""`.
+
+    Read the two ways it is written -- `model_config = SettingsConfigDict(env_prefix="...")`
+    and the legacy inner `class Config`. Both are string literals sitting in the file, which
+    is the only sort of thing this module reads; a prefix computed by a call is not resolved
+    and the answer is then "no prefix", which under-claims rather than guessing.
+    """
+    for statement in found.body.body:
+        if isinstance(statement, cst.ClassDef) and statement.name.value == "Config":
+            for line in statement.body.body:
+                if not isinstance(line, cst.SimpleStatementLine):
+                    continue
+                for small in line.body:
+                    if isinstance(small, cst.Assign) and any(
+                        isinstance(target.target, cst.Name) and target.target.value == "env_prefix"
+                        for target in small.targets
+                    ):
+                        ok, value = _literal(small.value)
+                        if ok and isinstance(value, str):
+                            return value
+            continue
+        if not isinstance(statement, cst.SimpleStatementLine):
+            continue
+        for small in statement.body:
+            if not isinstance(small, cst.Assign) or not isinstance(small.value, cst.Call):
+                continue
+            named = [
+                target
+                for target in small.targets
+                if isinstance(target.target, cst.Name) and target.target.value == "model_config"
+            ]
+            if not named:
+                continue
+            for argument in small.value.args:
+                if argument.keyword is not None and argument.keyword.value == "env_prefix":
+                    ok, value = _literal(argument.value)
+                    if ok and isinstance(value, str):
+                        return value
+    return ""
+
+
+def _shadowed(fields: tuple[Field, ...], prefix: str, project: Path) -> tuple[Field, ...]:
+    """Mark the fields whose value `.env` decides instead of this file.
+
+    Case-insensitive, because that is how `BaseSettings` matches an environment variable --
+    and matching case-sensitively here would quietly miss the commonest spelling.
+    """
+    present = {name.upper() for name in env_names(project)}
+    if not present:
+        return fields
+    return tuple(
+        replace(field, shadowed=f"{prefix}{field.name}".upper())
+        if f"{prefix}{field.name}".upper() in present
+        else field
+        for field in fields
+    )
+
+
+def _read(path: Path) -> tuple[str, tuple[Field, ...], str, str]:
+    """`(class name, fields, refusal, env prefix)` from one `settings.py`."""
     try:
         source = path.read_text(encoding="utf-8")
     except OSError as exc:
-        return "", (), f"{path.name} could not be read: {exc}"
+        return "", (), f"{path.name} could not be read: {exc}", ""
     try:
         module = cst.parse_module(source)
     except cst.ParserSyntaxError as exc:
-        return "", (), f"{path.name} could not be parsed: {exc.message}"
+        return "", (), f"{path.name} could not be parsed: {exc.message}", ""
 
     wrapper = MetadataWrapper(module, unsafe_skip_copy=True)
     positions = wrapper.resolve(PositionProvider)
@@ -276,13 +350,13 @@ def _read(path: Path) -> tuple[str, tuple[Field, ...], str]:
         if isinstance(statement, cst.ClassDef) and _is_settings_class(statement)
     ]
     if not classes:
-        return "", (), f"{path.name} has no {BASE} subclass in it"
+        return "", (), f"{path.name} has no {BASE} subclass in it", ""
     if len(classes) > 1:
         # Never guessed at. Two candidate classes is a question only the author can answer,
         # and picking the first would make the panel edit a different file's worth of
         # settings than the one they were looking at.
         names = ", ".join(found.name.value for found in classes)
-        return "", (), f"{path.name} has more than one {BASE} subclass ({names})"
+        return "", (), f"{path.name} has more than one {BASE} subclass ({names})", ""
 
     found_class = classes[0]
     fields: list[Field] = []
@@ -295,7 +369,12 @@ def _read(path: Path) -> tuple[str, tuple[Field, ...], str]:
                 if knob is not None:
                     fields.append(knob)
 
-    return found_class.name.value, tuple(fields), ""
+    return (
+        found_class.name.value,
+        tuple(fields),
+        "",
+        _env_prefix(found_class, wrapper.module),
+    )
 
 
 def _locate(project: Path, node: str) -> tuple[Path | None, str, bool]:
@@ -328,11 +407,18 @@ def read_settings(project: Path | str, node: str) -> Settings:
     if path is None:
         return Settings(not refused, why, node, "", "", ())
 
-    class_name, fields, refusal = _read(path)
+    class_name, fields, refusal, prefix = _read(path)
     relative = path.relative_to(root).as_posix()
     if refusal:
         return Settings(False, refusal, node, relative, "", ())
-    return Settings(True, f"{len(fields)} field(s)", node, relative, class_name, fields)
+    return Settings(
+        True,
+        f"{len(fields)} field(s)",
+        node,
+        relative,
+        class_name,
+        _shadowed(fields, prefix, root),
+    )
 
 
 # -- writing one default ----------------------------------------------------------------------
@@ -424,7 +510,7 @@ def write_setting(project: Path | str, node: str, field: str, value: Any) -> Set
     if path is None:
         return Settings(False, why, node, "", "", ())
 
-    class_name, fields, refusal = _read(path)
+    class_name, fields, refusal, prefix = _read(path)
     if refusal:
         return Settings(False, refusal, node, path.relative_to(root).as_posix(), "", ())
 
@@ -496,3 +582,123 @@ def _existing_value(module: cst.Module, class_name: str, field: str) -> cst.Base
                 ):
                     return small.value
     return cst.Name("None")
+
+
+# -- the knobs one dependency is named by ------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class Owning:
+    """One system's settings, filtered to the fields that name a dependency."""
+
+    #: The system whose `settings.py` this is. A write goes to it, not to the dependency:
+    #: there is no file behind a dependency and there never will be.
+    node: str
+    path: str
+    class_name: str
+    fields: tuple[Field, ...]
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "node": self.node,
+            "path": self.path,
+            "class_name": self.class_name,
+            "fields": [field.as_dict() for field in self.fields],
+        }
+
+
+@dataclass(frozen=True)
+class About:
+    """Everything a person can tune about one dependency, wherever it is declared."""
+
+    ok: bool
+    detail: str
+    node: str
+    groups: tuple[Owning, ...]
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "ok": self.ok,
+            "detail": self.detail,
+            "node": self.node,
+            "groups": [group.as_dict() for group in self.groups],
+        }
+
+
+def _evidence(node: str) -> tuple[tuple[str, ...], tuple[str, ...]]:
+    """`(the names that mean this dependency, the value prefixes that do)`.
+
+    **The same evidence that put the node on the canvas**, asked of one field instead of one
+    project. `dependencies.py` recognises Ollama by `OLLAMA_HOST` and by a literal starting
+    `ollama/`; a field called `OLLAMA_HOST`, or one whose default starts `ollama/`, is that
+    same fact about that same file. Reusing the table is what stops this becoming a second
+    opinion about what names what -- and what stops it growing a list of field names some
+    framework happens to use.
+    """
+    if node == DATABASE_NODE:
+        return (node,), tuple(f"{scheme}://" for scheme in SCHEMES)
+    for sign in SIGNS:
+        if sign.node == node:
+            return (node, *sign.credentials), sign.literals
+    return (node,), ()
+
+
+def _names(
+    field: Field,
+    words: tuple[str, ...],
+    prefixes: tuple[str, ...],
+    exact: tuple[str, ...],
+) -> bool:
+    """Whether this one field is about that dependency.
+
+    A field is **never** claimed on the strength of what a person probably meant. `MODEL =
+    "llama3.1"` is not attributed to Ollama by the table, for exactly the reason the parser
+    refuses it: knowing that a bare tag is an Ollama model would take a list of model names
+    shipped with this toolchain, which is the catalogue the plan puts out of scope.
+
+    `exact` is the way that field can still be reached, and the difference is where the fact
+    comes from: **the caller has asked the local daemon what this machine has pulled**, and
+    a value that *is* one of those names is a fact about this machine rather than a guess
+    about a string. It is never a prefix match -- `llama3.1` is a model here because a model
+    called `llama3.1` is here, and a machine with nothing pulled claims nothing.
+    """
+    if any(word.lower() in field.name.lower() for word in words):
+        return True
+    if not isinstance(field.value, str):
+        return False
+    if field.value in exact:
+        return True
+    return any(field.value.startswith(prefix) or prefix in field.value for prefix in prefixes)
+
+
+def read_settings_about(project: Path | str, node: str, exact: tuple[str, ...] = ()) -> About:
+    """The knobs that name one dependency, gathered from the systems that declare them.
+
+    A dependency has no `settings.py` -- it is not a package, and a file invented for it
+    would be the toolchain writing into somebody's project so a panel could have something
+    to show. What it has is the fields **other people's settings** spend on it, and putting
+    those on its own panel is a view of the same class, edited through the same writer, with
+    the owning system named on the group so nothing about where it lives is hidden.
+    """
+    root = Path(project).expanduser()
+    if not root.is_dir():
+        return About(False, f"there is no project at {root}", node, ())
+
+    graph = read_graph(root)
+    if not any(item.id == node for item in graph.nodes):
+        return About(False, f"there is nothing called {node!r} here", node, ())
+
+    words, prefixes = _evidence(node)
+    groups: list[Owning] = []
+    for item in graph.nodes:
+        if not is_system(item):
+            continue
+        answer = read_settings(root, item.id)
+        if not answer.ok or not answer.path:
+            continue
+        mine = tuple(field for field in answer.fields if _names(field, words, prefixes, exact))
+        if mine:
+            groups.append(Owning(item.id, answer.path, answer.class_name, mine))
+
+    total = sum(len(group.fields) for group in groups)
+    return About(True, f"{total} field(s)", node, tuple(groups))

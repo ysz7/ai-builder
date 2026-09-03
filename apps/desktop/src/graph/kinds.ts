@@ -36,7 +36,11 @@ const LABELS: Record<string, string> = {
   chat: "Chat",
   // The second class in the taxonomy: something the project's code talks to. It has a
   // status rather than a verdict, and the two never share a colour scale.
-  dependency: "Database",
+  //
+  // **Not "Database".** One kind covers all six — postgres, redis, ollama, anthropic,
+  // openai, docker — and the word that fits the one it started as is a plain falsehood
+  // over the other five. The tab names the kind; which thing it is is the card's title.
+  dependency: "Dependency",
 };
 
 /**
@@ -58,8 +62,10 @@ const GLYPHS: Record<string, string> = {
   container: "M12 3l8 4.5-8 4.5-8-4.5zM4 7.5v9l8 4.5 8-4.5v-9M12 12v9",
   // A plug reaching out to something this project does not contain.
   mcp: "M9 3v6M15 3v6M6 9h12v3a6 6 0 0 1-12 0zM12 18v3",
-  // A stack of platters. What the project talks to, not what it contains.
-  dependency: "M4 6c0-1.4 3.6-2.5 8-2.5s8 1.1 8 2.5-3.6 2.5-8 2.5S4 7.4 4 6zM4 6v12c0 1.4 3.6 2.5 8 2.5s8-1.1 8-2.5V6M4 12c0 1.4 3.6 2.5 8 2.5s8-1.1 8-2.5",
+  // Something leaving the box: what the project talks to, not what it contains. A drum of
+  // platters said "database" about a model provider, which is the same untruth the label
+  // above was making — and a glyph per vendor would be a catalogue of logos to maintain.
+  dependency: "M14 4h6v6M20 4l-8.5 8.5M19 14.5V19a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h4.5",
   // A wrench. One thing the agent can do, rather than the agent itself.
   // A speech bubble. What a person types into, served by the project itself.
   chat: "M21 12a8 8 0 0 1-8 8H8l-4 3v-5.5A8 8 0 1 1 21 12z",

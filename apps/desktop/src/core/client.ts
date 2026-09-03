@@ -86,6 +86,7 @@ import type {
   RoutesResult,
   RunResult,
   StatusResult,
+  SettingsAbout,
   SettingsResult,
   UsageResult,
   Watched,
@@ -315,6 +316,18 @@ export function settingsRead(
   node: string,
 ): Promise<SettingsResult> {
   return coreRequest<SettingsResult>("settings.read", { project, node });
+}
+
+/**
+ * The knobs that name one dependency, from the systems that declare them.
+ *
+ * A read, with one exception the core states plainly: on `ollama` it asks the local daemon
+ * what this machine has pulled, so a field whose value *is* one of those names can be
+ * recognised as being about it. Local and free; nothing paid is ever called to decide what
+ * a panel shows.
+ */
+export function settingsAbout(project: string, node: string): Promise<SettingsAbout> {
+  return coreRequest<SettingsAbout>("settings.about", { project, node });
 }
 
 /**

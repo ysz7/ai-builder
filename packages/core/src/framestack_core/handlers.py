@@ -63,6 +63,7 @@ from framestack_core.api import (
     run_start,
     run_stop,
     settings_get,
+    settings_naming,
     settings_put,
     shell_close,
     shell_list,
@@ -482,6 +483,11 @@ def settings_read(params: dict[str, Any]) -> dict[str, Any]:
     return settings_get(_project_of(params), _required_str(params, "node"))
 
 
+def settings_about(params: dict[str, Any]) -> dict[str, Any]:
+    """The knobs that name one dependency, from the systems that declare them."""
+    return settings_naming(_project_of(params), _required_str(params, "node"))
+
+
 def settings_write(params: dict[str, Any]) -> dict[str, Any]:
     """Set one field's default.
 
@@ -709,6 +715,7 @@ HANDLERS: dict[str, Handler] = {
     "chat.changes": chat_changes_method,
     "chat.choices": chat_choices_method,
     "settings.read": settings_read,
+    "settings.about": settings_about,
     "settings.write": settings_write,
     "status.read": status_read_method,
     "ollama.models": ollama_models_method,

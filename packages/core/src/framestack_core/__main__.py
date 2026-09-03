@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import contextlib
 import sys
+import threading
 from typing import TextIO
 
 from framestack_core.deploy import close_everything_deployed_here
@@ -36,6 +37,34 @@ def log(message: str) -> None:
     print(f"[core] {message}", file=sys.stderr, flush=True)
 
 
+#: How long the reader waits for answers still being written when stdin closes. Short: the
+#: window has gone, so a handler still working has nobody to tell, and the shutdown below is
+#: what actually has to happen. The threads are daemons, so one that ignores this dies with
+#: the process rather than holding it open.
+GOODBYE = 2.0
+
+#: One request at a time **per method**, and that is the whole of the concurrency rule.
+#:
+#: Requests used to be answered one after another, which meant a handler that spawned a
+#: subprocess -- classifying a chat message, probing a server, asking `docker compose` --
+#: stopped the core answering anything at all, and the window froze around it. They now run
+#: on a thread each. What that must not do is let two calls of the *same* method interleave:
+#: the state a handler keeps is a dict keyed by project, and "start it if it is not already
+#: running" read twice at once starts it twice. Serialising by method keeps every one of
+#: those check-then-act pairs exactly as sequential as it was, while a poll of a different
+#: method goes through beside it.
+_METHOD_LOCKS: dict[str, threading.Lock] = {}
+_LOCKS = threading.Lock()
+
+#: stdout carries the wire, so a line is written whole or the stream is corrupted.
+_WRITING = threading.Lock()
+
+
+def _lock_for(method: str) -> threading.Lock:
+    with _LOCKS:
+        return _METHOD_LOCKS.setdefault(method, threading.Lock())
+
+
 def handle_line(line: str) -> str | None:
     """Turn one request line into one response line. Never raises."""
     line = line.strip()
@@ -49,22 +78,48 @@ def handle_line(line: str) -> str | None:
 
     log(f"-> {request.method} (id={request.id!r})")
 
-    try:
-        return encode_result(request.id, dispatch(request.method, request.params, request.id))
-    except ProtocolError as exc:
-        return encode_error(request.id, exc.code, exc.message)
-    except Exception as exc:  # a handler bug must not take the core down
-        log(f"handler {request.method!r} raised: {exc!r}")
-        return encode_error(request.id, "handler_error", f"{type(exc).__name__}: {exc}")
+    with _lock_for(request.method):
+        try:
+            return encode_result(request.id, dispatch(request.method, request.params, request.id))
+        except ProtocolError as exc:
+            return encode_error(request.id, exc.code, exc.message)
+        except Exception as exc:  # a handler bug must not take the core down
+            log(f"handler {request.method!r} raised: {exc!r}")
+            return encode_error(request.id, "handler_error", f"{type(exc).__name__}: {exc}")
+
+
+def _answer(line: str, stdout: TextIO) -> None:
+    """One request, answered off the reader so the next one can be read while it works."""
+    response = handle_line(line)
+    if response is None:
+        return
+    with _WRITING:
+        stdout.write(response + "\n")
+        stdout.flush()
 
 
 def serve(stdin: TextIO, stdout: TextIO) -> None:
+    """Read requests forever; answer each on its own thread.
+
+    **Responses are no longer in request order, and never were required to be**: `id` is
+    echoed verbatim and the shell matches on it, which is the only reason this change is a
+    change to the core alone. What the reader keeps is the one thing a wire needs -- a line
+    is written whole -- and the ordering it gives up is the thing that was costing the
+    window every subprocess a handler spawned.
+    """
+    live: list[threading.Thread] = []
     for line in stdin:
-        response = handle_line(line)
-        if response is None:
+        if not line.strip():
             continue
-        stdout.write(response + "\n")
-        stdout.flush()
+        thread = threading.Thread(target=_answer, args=(line, stdout), daemon=True)
+        live.append(thread)
+        thread.start()
+        live = [one for one in live if one.is_alive()]
+
+    # stdin closed: answer what can still be answered before the shutdown below starts
+    # taking things down underneath it.
+    for thread in live:
+        thread.join(GOODBYE)
 
 
 def main() -> int:

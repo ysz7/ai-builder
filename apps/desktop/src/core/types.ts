@@ -293,6 +293,15 @@ export type SettingField = {
   line: number;
   /** Why there is no control, when there is none. */
   reason: string;
+  /**
+   * The `.env` key that overrides this default when the project runs, or `""`.
+   *
+   * A `BaseSettings` field reads the environment first, so a knob can be written correctly,
+   * show what the file now says, and change nothing about what the project does. The name is
+   * shown so a person knows where the value actually comes from; the value is not, and never
+   * crosses the wire.
+   */
+  shadowed: string;
 };
 
 /**
@@ -310,6 +319,27 @@ export type SettingsResult = {
   path: string;
   class_name: string;
   fields: SettingField[];
+};
+
+/**
+ * `settings.about`: the knobs that name one **dependency**.
+ *
+ * A dependency has no `settings.py` of its own — it is not a package — so this is other
+ * systems' settings, filtered to the fields that name it and grouped by the system that
+ * declares them. `node` on a group is what `settings.write` is called with: the file behind
+ * a knob is always somebody's system, and a panel that hid that would be claiming a file.
+ */
+export type SettingsAbout = {
+  api_version: number;
+  ok: boolean;
+  detail: string;
+  node: string;
+  groups: {
+    node: string;
+    path: string;
+    class_name: string;
+    fields: SettingField[];
+  }[];
 };
 
 /**

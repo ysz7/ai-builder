@@ -37,7 +37,7 @@ import { useEffect, useState } from "react";
 
 import { chatChoices } from "../core/client";
 import type { Block as BlockSpec, ChatChoices, Graph } from "../core/types";
-import { glyphOf, labelOf, tintBgOf, tintOf } from "../graph/kinds";
+import { glyphOf, isSystem, labelOf, tintBgOf, tintOf } from "../graph/kinds";
 import { Flyout } from "../shell/Flyout";
 
 /** The select's entry for "whatever this project already prefers". Sends no `--stack`. */
@@ -196,7 +196,10 @@ export function Palette({
     if (spec.once && spec.becomes && present.has(spec.becomes)) {
       // One sentence per shape of the rule, because they are different rules: a kind is
       // one per level, and the other two are one per project.
-      return spec.kind && rooted.has(spec.kind)
+      // `isSystem`, never "it has a kind": five dependency blocks share the `dependency`
+      // kind, and asking whether that kind is at the root said "there is already an
+      // anthropic/ here" about a node that is not a package and has no directory at all.
+      return isSystem(spec.kind) && rooted.has(spec.kind)
         ? `there is already a ${spec.becomes}/ here — one of each kind per level`
         : `there is already a ${spec.becomes} in this project`;
     }
@@ -215,6 +218,13 @@ export function Palette({
         </div>
 
         {refused ? <div className="bp-node-why">{refused}</div> : null}
+
+        {/* The core answers one request at a time, so a turn being classified holds this
+            one up for as long as that takes. An empty panel reads as "there are none";
+            saying so is the difference between waiting and being broken. */}
+        {!choices && !refused ? (
+          <div className="bp-node-quiet">asking the core for the blocks this build ships…</div>
+        ) : null}
 
         {choices?.blocks.map((spec) => (
           <Block

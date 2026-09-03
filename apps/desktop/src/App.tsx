@@ -24,6 +24,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 import { GraphCanvas } from "./graph/GraphCanvas";
 import { isSystem } from "./graph/kinds";
+import { UNDRAWN } from "./graph/place";
 import { useStatuses } from "./graph/statuses";
 import { AgentChat } from "./panels/AgentChat";
 import { Chat, type HandOver } from "./panels/Chat";
@@ -607,7 +608,17 @@ export default function App() {
     );
   }
 
-  const empty = graph !== null && graph.ok && graph.nodes.length === 0;
+  // Empty, and **not** merely nodeless: while a turn is being answered there is a marker on
+  // the canvas saying a package is being written, and a sentence over it saying the project
+  // has none is both wrong about what the person is looking at and drawn on top of it.
+  const empty =
+    graph !== null &&
+    graph.ok &&
+    // What is *drawn*, not what is reported: `.env` is a node the canvas does not draw, and
+    // counting it would leave a project with nothing else showing a blank canvas and no
+    // sentence saying why.
+    graph.nodes.every((node) => node.id === UNDRAWN) &&
+    pending === "";
 
   return (
     <div className="bp-app">

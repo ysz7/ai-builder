@@ -30,6 +30,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { runRead, runStart, runStop } from "../core/client";
 import type { GraphNode } from "../core/types";
 import { Flyout } from "../shell/Flyout";
+import { Copy } from "./Copy";
 
 /** How often a turn is polled while it runs. Output is polled, never pushed (P13). */
 const BEAT = 250;
@@ -166,8 +167,15 @@ export function AgentChat({
                   <div className="bp-talk-heard">{turn.reply}</div>
                 ) : turn.error ? (
                   /* Verbatim, never repaired into something plausible: it is the way out of
-                     the state the code is actually in. */
-                  <pre className="bp-talk-broke">{turn.error}</pre>
+                     the state the code is actually in — which is also why it is the one
+                     thing here somebody needs to take somewhere else. A traceback is read in
+                     an editor, pasted to a colleague, given back to the chat; selectable and
+                     with a button, because a stack trace nobody can copy is evidence held
+                     hostage by the panel showing it. */
+                  <div className="bp-talk-wrong">
+                    <pre className="bp-talk-broke">{turn.error}</pre>
+                    <Copy text={turn.error} what="this traceback" />
+                  </div>
                 ) : (
                   <div className="bp-talk-waiting">running…</div>
                 )}

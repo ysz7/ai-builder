@@ -6,8 +6,11 @@ import io
 import json
 import subprocess
 import sys
+import threading
+import time
 
 from framestack_core.__main__ import handle_line, serve
+from framestack_core.handlers import HANDLERS
 
 
 def response(line: str) -> dict:
@@ -48,10 +51,16 @@ def test_blank_lines_produce_no_response() -> None:
     assert handle_line("\n") is None
 
 
-def test_serve_answers_in_order_one_line_per_request() -> None:
+def test_serve_answers_every_request_exactly_once() -> None:
+    """One line per request, and **not** one in request order.
+
+    The core answers on a thread per request, so the order is whatever the handlers
+    finish in. `id` is what matches an answer to its caller, which is why that is a
+    change to this file and to nothing on the other side of the wire.
+    """
     requests = [
         '{"id": 1, "method": "ping"}',
-        "",  # a blank line must not shift the answers that follow it
+        "",  # a blank line must not produce an answer of its own
         '{"id": 2, "method": "ping"}',
         '{"id": 3, "method": "nope"}',
     ]
@@ -61,7 +70,67 @@ def test_serve_answers_in_order_one_line_per_request() -> None:
     serve(stdin, stdout)
 
     lines = stdout.getvalue().strip().split("\n")
-    assert [json.loads(line)["id"] for line in lines] == [1, 2, 3]
+    assert sorted(json.loads(line)["id"] for line in lines) == [1, 2, 3]
+
+
+def test_a_slow_handler_does_not_stop_the_core_answering(monkeypatch) -> None:
+    """The reason this concurrency exists, stated as a test.
+
+    A handler that spawns a subprocess -- classifying a chat message, probing a server,
+    asking `docker compose` -- used to hold up every other request behind it, and the
+    window froze around it: a palette opened during a chat turn showed no blocks until
+    the turn's first subprocess had returned.
+    """
+    started = threading.Event()
+
+    def slow(params: dict) -> dict:
+        started.set()
+        time.sleep(2)
+        return {"slept": True}
+
+    monkeypatch.setitem(HANDLERS, "test.slow", slow)
+
+    stdout = io.StringIO()
+    reader = threading.Thread(
+        target=serve,
+        args=(io.StringIO('{"id": 1, "method": "test.slow"}\n'), stdout),
+        daemon=True,
+    )
+    reader.start()
+    assert started.wait(5)
+
+    began = time.monotonic()
+    quick = response('{"id": 2, "method": "ping"}')
+    assert quick["ok"] is True
+    assert time.monotonic() - began < 1.0
+
+    reader.join(10)
+
+
+def test_two_calls_of_one_method_never_interleave(monkeypatch) -> None:
+    """The half of the rule that keeps the old behaviour where it was load-bearing.
+
+    Every long-lived thing in this core is a dict keyed by project, and "start it if it
+    is not already running" read twice at once starts it twice. Same method, one at a
+    time; a different method goes through beside it.
+    """
+    inside = 0
+    most = 0
+
+    def counted(params: dict) -> dict:
+        nonlocal inside, most
+        inside += 1
+        most = max(most, inside)
+        time.sleep(0.2)
+        inside -= 1
+        return {"ok": True}
+
+    monkeypatch.setitem(HANDLERS, "test.counted", counted)
+
+    lines = "\n".join(f'{{"id": {n}, "method": "test.counted"}}' for n in range(4)) + "\n"
+    serve(io.StringIO(lines), io.StringIO())
+
+    assert most == 1
 
 
 def test_ping_over_a_real_subprocess() -> None:

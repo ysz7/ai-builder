@@ -8,8 +8,11 @@ headers, no partial writes.
     error     {"id": 1, "ok": false, "error": {"code": "...", "message": "..."}}
 
 `id` is opaque to the core and echoed back verbatim; the shell uses it to match a
-response to its caller. stdout carries the wire and nothing else -- every log line
-goes to stderr, or it corrupts the stream.
+response to its caller. That matching is what lets the core answer requests **on a
+thread each**, so a handler that spawns a subprocess does not stop it answering
+anything else -- responses come back in whatever order the handlers finish, and
+nothing may ever be inferred from their order. stdout carries the wire and nothing
+else -- every log line goes to stderr, or it corrupts the stream.
 """
 
 from __future__ import annotations

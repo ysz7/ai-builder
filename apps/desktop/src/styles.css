@@ -472,11 +472,20 @@ textarea {
   color: var(--muted-2);
   line-height: 1.7;
 }
+/* Over the canvas, never beside it. As a flex child of the stage it took half the width and
+   pushed the graph into the other half -- which nobody notices on a project with no nodes,
+   and is glaring the moment there is something on the canvas to squash. It says one sentence
+   about the project, so it is laid over the whole stage and passes every click through to the
+   canvas underneath. */
 .bp-empty-full {
-  flex: 1 1 auto;
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
   display: flex;
   align-items: center;
   justify-content: center;
+  padding: 0 24px;
+  text-align: center;
 }
 
 /* A search field, the reference's: a pill-radius box with a hairline, not a bordered slab. */
@@ -2578,13 +2587,21 @@ body {
   user-select: none;
   -webkit-user-drag: none;
 }
-/* Except where the content really is text somebody may want to copy. */
+/* Except where the content really is text somebody may want to copy. A traceback is the
+   clearest case there is: it is read in an editor, pasted to a colleague and handed back to
+   the chat, and one that cannot be selected is evidence held hostage by the panel showing
+   it. The agent's own turns are here for the same reason — an answer worth reading is an
+   answer worth quoting. */
 .bp-turn-text,
 .bp-step-body,
 .bp-src,
 .bp-term-out,
 .bp-detail-addr,
 .bp-notice-text,
+.bp-talk-said,
+.bp-talk-heard,
+.bp-talk-printed,
+.bp-talk-broke,
 input,
 textarea {
   -webkit-user-select: text;
@@ -4840,6 +4857,17 @@ textarea {
   white-space: pre-wrap;
   word-break: break-word;
   overflow: auto;
+}
+/* The traceback and its button, which sits over the top-right corner of it rather than in
+   the flow: the text is what matters and the affordance is one character wide. */
+.bp-talk-wrong {
+  position: relative;
+}
+.bp-talk-wrong .bp-copy {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  background: var(--danger-soft);
 }
 .bp-talk-waiting {
   align-self: flex-start;

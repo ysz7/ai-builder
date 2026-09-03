@@ -202,7 +202,7 @@ def blocks() -> tuple[Block, ...]:
             argument=kind,
             kind=kind,
             label="",
-            hint=f"a {kind}/ package",
+            hint=f"{'an' if kind[0] in 'aeiou' else 'a'} {kind}/ package",
             takes="stack",
             choices=stacks,
             # One system of each kind per level. Shown disabled rather than hidden: a rule

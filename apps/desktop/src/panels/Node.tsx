@@ -26,7 +26,9 @@ import { useCallback, useEffect, useState } from "react";
 import {
   databaseRead,
   editorOpen,
+  ollamaModels,
   routesRead,
+  settingsAbout,
   settingsRead,
   settingsWrite,
   statusRead,
@@ -38,6 +40,8 @@ import type {
   GraphNode,
   Observation,
   RoutesResult,
+  SettingField,
+  SettingsAbout,
   SettingsResult,
   StatusResult,
 } from "../core/types";
@@ -138,6 +142,24 @@ export function NodePanel({
   const [database, setDatabase] = useState<DatabaseResult | null>(null);
 
   /**
+   * The knobs that name this dependency, gathered from the systems that declare them.
+   *
+   * A dependency has no `settings.py` — it is not a package, and one written for it would
+   * be this application putting a file in somebody's project so a panel had something to
+   * show. What it has is the fields other systems spend on it, and they are edited here
+   * through the same writer, with the owning system named on the group.
+   */
+  const [about, setAbout] = useState<SettingsAbout | null>(null);
+
+  /**
+   * What Ollama has pulled on this machine, offered under text fields as suggestions.
+   *
+   * Never a catalogue and never a constraint: it is what the daemon says is here, asked
+   * when a panel is open, and the field still writes whatever a person types.
+   */
+  const [models, setModels] = useState<string[]>([]);
+
+  /**
    * What a connection last answered about this dependency.
    *
    * Asked here as well as on the canvas, because the panel is where the **reason** goes: a
@@ -202,6 +224,36 @@ export function NodePanel({
 
   useEffect(() => {
     let live = true;
+    setAbout(null);
+    const node = graph.nodes.find((item) => item.id === id);
+    if (node?.kind !== "dependency") return;
+    void settingsAbout(project, id)
+      .then((answer) => live && setAbout(answer))
+      // An extra reading, like the routes and the tables: a panel that could not have it is
+      // still worth showing, and a refusal nobody asked for is worse than a missing block.
+      .catch(() => undefined);
+    return () => {
+      live = false;
+    };
+  }, [project, id, graph]);
+
+  // Asked for whenever the project talks to Ollama at all, because the field a person edits
+  // may be on the agent's panel rather than on Ollama's. Nothing is pulled by asking: the
+  // list is what the daemon already has, and a daemon that is not running answers nothing.
+  useEffect(() => {
+    let live = true;
+    setModels([]);
+    if (!graph.nodes.some((item) => item.id === "ollama")) return;
+    void ollamaModels(project)
+      .then((answer) => live && setModels(answer.models.map((one) => one.name)))
+      .catch(() => undefined);
+    return () => {
+      live = false;
+    };
+  }, [project, graph]);
+
+  useEffect(() => {
+    let live = true;
     setRoutes(null);
     // Only an `api/` package declares routes, and the core refuses every other node rather
     // than answering with an empty list. Asking anyway would put that refusal in front of
@@ -237,6 +289,47 @@ export function NodePanel({
     },
     [project, id, onEdited],
   );
+
+  /**
+   * The same write, aimed at the system a group belongs to.
+   *
+   * `change` writes to the node the panel is open on, which is right for a system and wrong
+   * for a dependency: there is no file behind `ollama`, and the field being edited lives in
+   * `agent/settings.py`. What comes back is that system's whole settings, so the answer is
+   * re-filtered rather than merged — the file is re-read either way.
+   */
+  const changeIn = useCallback(
+    async (system: string, field: string, value: number | string | boolean) => {
+      setBusy(true);
+      setRefused("");
+      try {
+        const answer = await settingsWrite(project, system, field, value);
+        if (!answer.ok) setRefused(answer.detail);
+        else onEdited();
+        // Ask again rather than patching what is on screen: which fields name this
+        // dependency is the core's answer, and a value written here can change it.
+        setAbout(await settingsAbout(project, id));
+      } catch (error) {
+        setRefused(error instanceof Error ? error.message : String(error));
+      } finally {
+        setBusy(false);
+      }
+    },
+    [project, id, onEdited],
+  );
+
+  /**
+   * Whether this field is one to offer model names under.
+   *
+   * Two ways to be sure enough, and neither writes anything: the field is *called* a model,
+   * or its value already **is** one of the models this machine has. A list under every text
+   * field would put model names under a system prompt, which is noise pretending to be help.
+   */
+  const suggestFor = (field: SettingField): string[] =>
+    models.length > 0 &&
+    (/model/i.test(field.name) || models.includes(String(field.value ?? "")))
+      ? models
+      : [];
 
   const node = graph.nodes.find((item) => item.id === id);
   if (!node) return null;
@@ -376,6 +469,45 @@ export function NodePanel({
           </Row>
         ) : null}
 
+        {/* Where the value behind a knob actually lives, for the keys that are not defaults
+            in a file. `.env` is not drawn on the canvas — nothing imports it, so it was a
+            card with no line to anything — and this is the door to it, on the node that
+            reads it. Only ever `Open`: a secret is not shown, copied or carried in a
+            payload, and the one place it is written is the file itself. */}
+        {node.kind === "dependency" && graph.nodes.some((one) => one.id === ".env") ? (
+          <Row label="Environment">
+            <button className="bp-node-open" onClick={() => void editorOpen(project, ".env", 1)}>
+              Open .env
+            </button>
+          </Row>
+        ) : null}
+
+        {/* The knobs that name this dependency, on the dependency rather than three panels
+            away. **The file is still somebody's system** — there is nothing behind `ollama`
+            to write to — so the group says whose `settings.py` it is and opens it. This is a
+            view of the same class through the same writer, never a second place a value
+            lives. */}
+        {about?.groups.map((group) => (
+          <Row key={group.node} label={`Settings · ${group.class_name}`}>
+            {group.fields.map((one) => (
+              <Knob
+                key={`${group.node}.${one.name}`}
+                field={one}
+                busy={busy}
+                suggest={suggestFor(one)}
+                onChange={(value) => void changeIn(group.node, one.name, value)}
+                onOpen={() => void editorOpen(project, group.path, one.line)}
+              />
+            ))}
+            <button
+              className="bp-node-open"
+              onClick={() => void editorOpen(project, group.path, 1)}
+            >
+              Open {group.path}
+            </button>
+          </Row>
+        ))}
+
         {/* The stack, on the node that is about it: what each service is, what of it the
             daemon is running, and the five fields a person changes while building. The dot
             beside a service is a container's state and is never a verdict — nothing in a
@@ -476,6 +608,7 @@ export function NodePanel({
                   key={one.name}
                   field={one}
                   busy={busy}
+                  suggest={suggestFor(one)}
                   onChange={(value) => void change(one.name, value)}
                   onOpen={() => void editorOpen(project, settings.path, one.line)}
                 />

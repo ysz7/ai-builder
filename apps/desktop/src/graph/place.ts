@@ -134,10 +134,23 @@ export function isExpanded(layout: Layout, id: string): boolean {
   return layout[id]?.expanded === true;
 }
 
+/**
+ * The one node the canvas does not draw, and the only one there will ever be.
+ *
+ * `.env` is a file node like the other three and the core still reports it: it is opened and
+ * edited, and the panels that use it name its keys. What it is not is a *box* — nothing
+ * imports it, so it is a card at the edge of the canvas with no line to anything, and the
+ * one thing a person does with it they do from the dependency that reads it. This is a
+ * drawing decision and nothing else; it removes no node, no edge and no capability, and
+ * anything that needed the graph to be complete asks `graph`, never this.
+ */
+export const UNDRAWN = ".env";
+
 /** The nodes the canvas draws: every top-level one, and a child only inside an open parent. */
 export function visible(graph: Graph, layout: Layout): GraphNode[] {
   return graph.nodes.filter(
-    (node) => node.parent === "" || isExpanded(layout, node.parent),
+    (node) =>
+      node.id !== UNDRAWN && (node.parent === "" || isExpanded(layout, node.parent)),
   );
 }
 
