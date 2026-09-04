@@ -61,8 +61,57 @@ Rules, and they are not stylistic:
   interface, so a file with six tools in it is one box where there should be six —
   and a person cannot see what the agent can do.
 
-A rag or a worker takes however many modules its implementation needs. There is no
-layout imposed on them, because nothing in the interface reads their insides.
+### The layout, for rag
+
+  rag/__init__.py       exports search and index
+  rag/settings.py       chunk size, top_k, the embedding model -- behavioural values
+  rag/store.py          where a document goes and how it comes back
+  rag/chunking.py, rag/embeddings.py, and whatever else the implementation needs
+
+Write the store. A `rag/` whose index is a promise -- a TODO, an in-memory dict
+standing in for a database, a client constructed and never called -- is a package
+that satisfies the convention and does nothing, and `index` is half of what this
+kind is for.
+
+Where the store lives depends on the stack, and this is the part that decides
+whether the canvas shows a line.
+
+For pgvector, the storage is the project's own and goes in the place this project
+already keeps storage:
+
+  repositories/models.py     a declarative model with __tablename__ and a vector
+                               column -- the chunk, its embedding, its source
+  repositories/settings.py   one BaseSettings field whose default is the
+                               postgresql:// URL for local development
+  repositories/__init__.py   the engine, the session and the queries; the only
+                               place in the project that holds a session
+  rag/ imports from repositories/ and never builds an engine of its own
+
+That is not a style rule. The interface reads `__tablename__` and the connection
+string out of the project's own Python, and it draws the edge from the import --
+so a rag that writes its own `create_engine` beside a `repositories/` that also
+has one is a project stating two databases, and a rag with no storage code at all
+is a rag with no line to one. Neither is a bug in the drawing; both are the
+picture being right about code that is wrong.
+
+If the project already has `repositories/`, add to it. Never a second ORM beside
+one that is there, and never a migration you were not asked for.
+
+For qdrant or chroma there is no `repositories/` and no model: the client goes in
+`rag/`, its URL or path goes in `rag/settings.py`, and nothing is written that
+implies a Postgres the project does not have.
+
+If `compose.yaml` exists and the stack is pgvector, add a service for it, pinned
+to a specific `pgvector/pgvector` tag, so the URL in settings points at something
+that can actually be brought up. If there is no compose.yaml, do not create one --
+that is a different command, and a file invented here is one nobody asked for.
+
+Both tests must pass with the database down, using a fake or an injected session.
+A suite that needs a container running is a suite that fails the moment nobody
+started one, and nothing here starts anything on its own.
+
+A worker takes however many modules its implementation needs. There is no layout
+imposed on it, because nothing in the interface reads its insides.
 
 ### Creating a nested system
 

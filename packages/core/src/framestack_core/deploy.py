@@ -13,6 +13,28 @@ The same rule that keeps the parser out of `Dockerfile` keeps this out of `compo
 a second one would need credentials, a remote, and a notion of an environment, and none of
 those is in this plan.
 
+## One service, started on its own
+
+`Deploy` is the whole stack, and it is what a person presses when they want the project
+running. What they press far more often while building is "bring the database up so I can
+work" -- one service, the one whose card they are looking at. That is `start_service`, and
+it is the same program answering: `docker compose up -d <name>`, with the name checked
+against `config --services` first, because a name that reached a shell unchecked would be
+this toolchain running whatever it was handed.
+
+**It is `Start`, never `Run`.** `Run` in this product means calling one system's export, and
+two verbs under one word is how a person stops trusting either.
+
+Detached, and that is the difference from `Deploy`: there is no client to attach to one
+service of a stack, and a log per container is `docker compose logs`, which the stack's own
+panel already offers. So what is kept instead is **ownership** -- which services this
+application brought up -- and on the way out those are stopped and nothing else is. A
+container somebody started before the app opened is not ours to stop.
+
+Stopping one service is `stop`, never `down`: `down` removes the whole stack, and a person
+who pressed Stop on a Postgres card asked for that Postgres to stop, not for their volumes
+and their five other containers to go.
+
 ## Why `down` and not only a kill
 
 `docker compose up` in the foreground is a client attached to containers the daemon owns.
@@ -42,7 +64,9 @@ __all__ = [
     "docker_program",
     "read_deploy",
     "start_deploy",
+    "start_service",
     "stop_deploy",
+    "stop_service",
 ]
 
 #: The file node this verb is about. One name, because the convention names one.
@@ -54,6 +78,12 @@ LOG_PATH = Path(".framestack") / "deploy.log"
 #: How long `docker compose down` may take before we stop waiting for it. Generous: it stops
 #: containers, and a database with a slow shutdown is ordinary.
 DOWN_SECONDS = 120
+
+#: How long one service may take to come up. It is generous because the first `up` of an
+#: image pulls it, and a pull over somebody's connection is minutes rather than seconds. A
+#: timeout here is reported as one -- the container may still be coming up, and saying it
+#: failed would be a claim about the daemon that this call did not check.
+UP_SECONDS = 600
 
 
 @dataclass(frozen=True)
@@ -72,6 +102,10 @@ class DeployResult:
     #: What the stack is made of, **as `docker compose config` reports it**. Empty from a
     #: poll, which does not ask: the answer costs a process and does not change while it runs.
     services: tuple[str, ...] = ()
+    #: The one service a per-service verb was about. `""` for every verb about the stack, so
+    #: a caller can never mistake an answer about one container for an answer about all of
+    #: them -- they are different claims and they end at different moments.
+    service: str = ""
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -82,6 +116,7 @@ class DeployResult:
             "offset": self.offset,
             "available": self.available,
             "version": self.version,
+            "service": self.service,
             "services": list(self.services),
         }
 
@@ -99,6 +134,15 @@ class _Stack:
 #: compose` already treats a directory as one project, and a second `up` in it is the same
 #: stack being reconfigured rather than a new one.
 _STACKS: dict[str, _Stack] = {}
+
+#: Which services this application brought up, keyed by the project.
+#:
+#: **Ownership, never a reading of what is running.** What is up is `docker compose ps`'s
+#: answer and is asked when somebody looks; this is the much smaller question of what *we*
+#: started, and it exists for one purpose -- stopping those and nothing else on the way out.
+#: A Postgres somebody had running before this window opened is not ours to stop, and a set
+#: that drifted into meaning "what is up" would stop exactly that container.
+_OURS: dict[str, set[str]] = {}
 
 
 def docker_program() -> tuple[str, str]:
@@ -249,6 +293,114 @@ def start_deploy(project: Path | str) -> DeployResult:
     )
 
 
+def _compose(root: Path, docker: str, verb: str, service: str, seconds: int) -> tuple[bool, str]:
+    """Run one compose verb against one service. `(it worked, what it said)`.
+
+    The name has already been checked against `config --services` by the caller, which is
+    the whole of the guard: compose is handed a service it declared, or it is not run.
+    """
+    try:
+        answer = subprocess.run(  # noqa: S603 -- docker, located by `docker_program`
+            [docker, "compose", "-f", COMPOSE_FILE, *verb.split(), service],
+            cwd=root,
+            capture_output=True,
+            text=True,
+            timeout=seconds,
+        )
+    except subprocess.TimeoutExpired:
+        # Not a failure. The daemon may well still be pulling, and reporting `up` as failed
+        # would be a claim about a container this call stopped watching.
+        return False, f"{service} is still starting -- compose has not finished in {seconds}s"
+    except (OSError, subprocess.SubprocessError) as exc:
+        return False, f"compose could not be run: {type(exc).__name__}: {exc}"
+    if answer.returncode != 0:
+        detail = (answer.stderr or answer.stdout).strip().splitlines()
+        return False, detail[-1] if detail else f"compose refused to {verb} {service}"
+    return True, (answer.stdout or answer.stderr).strip()
+
+
+def _one_service(project: Path | str, service: str) -> tuple[Path, str, DeployResult | None]:
+    """Everything both verbs check first: a project, a compose file, a docker, a real name.
+
+    The name is checked against `config --services` rather than trusted, because it arrives
+    over the wire and ends up in an argument list. Compose is asked what it declares; a name
+    it does not know is refused here rather than handed to a subprocess to find out.
+    """
+    root = Path(project).resolve()
+    if not root.is_dir():
+        return root, "", DeployResult(False, f"there is no project at {root}", service=service)
+    if not (root / COMPOSE_FILE).is_file():
+        return (
+            root,
+            "",
+            DeployResult(False, f"there is no {COMPOSE_FILE} here", service=service),
+        )
+    docker, version = docker_program()
+    if not docker:
+        return root, "", DeployResult(False, version, service=service)
+    if service not in _services(docker, root):
+        return (
+            root,
+            docker,
+            DeployResult(
+                False,
+                f"{COMPOSE_FILE} declares no service called {service!r}",
+                available=True,
+                version=version,
+                service=service,
+            ),
+        )
+    return root, docker, None
+
+
+def start_service(project: Path | str, service: str) -> DeployResult:
+    """Bring one service up, detached. Never implicit (P11) -- somebody pressed `Start`.
+
+    `up -d` rather than an attached client: there is nothing to attach to one service of a
+    stack that the stack's own `Deploy` does not already do better, and what a container
+    prints is `docker compose logs`, which is somebody else's answer to give.
+    """
+    root, docker, refused = _one_service(project, service)
+    if refused is not None:
+        return refused
+
+    ok, said = _compose(root, docker, "up -d", service, UP_SECONDS)
+    if ok:
+        # Ours now, and only now. The set is what gets stopped on the way out, so a service
+        # we failed to start must never enter it -- stopping a container this application
+        # did not start is the one thing this registry exists to prevent.
+        _OURS.setdefault(str(root), set()).add(service)
+    return DeployResult(
+        ok,
+        said or (f"{service} is up" if ok else f"{service} did not start"),
+        running=ok,
+        available=True,
+        service=service,
+    )
+
+
+def stop_service(project: Path | str, service: str) -> DeployResult:
+    """Stop one service. `stop`, never `down`.
+
+    `down` removes the stack, and somebody who pressed Stop on a Postgres card asked for that
+    Postgres to stop -- not for their five other containers and their volumes to go with it.
+    """
+    root, docker, refused = _one_service(project, service)
+    if refused is not None:
+        return refused
+
+    ok, said = _compose(root, docker, "stop", service, DOWN_SECONDS)
+    if ok:
+        _OURS.get(str(root), set()).discard(service)
+    return DeployResult(
+        ok,
+        said or (f"{service} is stopped" if ok else f"{service} did not stop"),
+        running=not ok,
+        available=True,
+        service=service,
+    )
+
+
 def read_deploy(project: Path | str, offset: int = 0) -> DeployResult:
     """What compose has printed since `offset`. The caller keeps the offset (P13).
 
@@ -289,28 +441,45 @@ def stop_deploy(project: Path | str) -> DeployResult:
 
 
 def _take_down(root: str) -> None:
-    """One stack, ended: the client first, then the containers it was attached to."""
+    """One project, ended: the stack's client, its containers, then the services we started.
+
+    Both, because they are two different things this application brought up. A stack it
+    attached to is taken `down`; services it started one at a time are `stop`ped by name, and
+    a container it never started is not touched at all -- which is what `_OURS` is for.
+    """
     stack = _STACKS.pop(root, None)
-    if stack is None:
+    ours = _OURS.pop(root, set())
+    if stack is None and not ours:
         return
-    _kill(stack)
+    if stack is not None:
+        _kill(stack)
     docker, _ = docker_program()
-    if docker:
+    if not docker:
+        return
+    if stack is not None:
+        # `down` takes the whole stack with it, so anything we started by name is already
+        # stopped and naming it again would be a second call for nothing.
         _down(Path(root), docker)
+        return
+    for service in sorted(ours):
+        with contextlib.suppress(OSError, subprocess.SubprocessError):
+            _compose(Path(root), docker, "stop", service, DOWN_SECONDS)
 
 
 def close_everything_deployed_here() -> None:
-    """Take down every stack this sidecar brought up, on the way out.
+    """Stop everything this sidecar brought up, on the way out.
 
     In threads and joined with a limit, because `down` on several projects would otherwise be
     served one at a time while a window waits to close -- and a shutdown that hangs is how a
     stack ends up surviving anyway.
     """
     workers = [
-        threading.Thread(target=_take_down, args=(root,), daemon=True) for root in list(_STACKS)
+        threading.Thread(target=_take_down, args=(root,), daemon=True)
+        for root in {*_STACKS, *_OURS}
     ]
     for worker in workers:
         worker.start()
     for worker in workers:
         worker.join(timeout=DOWN_SECONDS)
     _STACKS.clear()
+    _OURS.clear()

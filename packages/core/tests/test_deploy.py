@@ -23,14 +23,22 @@ from pathlib import Path
 import pytest
 from contract import validate, wire_form
 
-from framestack_core.api import DEPLOY_SCHEMA, deploy_poll, deploy_status, deploy_up
+from framestack_core.api import (
+    DEPLOY_SCHEMA,
+    deploy_poll,
+    deploy_status,
+    deploy_up,
+    service_up,
+)
 from framestack_core.deploy import (
     COMPOSE_FILE,
     LOG_PATH,
     close_everything_deployed_here,
     read_deploy,
     start_deploy,
+    start_service,
     stop_deploy,
+    stop_service,
 )
 from framestack_core.deploy import deploy_status as status
 
@@ -57,10 +65,17 @@ def fake_docker(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
         'case "$2" in\n'
         '  version) echo "9.9.9"; exit 0 ;;\n'
         "esac\n"
+        # `up -d` is one service, detached, and it returns. It has to be matched before the
+        # loop below, or the bare `up` case would catch it and sleep -- which is the real
+        # difference between the two verbs and so the one the fake has to keep.
+        'case " $* " in\n'
+        '  *" up -d "*) echo "$@" >> "$FAKE_DOCKER_LOG"; exit 0 ;;\n'
+        "esac\n"
         'for word in "$@"; do\n'
         '  case "$word" in\n'
         '    --services) printf "api\\nworker\\n"; exit 0 ;;\n'
         '    up) echo "attaching to api, worker"; sleep 30; exit 0 ;;\n'
+        '    stop) echo "$@" >> "$FAKE_DOCKER_LOG"; exit 0 ;;\n'
         '    down) echo "$@" >> "$FAKE_DOCKER_LOG"; exit 0 ;;\n'
         "  esac\n"
         "done\n"
@@ -218,6 +233,98 @@ def test_the_sidecar_takes_down_what_it_brought_up_on_the_way_out(
     assert not read_deploy(root, 0).running
 
 
+# -- one service, on its own -------------------------------------------------------------------
+
+
+def test_a_service_the_file_does_not_declare_is_refused_before_docker_is_run(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The name arrives over the wire and ends up in an argument list.
+
+    Compose is asked what it declares and the answer is the guard. A name handed straight to
+    a subprocess would be this toolchain running whatever it was given.
+    """
+    root = project(tmp_path)
+    log = fake_docker(tmp_path, monkeypatch)
+
+    answer = start_service(root, "not-a-service")
+
+    assert not answer.ok
+    assert "not-a-service" in answer.detail
+    assert answer.service == "not-a-service"
+    assert not log.is_file()
+
+
+def test_starting_one_service_is_up_detached_and_never_the_stack(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`Start` on a card is one container, and it returns rather than attaching.
+
+    `Deploy` is the other verb and it is still the whole stack; a person who pressed Start on
+    a Postgres asked for a Postgres.
+    """
+    root = project(tmp_path)
+    log = fake_docker(tmp_path, monkeypatch)
+
+    answer = start_service(root, "api")
+
+    assert answer.ok and answer.running and answer.service == "api"
+    said = log.read_text(encoding="utf-8")
+    assert "up -d api" in said
+    # Not the stack: nothing here attaches, so `deploy` still reports this project as down.
+    assert not status(root).running
+
+
+def test_stopping_one_service_is_stop_and_never_down(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`down` removes the stack. Somebody who pressed Stop asked for one container."""
+    root = project(tmp_path)
+    log = fake_docker(tmp_path, monkeypatch)
+
+    start_service(root, "api")
+    answer = stop_service(root, "api")
+
+    assert answer.ok and not answer.running
+    said = log.read_text(encoding="utf-8")
+    assert "stop api" in said
+    assert "down" not in said
+
+
+def test_the_sidecar_stops_the_services_it_started_and_only_those(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """ "Closing the app stops what it started" -- and nothing it did not.
+
+    A container somebody had running before this window opened is not ours to stop, which is
+    the whole reason the registry holds what *we* started rather than what is up.
+    """
+    root = project(tmp_path)
+    log = fake_docker(tmp_path, monkeypatch)
+
+    start_service(root, "api")
+    close_everything_deployed_here()
+
+    said = log.read_text(encoding="utf-8")
+    assert "stop api" in said
+    assert "worker" not in said
+
+
+def test_a_service_stopped_by_hand_is_not_stopped_again_on_the_way_out(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Ownership ends when somebody presses Stop, or the exit path talks about a stranger."""
+    root = project(tmp_path)
+    log = fake_docker(tmp_path, monkeypatch)
+
+    start_service(root, "api")
+    stop_service(root, "api")
+    log.write_text("", encoding="utf-8")
+    close_everything_deployed_here()
+
+    assert log.read_text(encoding="utf-8").strip() == ""
+
+
 # -- the contract ------------------------------------------------------------------------------
 
 
@@ -233,6 +340,11 @@ def test_every_verb_matches_the_declared_contract(
         validate(wire_form(deploy_poll(root, 0)), DEPLOY_SCHEMA)
     finally:
         stop_deploy(root)
+
+    # The per-service verbs answer in the same shape, refusal included: one result type for
+    # everything compose is asked, so a caller has one thing to read.
+    validate(wire_form(service_up(root, "api")), DEPLOY_SCHEMA)
+    validate(wire_form(service_up(root, "not-a-service")), DEPLOY_SCHEMA)
 
     # And a refusal, which is a result and has to be the same shape as one.
     validate(wire_form(deploy_status(tmp_path / "nothing")), DEPLOY_SCHEMA)

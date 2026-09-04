@@ -52,7 +52,7 @@ import type {
   StatusResult,
 } from "../core/types";
 import { ContainerCard } from "./ContainerCard";
-import { dependencyOf } from "./services";
+import { DATABASE_NODE, dependencyOf } from "./services";
 import { FileCard } from "./FileCard";
 import { Frame } from "./Frame";
 import { FrameHead } from "./FrameHead";
@@ -412,8 +412,15 @@ export function GraphCanvas({
                 // No file declares it, so the line under the name is the reading instead.
                 // The count first: it is what a person came to the node to know, and the
                 // connection string is what there is to say when there are no tables.
+                //
+                // **Only on the node the reading is about.** `database` is one dependency's
+                // answer, and drawing it on all of them put a Postgres URL under `ollama`
+                // and under `openai` — a line that looks like a fact about the card it sits
+                // on. A dependency with nothing read about it says nothing.
                 where:
-                  database && database.tables.length > 0
+                  node.id !== DATABASE_NODE
+                    ? ""
+                    : database && database.tables.length > 0
                     ? `${database.tables.length} table${
                         database.tables.length === 1 ? "" : "s"
                       }`

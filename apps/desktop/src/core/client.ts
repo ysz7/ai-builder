@@ -220,6 +220,28 @@ export function deployStop(project: string): Promise<DeployResult> {
 }
 
 /**
+ * Bring one declared service up: `docker compose up -d <name>`.
+ *
+ * **`Start`, never `Run`.** `Run` in this product calls one system's export, and a second
+ * meaning for the word is how a person stops trusting either. It is detached, so the app
+ * holds no client — what it keeps instead is that *it* started this one, which is what gets
+ * stopped when the window goes away.
+ */
+export function serviceStart(project: string, service: string): Promise<DeployResult> {
+  return coreRequest<DeployResult>("service.start", { project, service });
+}
+
+/**
+ * Stop one declared service: `docker compose stop <name>`.
+ *
+ * `stop` and never `down`. Somebody who pressed Stop on a Postgres card asked for that
+ * Postgres to stop, not for the rest of their stack and their volumes to go with it.
+ */
+export function serviceStop(project: string, service: string): Promise<DeployResult> {
+  return coreRequest<DeployResult>("service.stop", { project, service });
+}
+
+/**
  * Send one message to the agent, as exactly one command. **The only way in.**
  *
  * `agent.say` used to be the other way and is gone rather than discouraged: a verb that sent

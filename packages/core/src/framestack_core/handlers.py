@@ -62,6 +62,8 @@ from framestack_core.api import (
     run_read,
     run_start,
     run_stop,
+    service_down,
+    service_up,
     settings_get,
     settings_naming,
     settings_put,
@@ -448,6 +450,20 @@ def deploy_down_method(params: dict[str, Any]) -> dict[str, Any]:
     return deploy_down(_project_of(params))
 
 
+def service_up_method(params: dict[str, Any]) -> dict[str, Any]:
+    """Bring one declared service up. A method of its own, because it starts something (P11).
+
+    `Start`, and deliberately not `Run`: `run.start` calls a system's export, and one word
+    over two mechanisms is how a person stops trusting either of them.
+    """
+    return service_up(_project_of(params), _required_str(params, "service"))
+
+
+def service_down_method(params: dict[str, Any]) -> dict[str, Any]:
+    """Stop one declared service. `stop`, never `down` -- the rest of the stack is not ours."""
+    return service_down(_project_of(params), _required_str(params, "service"))
+
+
 def compose_read_method(params: dict[str, Any]) -> dict[str, Any]:
     """What the stack declares and what of it is up. A read: it brings nothing up.
 
@@ -709,6 +725,10 @@ HANDLERS: dict[str, Handler] = {
     "deploy.start": deploy_up_method,
     "deploy.read": deploy_read_method,
     "deploy.stop": deploy_down_method,
+    # One service of the stack, started and stopped on its own. Beside the stack's verbs
+    # rather than under a new noun: it is the same compose, asked about one of its services.
+    "service.start": service_up_method,
+    "service.stop": service_down_method,
     "compose.read": compose_read_method,
     "compose.write": compose_write_method,
     "chat.send": chat_send_method,

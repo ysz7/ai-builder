@@ -52,6 +52,7 @@ import { Deploy } from "./Deploy";
 import { Docker } from "./Docker";
 import { Knob } from "./Knob";
 import { Ollama } from "./Ollama";
+import { Service } from "./Service";
 import { McpPanel } from "./McpPanel";
 import { Run } from "./Run";
 import { Usage } from "./Usage";
@@ -526,6 +527,15 @@ export function NodePanel({
             onDown={onUndeploy}
             onLogs={onLogs}
           />
+        ) : null}
+
+        {/* `Start` and `Stop`, where a container is what provides this dependency. Drawn by
+            `Service` only in that case, and silent otherwise: nobody starts Anthropic from a
+            panel, and a button whose only outcome is an error is worse than no button. The
+            status above is re-asked afterwards, because a container going up or down is
+            exactly what makes a connection made a minute ago stale. */}
+        {node.kind === "dependency" ? (
+          <Service project={project} node={node.id} onChanged={() => void check()} />
         ) : null}
 
         {/* The one dependency with panel content of its own, and the plan says why: local

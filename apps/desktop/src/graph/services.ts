@@ -53,6 +53,14 @@ function inside(port: string): string {
 }
 
 /**
+ * The id the core draws a project's storage as. One backend, one node.
+ *
+ * Named here rather than typed as a literal wherever it is needed: it is the core's id, and
+ * a second spelling of it is a comparison that silently stops matching.
+ */
+export const DATABASE_NODE = "postgres";
+
+/**
  * Which of `dependencies` this service is, or `""`.
  *
  * `dependencies` is what the graph actually holds, so nothing is ever linked to a node that
@@ -64,7 +72,7 @@ export function dependencyOf(service: ComposeService, dependencies: string[]): s
   // `postgres` recognises `postgres` and `pgvector` alike — pgvector is Postgres with an
   // extension, which is exactly what the database node already calls it.
   const byImage = dependencies.find(
-    (id) => named === id || (id === "postgres" && named === "pgvector"),
+    (id) => named === id || (id === DATABASE_NODE && named === "pgvector"),
   );
   if (byImage) return byImage;
 

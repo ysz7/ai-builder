@@ -21,7 +21,9 @@ from framestack_core.deploy import deploy_status as read_deploy_status
 from framestack_core.deploy import (
     read_deploy,
     start_deploy,
+    start_service,
     stop_deploy,
+    stop_service,
 )
 from framestack_core.editor import open_in_editor, open_url
 from framestack_core.layout import create_project, read_layout, write_layout
@@ -740,6 +742,9 @@ DEPLOY_SCHEMA = {
     # a button that will not work before somebody presses it.
     "available": "bool",
     "version": "str",
+    # The one service a per-service verb was about, `""` for every verb about the stack. A
+    # caller can then never read an answer about one container as an answer about all of them.
+    "service": "str",
     "services": ["str"],
 }
 
@@ -917,6 +922,16 @@ def deploy_poll(project: Path | str, offset: int = 0) -> dict[str, Any]:
 def deploy_down(project: Path | str) -> dict[str, Any]:
     """Take the stack down -- the client and the containers both."""
     return {"api_version": GRAPH_API_VERSION, **stop_deploy(project).as_dict()}
+
+
+def service_up(project: Path | str, service: str) -> dict[str, Any]:
+    """Bring one declared service up. `Start`, which is not `Run` and not `Deploy`."""
+    return {"api_version": GRAPH_API_VERSION, **start_service(project, service).as_dict()}
+
+
+def service_down(project: Path | str, service: str) -> dict[str, Any]:
+    """Stop one declared service. `stop`, never `down`: the rest of the stack is not ours."""
+    return {"api_version": GRAPH_API_VERSION, **stop_service(project, service).as_dict()}
 
 
 def compose_read(project: Path | str) -> dict[str, Any]:

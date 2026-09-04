@@ -104,6 +104,15 @@ class Database:
     #: True when a model declares a vector column. The node is labelled for it.
     vector: bool
     tables: tuple[Table, ...]
+    #: The files that state a connection target, project-relative.
+    #:
+    #: **Who touches storage, where the code says so rather than where a convention would.**
+    #: `repositories/` and a `__tablename__` are the two the plan names, and a project that
+    #: has neither -- a `rag/` holding its own DSN and talking to Postgres directly -- was
+    #: getting a database node with no line into it. The evidence that put the node on the
+    #: canvas is a literal in one file; this is that file, so the edge is drawn by exactly
+    #: the fact the node was. Never a second reading: `target` is still the first one found.
+    named_in: tuple[str, ...] = ()
 
     @property
     def label(self) -> str:
@@ -332,15 +341,23 @@ def read_database(project: Path | str) -> Database:
                 tables.append(Table(name=name, file=where, vector=False))
 
     target = ""
+    named_in: list[str] = []
     for file in files:
         if file.name != "settings.py":
             continue
         module = _parse(file)
         if module is None:
             continue
-        target = _target_in(module)
-        if target:
-            break
+        stated = _target_in(module)
+        if not stated:
+            continue
+        # Every file that states one, because each is a node naming the database. `target`
+        # stays the first, in source order: two connection strings are a project stating
+        # two, and choosing between them would be this file having an opinion about which
+        # database is the real one -- but both files are still touching storage.
+        named_in.append(file.relative_to(root).as_posix())
+        if not target:
+            target = stated
 
     return Database(
         # A table or a connection string. Either is the project saying it has a database;
@@ -349,4 +366,5 @@ def read_database(project: Path | str) -> Database:
         target=target,
         vector=any(table.vector for table in tables),
         tables=tuple(tables),
+        named_in=tuple(named_in),
     )

@@ -172,6 +172,14 @@ export default function App() {
    */
   const [costs, setCosts] = useState<Record<string, string>>({});
   const [layout, setLayout] = useState<Layout>({});
+  /**
+   * The layout as it stands right now, which is not always what this render is holding.
+   *
+   * Several cards move in one synchronous batch when a folded bar is dragged, and React has
+   * not re-rendered between them. This is what those calls read and write so none of them
+   * loses the ones before it; `layout` stays the thing that draws.
+   */
+  const live = useRef<Layout>({});
   const [selected, setSelected] = useState("");
   /**
    * Which agent is being talked to, or "".
@@ -249,6 +257,7 @@ export default function App() {
         composeRead(path),
       ]);
       setGraph(read);
+      live.current = stored.layout;
       setLayout(stored.layout);
       setObservation(proof.observation);
       setObserving(proof.running);
@@ -558,6 +567,7 @@ export default function App() {
    */
   const remember = useCallback(
     (next: Layout) => {
+      live.current = next;
       setLayout(next);
       void layoutWrite(project, next).catch(() => undefined);
     },
@@ -566,12 +576,21 @@ export default function App() {
 
   const move = useCallback(
     (id: string, at: { x: number; y: number }, settled: boolean) => {
-      const next = { ...layout, [id]: { ...layout[id], x: at.x, y: at.y } };
+      // **Read from the ref, never from the render's `layout`.** A folded bar is dragged by
+      // moving every card it stands for, which is one call to this per child inside a single
+      // loop — and a version building each `next` from the render's copy would keep only the
+      // last child's coordinate and drop the rest, so a bar holding more than one card spread
+      // its own contents as it was dragged. The ref is the layout as it is *now*, so calls in
+      // one batch compose instead of overwriting one another.
+      const next = { ...live.current, [id]: { ...live.current[id], x: at.x, y: at.y } };
       // Every frame moves the card; only the end of the gesture is written down.
       if (settled) remember(next);
-      else setLayout(next);
+      else {
+        live.current = next;
+        setLayout(next);
+      }
     },
-    [layout, remember],
+    [remember],
   );
 
   // Unfolding a system is the same kind of fact as a coordinate: something a person

@@ -585,6 +585,13 @@ export type DeployResult = {
   /** Whether there is a docker to use. Sent so a button that cannot work can say why. */
   available: boolean;
   version: string;
+  /**
+   * The one service a per-service verb was about; `""` for every verb about the stack.
+   *
+   * So an answer about one container can never be read as an answer about all of them:
+   * `running` beside a name is that container, `running` beside `""` is the stack.
+   */
+  service: string;
   services: string[];
 };
 

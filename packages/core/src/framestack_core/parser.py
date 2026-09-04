@@ -1086,6 +1086,50 @@ def _storage_modules(database: Database) -> set[str]:
     return found
 
 
+def _database_edges(
+    database: Database,
+    by_module: dict[str, str],
+    already: set[tuple[str, str]],
+) -> list[Edge]:
+    """An edge from each node whose own code states the connection string.
+
+    The import walk draws storage edges from `repositories/` and from the modules that
+    declare a table, which are the two boundaries the plan names. A project that has
+    neither -- a `rag/` holding its own DSN and speaking to Postgres directly -- had a
+    database node and no line into it, which reads as "nothing uses this" about the one
+    thing the whole node was derived from.
+
+    So the *same* fact that put the node on the canvas draws the edge: a Postgres URL in a
+    node's own `settings.py`. This is not a second opinion about who touches storage -- an
+    edge the walk already produced is left to the walk, which is what `already` is for.
+    """
+    if not database.present:
+        return []
+    out: list[Edge] = []
+    for where in database.named_in:
+        parts = Path(where).with_suffix("").parts
+        source = ""
+        for cut in range(len(parts), 0, -1):
+            found = by_module.get(".".join(parts[:cut]))
+            if found is not None:
+                source = found
+                break
+        if not source or (source, DATABASE_NODE) in already:
+            continue
+        already.add((source, DATABASE_NODE))
+        out.append(
+            Edge(
+                id=f"{source}->{DATABASE_NODE}",
+                source=source,
+                target=DATABASE_NODE,
+                kind="import",
+                label="",
+                port="",
+            )
+        )
+    return out
+
+
 def _first_broken(node_id: str, walk: dict[str, list[Path]], broken: dict[Path, str]) -> str:
     """The first of this node's files that would not parse, in the walk's own order.
 
@@ -1296,8 +1340,14 @@ def read_graph(project: Path | str) -> Graph:
     broken: dict[Path, str] = {}
     nodes = [*coded, *files, *servers, *stores]
     by_id = {node.id: node for node in nodes}
+    imported = _import_edges(root, coded, packages, walk, _storage_modules(database), broken)
     edges = [
-        *_import_edges(root, coded, packages, walk, _storage_modules(database), broken),
+        *imported,
+        *_database_edges(
+            database,
+            by_module,
+            {(edge.source, edge.target) for edge in imported},
+        ),
         *_dependency_edges(outside),
         *_mcp_edges(by_id),
         *_tool_server_edges(root, tools, servers),

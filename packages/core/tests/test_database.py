@@ -301,6 +301,48 @@ def test_removing_the_import_removes_the_edge(tmp_path: Path) -> None:
     assert ("api", "postgres") not in {(e.source, e.target) for e in read_graph(root).edges}
 
 
+def test_the_system_that_states_the_connection_string_gets_the_edge(tmp_path: Path) -> None:
+    """A project with no `repositories/` and no model still says who touches storage.
+
+    A `rag/` holding its own DSN and speaking to Postgres directly is the ordinary shape,
+    and it was producing a database node with no line into it -- which reads as "nothing
+    uses this" about the one fact the node was derived from. The edge comes from that same
+    fact, so the two can never disagree.
+    """
+    root = project(tmp_path)
+    (root / "rag" / "settings.py").write_text(
+        "from pydantic_settings import BaseSettings\n\n\n"
+        "class Settings(BaseSettings):\n"
+        '    dsn: str = "postgresql://localhost/rag"\n',
+        encoding="utf-8",
+    )
+
+    graph = read_graph(root)
+    assert any(node.id == "postgres" for node in graph.nodes)
+    assert ("rag", "postgres") in {(edge.source, edge.target) for edge in graph.edges}
+
+
+def test_the_connection_string_edge_is_never_a_second_copy(tmp_path: Path) -> None:
+    """The import walk owns the edge where it draws one; this only fills a gap.
+
+    Two answers to "who touches storage" would put two edges with one id on the canvas,
+    which is a duplicate React key and a line drawn twice.
+    """
+    root = project(tmp_path)
+    store(root, "document", MODEL)
+    reader(root, "from repositories.document import Document\n\n\nUSED = Document\n")
+    (root / "api" / "settings.py").write_text(
+        "from pydantic_settings import BaseSettings\n\n\n"
+        "class Settings(BaseSettings):\n"
+        '    dsn: str = "postgresql://localhost/app"\n',
+        encoding="utf-8",
+    )
+
+    edges = [edge for edge in read_graph(root).edges if edge.target == "postgres"]
+    assert [edge.source for edge in edges] == ["api"]
+    assert len({edge.id for edge in edges}) == len(edges)
+
+
 def test_an_edge_lands_on_the_node_and_never_on_a_table(tmp_path: Path) -> None:
     """Table-level edges produce a hairball. The mapping lives in the panel, read on demand."""
     root = project(tmp_path)
